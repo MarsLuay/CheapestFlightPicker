@@ -49,7 +49,7 @@ chmod +x setup-and-launch.sh
 
 I wanted to visit my girlfriend across the country as a broke college student, and google flights wasn't cutting it for me.
 
-After hours of researching other repos and methods people have released to find the 'cheapest' flight, the good resources were all paygated.
+After hours of researching other repos and methods people have released to find the 'cheapest' flight, I found the good resources were all paygated.
 
 I was not happy.
 Out of spite, I made this tool.
