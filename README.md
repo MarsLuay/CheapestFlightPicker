@@ -33,6 +33,8 @@ setup-and-launch.bat
 
 This script does the following:
 
+- works from inside the repo or as a standalone release download
+- clones the repo next to itself if you only downloaded the launcher
 - pulls the latest repo changes first when the checkout is clean
 - installs dependencies
 - runs checks/tests
@@ -40,7 +42,7 @@ This script does the following:
 - starts the server
 - opens the app in your browser at `http://localhost:8787`
 
-This top-level folder is now the actual repo, so the launcher expects `workspace/app` to already be part of the checkout. If that folder is missing, the repo needs to be re-cloned.
+If you download just the launcher from the GitHub release page, it will create a `CheapestFlightPicker` folder next to the script, clone the repo there, and then run everything for you.
 
 If you've got local edits, the launcher skips the auto-pull on purpose so it doesn't trample your work.
 
@@ -50,6 +52,8 @@ If you've got local edits, the launcher skips the auto-pull on purpose so it doe
 chmod +x setup-and-launch.sh
 ./setup-and-launch.sh
 ```
+
+Same idea here: you can run it from the repo, or just download the release asset and let it clone the repo next to itself.
 
 ## Background
 

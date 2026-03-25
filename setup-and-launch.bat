@@ -1,9 +1,10 @@
 @echo off
-setlocal
-set "ROOT_DIR=%~dp0"
-if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
-set "WORKSPACE_DIR=%ROOT_DIR%\workspace"
-set "APP_DIR=%WORKSPACE_DIR%\app"
+setlocal EnableDelayedExpansion
+set "LAUNCHER_DIR=%~dp0"
+if "%LAUNCHER_DIR:~-1%"=="\" set "LAUNCHER_DIR=%LAUNCHER_DIR:~0,-1%"
+set "REPO_URL=https://github.com/MarsLuay/CheapestFlightPicker.git"
+set "REPO_DIR=%LAUNCHER_DIR%"
+set "STANDALONE_REPO_DIR=%LAUNCHER_DIR%\CheapestFlightPicker"
 
 where git >nul 2>nul
 if errorlevel 1 (
@@ -11,16 +12,35 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "%ROOT_DIR%\.git" (
-  echo The repo metadata was not found at "%ROOT_DIR%".
-  echo Re-clone the Cheapest Flight Picker repo before running this launcher.
-  exit /b 1
+if exist "!REPO_DIR!\.git" (
+  if not exist "!REPO_DIR!\workspace\app\package.json" (
+    echo The repo metadata was found at "!REPO_DIR!", but workspace\app is missing.
+    echo Re-clone the Cheapest Flight Picker repo so the tracked app files are restored.
+    exit /b 1
+  )
+) else (
+  set "REPO_DIR=!STANDALONE_REPO_DIR!"
+  if not exist "!REPO_DIR!\.git" (
+    if exist "!REPO_DIR!" (
+      dir /b "!REPO_DIR!" 2>nul | findstr . >nul
+      if not errorlevel 1 (
+        echo "!REPO_DIR!" already exists but is not a git clone.
+        echo Move or delete that folder, then run this launcher again.
+        exit /b 1
+      )
+    )
+
+    echo No local repo was found next to this launcher.
+    echo Cloning Cheapest Flight Picker into "!REPO_DIR!"...
+    git clone "%REPO_URL%" "!REPO_DIR!"
+    if errorlevel 1 exit /b 1
+  )
 )
 
 echo Checking for repo updates...
-git -C "%ROOT_DIR%" status --porcelain --untracked-files=normal | findstr . >nul
+git -C "!REPO_DIR!" status --porcelain --untracked-files=normal | findstr . >nul
 if errorlevel 1 (
-  git -C "%ROOT_DIR%" pull --ff-only origin main
+  git -C "!REPO_DIR!" pull --ff-only origin main
   if errorlevel 1 (
     echo Failed to update the repo automatically.
     exit /b 1
@@ -29,13 +49,16 @@ if errorlevel 1 (
   echo Local changes detected. Skipping auto-update so your work stays untouched.
 )
 
-if not exist "%APP_DIR%\package.json" (
+set "WORKSPACE_DIR=!REPO_DIR!\workspace"
+set "APP_DIR=!WORKSPACE_DIR!\app"
+
+if not exist "!APP_DIR!\package.json" (
   echo workspace\app is missing or incomplete.
   echo Re-clone the Cheapest Flight Picker repo so the tracked app files are restored.
   exit /b 1
 )
 
-cd /d "%APP_DIR%"
+cd /d "!APP_DIR!"
 
 where npm >nul 2>nul
 if errorlevel 1 (
