@@ -15,6 +15,48 @@ const clientLogs: ClientLogEntry[] = [];
 const subscribers = new Set<() => void>();
 let attachedGlobalHandlers = false;
 
+function reportClientIncident(entry: ClientLogEntry): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const pageUrl =
+    typeof window.location?.href === "string" ? window.location.href : null;
+  const userAgent =
+    typeof window.navigator?.userAgent === "string"
+      ? window.navigator.userAgent
+      : null;
+  if (!pageUrl || typeof fetch !== "function") {
+    return;
+  }
+
+  try {
+    const request = fetch("/api/admin/incidents", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        level: entry.level,
+        message: entry.message,
+        details: entry.details ?? null,
+        timestamp: entry.timestamp,
+        pageUrl,
+        userAgent
+      }),
+      keepalive: true
+    });
+
+    if (request && typeof request.catch === "function") {
+      void request.catch(() => {
+        // Ignore reporting failures to avoid recursive logging loops.
+      });
+    }
+  } catch {
+    // Ignore reporting failures to avoid recursive logging loops.
+  }
+}
+
 function emitChange() {
   for (const subscriber of subscribers) {
     subscriber();
@@ -36,6 +78,10 @@ export function addClientLog(
 
   if (clientLogs.length > MAX_CLIENT_LOGS) {
     clientLogs.length = MAX_CLIENT_LOGS;
+  }
+
+  if (level === "error") {
+    reportClientIncident(clientLogs[0]);
   }
 
   emitChange();

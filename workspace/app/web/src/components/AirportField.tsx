@@ -12,9 +12,15 @@ type AirportFieldProps = {
   label: string;
   value: string;
   onSelect: (code: string) => void;
+  placeholder?: string;
 };
 
-export function AirportField({ label, value, onSelect }: AirportFieldProps) {
+export function AirportField({
+  label,
+  value,
+  onSelect,
+  placeholder = "Enter an airport, city, or code"
+}: AirportFieldProps) {
   const [query, setQuery] = useState(value);
   const [options, setOptions] = useState<AirportRecord[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -103,7 +109,7 @@ export function AirportField({ label, value, onSelect }: AirportFieldProps) {
   }
 
   return (
-    <label className="field filter-field filter-field--airport">
+    <div className="field filter-field filter-field--airport">
       <span>{label}</span>
       <div className="autocomplete-shell airport-autocomplete-shell">
         <input
@@ -126,7 +132,7 @@ export function AirportField({ label, value, onSelect }: AirportFieldProps) {
             setHasCommittedSelection(false);
           }}
           onKeyDown={handleInputKeyDown}
-          placeholder="Type airport, city, or code"
+          placeholder={placeholder}
         />
         {shouldShowSuggestions ? (
           <div
@@ -159,6 +165,6 @@ export function AirportField({ label, value, onSelect }: AirportFieldProps) {
           </div>
         ) : null}
       </div>
-    </label>
+    </div>
   );
 }

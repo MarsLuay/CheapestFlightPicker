@@ -4,6 +4,7 @@ import {
   clampTimeWindow,
   combineBookingSources,
   combineTwoOneWays,
+  isLikelyDirectAirlineBookingOption,
   stopFilterToGoogleValue
 } from "./utils";
 
@@ -90,5 +91,122 @@ describe("core utils", () => {
       sellerName: "Alaska",
       detected: true
     });
+  });
+
+  it("infers a likely direct-airline booking when the supplemented seller matches the single operating airline", () => {
+    expect(
+      isLikelyDirectAirlineBookingOption({
+        bookingSource: {
+          type: "unknown",
+          label: "Booking source not confirmed",
+          sellerName: "Delta Air Lines",
+          detected: false
+        },
+        currency: "USD",
+        slices: [
+          {
+            durationMinutes: 120,
+            stops: 0,
+            legs: [
+              {
+                airlineCode: "DL",
+                airlineName: "Delta Air Lines",
+                flightNumber: "123",
+                departureAirportCode: "SEA",
+                departureAirportName: "Seattle-Tacoma International Airport",
+                departureDateTime: "2026-06-01T15:00:00.000Z",
+                arrivalAirportCode: "JFK",
+                arrivalAirportName: "John F. Kennedy International Airport",
+                arrivalDateTime: "2026-06-01T21:00:00.000Z",
+                durationMinutes: 120
+              }
+            ]
+          }
+        ],
+        source: "google_one_way",
+        totalPrice: 120
+      })
+    ).toBe(true);
+  });
+
+  it("does not infer direct-airline booking for unresolved or multi-airline unknown sellers", () => {
+    expect(
+      isLikelyDirectAirlineBookingOption({
+        bookingSource: {
+          type: "unknown",
+          label: "Booking source not confirmed",
+          detected: false
+        },
+        currency: "USD",
+        slices: [
+          {
+            durationMinutes: 120,
+            stops: 0,
+            legs: [
+              {
+                airlineCode: "DL",
+                airlineName: "Delta Air Lines",
+                flightNumber: "123",
+                departureAirportCode: "SEA",
+                departureAirportName: "Seattle-Tacoma International Airport",
+                departureDateTime: "2026-06-01T15:00:00.000Z",
+                arrivalAirportCode: "JFK",
+                arrivalAirportName: "John F. Kennedy International Airport",
+                arrivalDateTime: "2026-06-01T21:00:00.000Z",
+                durationMinutes: 120
+              }
+            ]
+          }
+        ],
+        source: "google_one_way",
+        totalPrice: 120
+      })
+    ).toBe(false);
+
+    expect(
+      isLikelyDirectAirlineBookingOption({
+        bookingSource: {
+          type: "unknown",
+          label: "Booking source not confirmed",
+          sellerName: "Delta Air Lines",
+          detected: false
+        },
+        currency: "USD",
+        slices: [
+          {
+            durationMinutes: 240,
+            stops: 1,
+            legs: [
+              {
+                airlineCode: "DL",
+                airlineName: "Delta Air Lines",
+                flightNumber: "123",
+                departureAirportCode: "SEA",
+                departureAirportName: "Seattle-Tacoma International Airport",
+                departureDateTime: "2026-06-01T15:00:00.000Z",
+                arrivalAirportCode: "MSP",
+                arrivalAirportName: "Minneapolis-Saint Paul International Airport",
+                arrivalDateTime: "2026-06-01T18:00:00.000Z",
+                durationMinutes: 120
+              },
+              {
+                airlineCode: "KL",
+                airlineName: "KLM",
+                flightNumber: "602",
+                departureAirportCode: "MSP",
+                departureAirportName: "Minneapolis-Saint Paul International Airport",
+                departureDateTime: "2026-06-01T19:00:00.000Z",
+                arrivalAirportCode: "AMS",
+                arrivalAirportName: "Amsterdam Airport Schiphol",
+                arrivalDateTime: "2026-06-02T08:00:00.000Z",
+                durationMinutes: 480
+              }
+            ]
+          }
+        ],
+        source: "google_one_way",
+        totalPrice: 120
+      })
+    ).toBe(false);
   });
 });

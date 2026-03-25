@@ -39,9 +39,13 @@ function buildSummary(request: SearchRequest): SearchSummary {
     cheapestRoundTrip: null,
     cheapestTwoOneWays: null,
     cheapestDirectThere: null,
+    cheapestDirectReturn: null,
     cheapestMultiStop: null,
     evaluatedDatePairs: [],
-    inspectedOptions: 0
+    inspectedOptions: 0,
+    timingGuidance: null,
+    priceAlert: null,
+    hackerFareInsight: null
   };
 }
 

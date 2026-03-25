@@ -3,8 +3,11 @@ import type {
   BookingSourceType,
   DatePrice,
   FlightOption,
+  PriceAlert,
   SearchRequest,
-  SearchSummary
+  SearchSummary,
+  TimingConfidence,
+  TimingGuidance
 } from "../lib/types";
 
 function formatPrice(amount: number, currency: string) {
@@ -86,16 +89,123 @@ function PriceStrip({ dates, label }: { dates: DatePrice[]; label: string }) {
   );
 }
 
+function getTimingConfidenceLabel(confidence: TimingConfidence) {
+  switch (confidence) {
+    case "high":
+      return "High confidence";
+    case "medium":
+      return "Medium confidence";
+    default:
+      return "Low confidence";
+  }
+}
+
+function getPriceAlertBadgeLabel(alert: PriceAlert) {
+  if (alert.kind === "new_low") {
+    return "New low";
+  }
+
+  return alert.kind === "significant_rise"
+    ? `+${alert.changePercent}%`
+    : `-${alert.changePercent}%`;
+}
+
+function TimingGuidanceCard({ guidance }: { guidance: TimingGuidance | null }) {
+  if (!guidance) {
+    return null;
+  }
+
+  return (
+    <section className="result-card timing-card">
+      <header>
+        <div>
+          <p className="section-kicker">Timing guidance</p>
+          <h3>{guidance.headline}</h3>
+          <p className="muted-copy">{guidance.summary}</p>
+        </div>
+        <div className="timing-card__signals">
+          <span
+            className={`timing-pill timing-pill--${guidance.recommendation}`}
+          >
+            {guidance.recommendation === "book_now" ? "Book now" : "Wait"}
+          </span>
+          <span className="source-badge source-badge--unknown">
+            {getTimingConfidenceLabel(guidance.confidence)}
+          </span>
+        </div>
+      </header>
+
+      <div className="timing-card__stats">
+        <div className="price-pill">
+          <strong>Current best</strong>
+          <span>{formatPrice(guidance.currentBestPrice, guidance.currency)}</span>
+        </div>
+        <div className="price-pill">
+          <strong>Seen range</strong>
+          <span>
+            {formatPrice(guidance.observedLowPrice, guidance.currency)}
+            {" - "}
+            {formatPrice(guidance.observedHighPrice, guidance.currency)}
+          </span>
+        </div>
+        <div className="price-pill">
+          <strong>Watch history</strong>
+          <span>
+            {guidance.historySampleSize} check
+            {guidance.historySampleSize === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div className="price-pill">
+          <strong>Lead time</strong>
+          <span>
+            {guidance.daysUntilDeparture} day
+            {guidance.daysUntilDeparture === 1 ? "" : "s"} to departure
+          </span>
+        </div>
+      </div>
+
+      <ul className="note-list">
+        {guidance.reasons.map((reason) => (
+          <li key={reason}>{reason}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function PriceAlertCard({ alert }: { alert: PriceAlert | null }) {
+  if (!alert) {
+    return null;
+  }
+
+  return (
+    <section className="result-card deal-card">
+      <header>
+        <div>
+          <p className="section-kicker">Price alert</p>
+          <h3>{alert.headline}</h3>
+          <p className="muted-copy">{alert.summary}</p>
+        </div>
+        <span className={`alert-pill alert-pill--${alert.kind}`}>
+          {getPriceAlertBadgeLabel(alert)}
+        </span>
+      </header>
+    </section>
+  );
+}
+
 function OptionCard({
   option,
   request,
   title,
-  emptyMessage
+  emptyMessage,
+  summaryNote
 }: {
   option: FlightOption | null;
   request: SearchRequest;
   title: string;
   emptyMessage: string;
+  summaryNote?: string;
 }) {
   if (!option) {
     return (
@@ -119,6 +229,7 @@ function OptionCard({
             {option.outboundDate ? `Outbound ${formatDate(option.outboundDate)}` : ""}
             {option.returnDate ? ` | Return ${formatDate(option.returnDate)}` : ""}
           </p>
+          {summaryNote ? <p className="muted-copy">{summaryNote}</p> : null}
         </div>
         <div className="price-stack">
           <strong className="big-price">
@@ -242,6 +353,11 @@ export function ResultsView({
     );
   }
 
+  const hasSpecificsAndExtras =
+    summary.departureDatePrices.length > 0 ||
+    summary.returnDatePrices.length > 0 ||
+    summary.timingGuidance !== null;
+
   return (
     <section className="results-shell">
       <div className="results-header">
@@ -270,8 +386,34 @@ export function ResultsView({
         </div>
       </div>
 
-      <PriceStrip dates={summary.departureDatePrices} label="Best departure dates" />
-      <PriceStrip dates={summary.returnDatePrices} label="Best return dates" />
+      <PriceAlertCard alert={summary.priceAlert} />
+      {hasSpecificsAndExtras ? (
+        <details className="results-disclosure">
+          <summary className="results-disclosure__summary">
+            <div>
+              <p className="section-kicker">Details</p>
+              <h3>Specifics + Extras</h3>
+              <p className="muted-copy">
+                Best departure dates, best return dates, and timing guidance.
+              </p>
+            </div>
+            <span className="results-disclosure__chevron" aria-hidden="true">
+              v
+            </span>
+          </summary>
+          <div className="results-disclosure__content">
+            <PriceStrip
+              dates={summary.departureDatePrices}
+              label="Best departure dates"
+            />
+            <PriceStrip
+              dates={summary.returnDatePrices}
+              label="Best return dates"
+            />
+            <TimingGuidanceCard guidance={summary.timingGuidance} />
+          </div>
+        </details>
+      ) : null}
 
       <div className="result-grid">
         <OptionCard
@@ -290,6 +432,7 @@ export function ResultsView({
           title="Cheapest two one-ways"
           option={summary.cheapestTwoOneWays}
           request={summary.request}
+          summaryNote={summary.hackerFareInsight?.summary}
           emptyMessage="No two one-way combination beat the current candidates."
         />
         <OptionCard
@@ -298,6 +441,14 @@ export function ResultsView({
           request={summary.request}
           emptyMessage="No direct outbound option qualified."
         />
+        {summary.request.tripType === "round_trip" ? (
+          <OptionCard
+            title="Cheapest direct return"
+            option={summary.cheapestDirectReturn}
+            request={summary.request}
+            emptyMessage="No direct return option qualified."
+          />
+        ) : null}
         <OptionCard
           title="Cheapest option with stops"
           option={summary.cheapestMultiStop}

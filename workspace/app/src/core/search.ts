@@ -1,11 +1,15 @@
+import { BookingSourceSupplementService } from "./booking-source-supplement";
 import { findAirlineByCode, findAirportByCode } from "./catalog";
+import { TimingGuidanceService } from "./timing-guidance";
 import {
   combineTwoOneWays,
   findCheapest,
   findCheapestDirectThere,
   findCheapestMultiStop,
+  isLikelyDirectAirlineBookingOption,
   mapWithConcurrency
 } from "./utils";
+import { createAmadeusMissingInfoSupplementProviderFromEnv } from "../providers/amadeus/missing-info-supplement";
 import { GoogleFlightsProvider } from "../providers/google-flights/provider";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
@@ -26,6 +30,7 @@ type ScoredCandidatePair = CandidatePair & {
 };
 
 const dayMs = 24 * 60 * 60 * 1000;
+const directBookingSupplementTargetCount = 6;
 
 function differenceInDays(startDate: string, endDate: string): number {
   return Math.floor(
@@ -94,6 +99,60 @@ class ProgressTracker {
 
 export class FlightSearchService {
   private readonly provider = new GoogleFlightsProvider();
+
+  private readonly timingGuidanceService = new TimingGuidanceService();
+
+  private readonly bookingSourceSupplementService =
+    new BookingSourceSupplementService(
+      (() => {
+        const amadeusProvider =
+          createAmadeusMissingInfoSupplementProviderFromEnv();
+        return amadeusProvider ? [amadeusProvider] : [];
+      })()
+    );
+
+  private async refineOptionsForDirectBookingPreference(
+    options: FlightOption[],
+    request: SearchRequest
+  ): Promise<FlightOption[]> {
+    if (!request.preferDirectBookingOnly || options.length === 0) {
+      return options;
+    }
+
+    const supplementedOptions =
+      await this.bookingSourceSupplementService.supplementOptions(
+        options,
+        request,
+        Math.min(
+          options.length,
+          Math.max(request.maxResults, directBookingSupplementTargetCount)
+        )
+      );
+
+    const likelyDirectOptions = supplementedOptions.filter(
+      isLikelyDirectAirlineBookingOption
+    );
+
+    return likelyDirectOptions.length > 0 ? likelyDirectOptions : supplementedOptions;
+  }
+
+  private buildOneWaySupplementRequest(
+    request: SearchRequest,
+    origin: string,
+    destination: string,
+    departureDate: string
+  ): SearchRequest {
+    return {
+      ...request,
+      tripType: "one_way",
+      origin,
+      destination,
+      departureDateFrom: departureDate,
+      departureDateTo: departureDate,
+      returnDateFrom: undefined,
+      returnDateTo: undefined
+    };
+  }
 
   async search(
     input: unknown,
@@ -168,7 +227,8 @@ export class FlightSearchService {
       }
     );
 
-    const options = optionsByDate.flat().slice(0, request.maxResults * 4);
+    let options = optionsByDate.flat().slice(0, request.maxResults * 4);
+    options = await this.refineOptionsForDirectBookingPreference(options, request);
     const cheapestOverall = findCheapest(options);
     const cheapestDirectThere = findCheapestDirectThere(options);
     tracker.completeStep(
@@ -184,18 +244,27 @@ export class FlightSearchService {
       cheapestRoundTrip: null,
       cheapestTwoOneWays: null,
       cheapestDirectThere,
+      cheapestDirectReturn: null,
       cheapestMultiStop: findCheapestMultiStop(options),
       evaluatedDatePairs: candidateDates.map((entry) => ({
         departureDate: entry.date
       })),
-      inspectedOptions: options.length
+      inspectedOptions: options.length,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
     };
+    const annotatedSummary = this.timingGuidanceService.annotateSummary(summary);
+    const supplementedSummary =
+      await this.bookingSourceSupplementService.supplementSummary(
+        annotatedSummary
+      );
     tracker.finish(
       cheapestOverall
         ? `Cheapest option found for ${cheapestOverall.currency} ${cheapestOverall.totalPrice}`
         : "No one-way option matched the filters"
     );
-    return summary;
+    return supplementedSummary;
   }
 
   private async searchRoundTrip(
@@ -327,9 +396,35 @@ export class FlightSearchService {
               })
           ]);
 
-        const cheapestRoundTrip = findCheapest(roundTripOptions);
-        const cheapestOutbound = findCheapest(outboundOptions);
-        const cheapestInbound = findCheapest(inboundOptions);
+        const refinedRoundTripOptions =
+          await this.refineOptionsForDirectBookingPreference(
+            roundTripOptions,
+            request
+          );
+        const refinedOutboundOptions =
+          await this.refineOptionsForDirectBookingPreference(
+            outboundOptions,
+            this.buildOneWaySupplementRequest(
+              request,
+              request.origin,
+              request.destination,
+              pair.departureDate
+            )
+          );
+        const refinedInboundOptions =
+          await this.refineOptionsForDirectBookingPreference(
+            inboundOptions,
+            this.buildOneWaySupplementRequest(
+              request,
+              request.destination,
+              request.origin,
+              pair.returnDate ?? pair.departureDate
+            )
+          );
+
+        const cheapestRoundTrip = findCheapest(refinedRoundTripOptions);
+        const cheapestOutbound = findCheapest(refinedOutboundOptions);
+        const cheapestInbound = findCheapest(refinedInboundOptions);
         const cheapestTwoOneWays =
           cheapestOutbound && cheapestInbound && pair.returnDate
             ? combineTwoOneWays(
@@ -343,7 +438,8 @@ export class FlightSearchService {
         return {
           cheapestRoundTrip,
           cheapestTwoOneWays,
-          cheapestDirectThere: findCheapestDirectThere(outboundOptions)
+          cheapestDirectThere: findCheapestDirectThere(refinedOutboundOptions),
+          cheapestDirectReturn: findCheapestDirectThere(refinedInboundOptions)
         };
       }
     );
@@ -357,10 +453,14 @@ export class FlightSearchService {
     const directThereOptions = evaluated
       .map((entry) => entry.cheapestDirectThere)
       .filter((entry): entry is FlightOption => entry !== null);
+    const directReturnOptions = evaluated
+      .map((entry) => entry.cheapestDirectReturn)
+      .filter((entry): entry is FlightOption => entry !== null);
 
     const cheapestRoundTrip = findCheapest(roundTripOptions);
     const cheapestTwoOneWays = findCheapest(twoOneWayOptions);
     const cheapestDirectThere = findCheapest(directThereOptions);
+    const cheapestDirectReturn = findCheapest(directReturnOptions);
     const cheapestOverall = findCheapest(
       [cheapestRoundTrip, cheapestTwoOneWays].filter(
         (entry): entry is FlightOption => entry !== null
@@ -379,19 +479,28 @@ export class FlightSearchService {
       cheapestRoundTrip,
       cheapestTwoOneWays,
       cheapestDirectThere,
+      cheapestDirectReturn,
       cheapestMultiStop: findCheapestMultiStop([
         ...roundTripOptions,
         ...twoOneWayOptions
       ]),
       evaluatedDatePairs: candidatePairs,
-      inspectedOptions: roundTripOptions.length + twoOneWayOptions.length
+      inspectedOptions: roundTripOptions.length + twoOneWayOptions.length,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
     };
+    const annotatedSummary = this.timingGuidanceService.annotateSummary(summary);
+    const supplementedSummary =
+      await this.bookingSourceSupplementService.supplementSummary(
+        annotatedSummary
+      );
     tracker.finish(
       cheapestOverall
         ? `Cheapest option found for ${cheapestOverall.currency} ${cheapestOverall.totalPrice}`
         : "No round-trip option matched the filters"
     );
-    return summary;
+    return supplementedSummary;
   }
 
   private buildCandidatePairs(

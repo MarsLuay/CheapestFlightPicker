@@ -3,7 +3,13 @@ import { Command } from "commander";
 
 import { FlightSearchService } from "../core/search";
 import { summarizeSlice } from "../core/utils";
-import type { FlightOption, SearchRequest } from "../shared/types";
+import type {
+  FlightOption,
+  HackerFareInsight,
+  PriceAlert,
+  SearchRequest,
+  TimingGuidance
+} from "../shared/types";
 
 const program = new Command();
 const searchService = new FlightSearchService();
@@ -26,6 +32,39 @@ function printOption(label: string, option: FlightOption | null) {
   for (const slice of option.slices) {
     console.log(`  - ${summarizeSlice(slice)}`);
   }
+}
+
+function printTimingGuidance(guidance: TimingGuidance | null) {
+  if (!guidance) {
+    return;
+  }
+
+  console.log(
+    `Timing guidance: ${
+      guidance.recommendation === "book_now" ? "Book now" : "Wait"
+    } (${guidance.confidence} confidence)`
+  );
+  console.log(`  ${guidance.summary}`);
+  for (const reason of guidance.reasons) {
+    console.log(`  - ${reason}`);
+  }
+}
+
+function printPriceAlert(alert: PriceAlert | null) {
+  if (!alert) {
+    return;
+  }
+
+  console.log(`Price alert: ${alert.headline}`);
+  console.log(`  ${alert.summary}`);
+}
+
+function printHackerFareInsight(insight: HackerFareInsight | null) {
+  if (!insight) {
+    return;
+  }
+
+  console.log(`Separate one-ways: ${insight.summary}`);
 }
 
 program
@@ -110,7 +149,13 @@ program
       printOption("Cheapest round-trip", summary.cheapestRoundTrip);
       printOption("Cheapest two one-ways", summary.cheapestTwoOneWays);
       printOption("Cheapest direct there", summary.cheapestDirectThere);
+      if (request.tripType === "round_trip") {
+        printOption("Cheapest direct return", summary.cheapestDirectReturn);
+      }
       printOption("Cheapest option with stops", summary.cheapestMultiStop);
+      printPriceAlert(summary.priceAlert);
+      printHackerFareInsight(summary.hackerFareInsight);
+      printTimingGuidance(summary.timingGuidance);
 
       console.log("");
       console.log(`Evaluated date pairs: ${summary.evaluatedDatePairs.length}`);

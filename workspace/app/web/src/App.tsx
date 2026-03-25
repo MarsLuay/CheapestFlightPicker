@@ -1,6 +1,26 @@
-import { startTransition, useRef, useState, type FormEvent } from "react";
+import {
+  startTransition,
+  useRef,
+  useState,
+  type FormEvent
+} from "react";
 
 import { runFlightSearch } from "./lib/api";
+import {
+  withDepartureDateFrom,
+  withDepartureDateTo,
+  withReturnDateFrom,
+  withReturnDateTo
+} from "./lib/request-dates";
+import {
+  loadSavedSearchPreferences,
+  saveSavedSearchPreferences
+} from "./lib/saved-search-preferences";
+import { loadSavedOrigin, saveSavedOrigin } from "./lib/saved-origin";
+import {
+  getBrowserTimeZone,
+  inferOriginFromTimeZone
+} from "./lib/timezone-origin";
 import type { SearchProgress, SearchRequest, SearchSummary } from "./lib/types";
 import { AdminPanel } from "./components/AdminPanel";
 import { AirlinePicker } from "./components/AirlinePicker";
@@ -13,48 +33,170 @@ const departureStartDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 44);
 const departureEndDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 51);
 const returnStartDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 51);
 const returnEndDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 58);
+const fallbackOriginAirport = "SEA";
+
+type OriginDetectionStatus =
+  | "saved_preference_loaded"
+  | "timezone_inferred"
+  | "fallback_default";
+
+type OriginSelectionSource =
+  | "fallback_default"
+  | "timezone_inferred"
+  | "saved_preference"
+  | "manual_override";
+
+type OriginDetectionState = {
+  status: OriginDetectionStatus;
+  selectionSource: OriginSelectionSource;
+  appliedOrigin: string;
+  inferredAirport: string | null;
+  browserTimeZone: string | null;
+  matchedRegion: string | null;
+  message: string;
+};
+
+type InitialFormState = {
+  originDetection: OriginDetectionState;
+  request: SearchRequest;
+  useExactDates: boolean;
+};
 
 function toIsoDate(value: Date) {
   return value.toISOString().split("T")[0] ?? "";
 }
 
-const initialRequest: SearchRequest = {
-  tripType: "round_trip",
-  origin: "SEA",
-  destination: "PIT",
-  departureDateFrom: toIsoDate(departureStartDate),
-  departureDateTo: toIsoDate(departureEndDate),
-  returnDateFrom: toIsoDate(returnStartDate),
-  returnDateTo: toIsoDate(returnEndDate),
-  minimumTripDays: 7,
-  maximumTripDays: 14,
-  departureTimeWindow: { from: 6, to: 24 },
-  arrivalTimeWindow: { from: 6, to: 24 },
-  cabinClass: "economy",
-  stopsFilter: "any",
-  preferDirectBookingOnly: false,
-  airlines: [],
-  passengers: {
-    adults: 1,
-    children: 0,
-    infantsInSeat: 0,
-    infantsOnLap: 0
-  },
-  maxResults: 10
-};
+function createInitialRequest(
+  origin: string,
+  savedPreferences?: ReturnType<typeof loadSavedSearchPreferences>
+): SearchRequest {
+  return {
+    tripType: "round_trip",
+    origin: savedPreferences?.origin ?? origin,
+    destination: savedPreferences?.destination ?? "",
+    departureDateFrom: toIsoDate(departureStartDate),
+    departureDateTo: toIsoDate(departureEndDate),
+    returnDateFrom: toIsoDate(returnStartDate),
+    returnDateTo: toIsoDate(returnEndDate),
+    minimumTripDays: savedPreferences?.minimumTripDays ?? 7,
+    maximumTripDays: savedPreferences?.maximumTripDays ?? 14,
+    departureTimeWindow: savedPreferences?.departureTimeWindow ?? {
+      from: 6,
+      to: 24
+    },
+    arrivalTimeWindow: savedPreferences?.arrivalTimeWindow ?? {
+      from: 6,
+      to: 24
+    },
+    cabinClass: "economy",
+    stopsFilter: "any",
+    preferDirectBookingOnly: false,
+    airlines: [],
+    passengers: {
+      adults: 1,
+      children: 0,
+      infantsInSeat: 0,
+      infantsOnLap: 0
+    },
+    maxResults: 10
+  };
+}
+
+function resolveInitialFormState(): InitialFormState {
+  const savedSearchPreferences = loadSavedSearchPreferences();
+  const savedOrigin = savedSearchPreferences?.origin ?? loadSavedOrigin();
+
+  if (savedOrigin) {
+    return {
+      originDetection: {
+        status: "saved_preference_loaded",
+        selectionSource: "saved_preference",
+        appliedOrigin: savedOrigin,
+        inferredAirport: savedOrigin,
+        browserTimeZone: getBrowserTimeZone(),
+        matchedRegion: null,
+        message: `Using your saved origin airport, ${savedOrigin}.`
+      },
+      request: createInitialRequest(savedOrigin, savedSearchPreferences),
+      useExactDates: savedSearchPreferences?.useExactDates ?? false
+    };
+  }
+
+  const browserTimeZone = getBrowserTimeZone();
+  const inferredOrigin = inferOriginFromTimeZone(browserTimeZone);
+  if (inferredOrigin) {
+    return {
+      originDetection: {
+        status: "timezone_inferred",
+        selectionSource: "timezone_inferred",
+        appliedOrigin: inferredOrigin.origin,
+        inferredAirport: inferredOrigin.origin,
+        browserTimeZone: inferredOrigin.timeZone,
+        matchedRegion: inferredOrigin.regionLabel,
+        message: `Using ${inferredOrigin.origin} as a broad fallback for ${inferredOrigin.regionLabel}.`
+      },
+      request: createInitialRequest(
+        inferredOrigin.origin,
+        savedSearchPreferences
+      ),
+      useExactDates: savedSearchPreferences?.useExactDates ?? false
+    };
+  }
+
+  return {
+    originDetection: {
+      status: "fallback_default",
+      selectionSource: "fallback_default",
+      appliedOrigin: fallbackOriginAirport,
+      inferredAirport: fallbackOriginAirport,
+      browserTimeZone,
+      matchedRegion: null,
+      message: `Using the default fallback airport, ${fallbackOriginAirport}.`
+    },
+    request: createInitialRequest(fallbackOriginAirport, savedSearchPreferences),
+    useExactDates: savedSearchPreferences?.useExactDates ?? false
+  };
+}
 
 export default function App() {
-  const [request, setRequest] = useState<SearchRequest>(initialRequest);
+  const [initialFormState] = useState(resolveInitialFormState);
+  const [request, setRequest] = useState<SearchRequest>(initialFormState.request);
   const [summary, setSummary] = useState<SearchSummary | null>(null);
   const [error, setError] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [hasCompletedSearch, setHasCompletedSearch] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
-  const [useExactDates, setUseExactDates] = useState(false);
-  const requestRef = useRef<SearchRequest>(initialRequest);
+  const [useExactDates, setUseExactDates] = useState(initialFormState.useExactDates);
+  const [originDetection, setOriginDetection] = useState<OriginDetectionState>(
+    () => initialFormState.originDetection
+  );
+  const requestRef = useRef<SearchRequest>(request);
+
+  function persistSavedSearchPreferences(
+    nextRequest: SearchRequest,
+    nextUseExactDates: boolean
+  ) {
+    saveSavedOrigin(nextRequest.origin);
+    saveSavedSearchPreferences({
+      origin: nextRequest.origin,
+      destination: nextRequest.destination,
+      useExactDates: nextUseExactDates,
+      minimumTripDays: nextRequest.minimumTripDays ?? 0,
+      maximumTripDays: nextRequest.maximumTripDays ?? 14,
+      departureTimeWindow: nextRequest.departureTimeWindow ?? {
+        from: 0,
+        to: 24
+      },
+      arrivalTimeWindow: nextRequest.arrivalTimeWindow ?? {
+        from: 0,
+        to: 24
+      }
+    });
+  }
 
   function updateRequest(
-    updater: SearchRequest | ((currentRequest: SearchRequest) => SearchRequest)
+    updater: SearchRequest | ((currentRequest: SearchRequest) => SearchRequest),
+    nextUseExactDates = useExactDates
   ) {
     const nextRequest =
       typeof updater === "function"
@@ -64,6 +206,7 @@ export default function App() {
         : updater;
 
     requestRef.current = nextRequest;
+    persistSavedSearchPreferences(nextRequest, nextUseExactDates);
     setRequest(nextRequest);
   }
 
@@ -83,47 +226,31 @@ export default function App() {
   }
 
   function updateDepartureDateFrom(nextDepartureDateFrom: string) {
-    updateRequest((currentRequest) => ({
-      ...currentRequest,
-      departureDateFrom: nextDepartureDateFrom,
-      returnDateFrom:
-        useExactDates && currentRequest.tripType === "round_trip"
-          ? nextDepartureDateFrom
-          : currentRequest.returnDateFrom
-    }));
+    updateRequest((currentRequest) =>
+      withDepartureDateFrom(
+        currentRequest,
+        nextDepartureDateFrom,
+        useExactDates
+      )
+    );
   }
 
   function updateReturnDateFrom(nextReturnDateFrom: string) {
-    updateRequest((currentRequest) => ({
-      ...currentRequest,
-      returnDateFrom: nextReturnDateFrom,
-      departureDateFrom:
-        useExactDates && currentRequest.tripType === "round_trip"
-          ? nextReturnDateFrom
-          : currentRequest.departureDateFrom
-    }));
+    updateRequest((currentRequest) =>
+      withReturnDateFrom(currentRequest, nextReturnDateFrom, useExactDates)
+    );
   }
 
   function updateDepartureDateTo(nextDepartureDateTo: string) {
-    updateRequest((currentRequest) => ({
-      ...currentRequest,
-      departureDateTo: nextDepartureDateTo,
-      returnDateTo:
-        useExactDates && currentRequest.tripType === "round_trip"
-          ? nextDepartureDateTo
-          : currentRequest.returnDateTo
-    }));
+    updateRequest((currentRequest) =>
+      withDepartureDateTo(currentRequest, nextDepartureDateTo, useExactDates)
+    );
   }
 
   function updateReturnDateTo(nextReturnDateTo: string) {
-    updateRequest((currentRequest) => ({
-      ...currentRequest,
-      returnDateTo: nextReturnDateTo,
-      departureDateTo:
-        useExactDates && currentRequest.tripType === "round_trip"
-          ? nextReturnDateTo
-          : currentRequest.departureDateTo
-    }));
+    updateRequest((currentRequest) =>
+      withReturnDateTo(currentRequest, nextReturnDateTo, useExactDates)
+    );
   }
 
   function updateMinimumTripDays(nextMinimumTripDays: number) {
@@ -161,20 +288,24 @@ export default function App() {
   function toggleExactDates(nextUseExactDates: boolean) {
     setUseExactDates(nextUseExactDates);
     if (!nextUseExactDates) {
+      persistSavedSearchPreferences(requestRef.current, nextUseExactDates);
       return;
     }
 
-    updateRequest((currentRequest) => ({
-      ...currentRequest,
-      returnDateFrom:
-        currentRequest.tripType === "round_trip"
-          ? currentRequest.departureDateFrom
-          : currentRequest.returnDateFrom,
-      returnDateTo:
-        currentRequest.tripType === "round_trip"
-          ? currentRequest.departureDateTo
-          : currentRequest.returnDateTo
-    }));
+    updateRequest(
+      (currentRequest) => ({
+        ...currentRequest,
+        returnDateFrom:
+          currentRequest.tripType === "round_trip"
+            ? currentRequest.departureDateFrom
+            : currentRequest.returnDateFrom,
+        returnDateTo:
+          currentRequest.tripType === "round_trip"
+            ? currentRequest.departureDateTo
+            : currentRequest.returnDateTo
+      }),
+      nextUseExactDates
+    );
   }
 
   async function handleSearch(event?: FormEvent<HTMLFormElement>) {
@@ -221,27 +352,101 @@ export default function App() {
   }
 
   const adminUiSnapshot = {
-    tripType: request.tripType,
-    origin: request.origin,
-    destination: request.destination,
-    useExactDates,
-    departureDateFrom: request.departureDateFrom,
-    departureDateTo: request.departureDateTo,
-    returnDateFrom: request.returnDateFrom ?? null,
-    returnDateTo: request.returnDateTo ?? null,
-    minimumTripDays: request.minimumTripDays ?? 0,
-    maximumTripDays: request.maximumTripDays ?? 14,
-    departureTimeWindow: request.departureTimeWindow ?? null,
-    arrivalTimeWindow: request.arrivalTimeWindow ?? null,
-    cabinClass: request.cabinClass,
-    stopsFilter: request.stopsFilter,
-    preferDirectBookingOnly: request.preferDirectBookingOnly,
-    airlines: request.airlines,
-    passengers: request.passengers,
-    maxResults: request.maxResults,
-    isSearching,
-    hasCompletedSearch,
-    latestError: error || null
+    route: {
+      tripType: request.tripType,
+      origin: request.origin,
+      destination: request.destination,
+      destinationState: request.destination ? "selected" : "empty",
+      useExactDates,
+      searchIntelligence: request.maxResults,
+      cabinClass: request.cabinClass,
+      stopsFilter: request.stopsFilter,
+      preferDirectBookingOnly: request.preferDirectBookingOnly,
+      airlines: request.airlines,
+      passengers: request.passengers
+    },
+    dateRanges: {
+      departureDateFrom: request.departureDateFrom,
+      departureDateTo: request.departureDateTo,
+      departureRangeValid: request.departureDateFrom <= request.departureDateTo,
+      returnDateFrom: request.returnDateFrom ?? null,
+      returnDateTo: request.returnDateTo ?? null,
+      returnRangeValid:
+        !request.returnDateFrom ||
+        !request.returnDateTo ||
+        request.returnDateFrom <= request.returnDateTo,
+      returnDatesMatchDepartureRange:
+        request.tripType === "round_trip" &&
+        request.returnDateFrom === request.departureDateFrom &&
+        request.returnDateTo === request.departureDateTo,
+      minimumTripDays: request.minimumTripDays ?? 0,
+      maximumTripDays: request.maximumTripDays ?? 14
+    },
+    timeWindows: {
+      departureTimeWindow: request.departureTimeWindow ?? null,
+      arrivalTimeWindow: request.arrivalTimeWindow ?? null
+    },
+    locationDetection: {
+      ...originDetection,
+      fallbackOrigin: fallbackOriginAirport
+    },
+    searchState: {
+      isSearching,
+      hasCompletedSearch,
+      latestError: error || null,
+      progress: searchProgress
+        ? {
+            stage: searchProgress.stage,
+            detail: searchProgress.detail ?? null,
+            completedSteps: searchProgress.completedSteps,
+            totalSteps: searchProgress.totalSteps,
+            percent: searchProgress.percent
+          }
+        : null
+    },
+    latestSummary: summary
+      ? {
+          inspectedOptions: summary.inspectedOptions,
+          evaluatedDatePairs: summary.evaluatedDatePairs.length,
+          departureDateCandidates: summary.departureDatePrices.length,
+          returnDateCandidates: summary.returnDatePrices.length,
+          cheapestOverall: summary.cheapestOverall
+            ? {
+                price: `${summary.cheapestOverall.currency} ${summary.cheapestOverall.totalPrice}`,
+                source: summary.cheapestOverall.source,
+                bookingSource: summary.cheapestOverall.bookingSource.label
+              }
+            : null,
+          cheapestRoundTrip: summary.cheapestRoundTrip
+            ? `${summary.cheapestRoundTrip.currency} ${summary.cheapestRoundTrip.totalPrice}`
+            : null,
+          cheapestTwoOneWays: summary.cheapestTwoOneWays
+            ? `${summary.cheapestTwoOneWays.currency} ${summary.cheapestTwoOneWays.totalPrice}`
+            : null,
+          timingGuidance: summary.timingGuidance
+            ? {
+                recommendation: summary.timingGuidance.recommendation,
+                confidence: summary.timingGuidance.confidence,
+                trend: summary.timingGuidance.trend,
+                pricePosition: summary.timingGuidance.pricePosition,
+                historySampleSize: summary.timingGuidance.historySampleSize,
+                summary: summary.timingGuidance.summary
+              }
+            : null,
+          priceAlert: summary.priceAlert
+            ? {
+                kind: summary.priceAlert.kind,
+                changePercent: summary.priceAlert.changePercent,
+                summary: summary.priceAlert.summary
+              }
+            : null,
+          separateOneWayInsight: summary.hackerFareInsight
+            ? {
+                summary: summary.hackerFareInsight.summary
+              }
+            : null
+        }
+      : null
   };
 
   return (
@@ -298,17 +503,28 @@ export default function App() {
                 <AirportField
                   label="Origin airport"
                   value={request.origin}
-                  onSelect={(origin) =>
+                  onSelect={(origin) => {
                     updateRequest((currentRequest) => ({
                       ...currentRequest,
                       origin
-                    }))
-                  }
+                    }));
+                    setOriginDetection((currentState) => ({
+                      ...currentState,
+                      selectionSource: "manual_override",
+                      appliedOrigin: origin,
+                      browserTimeZone:
+                        currentState.browserTimeZone ?? getBrowserTimeZone(),
+                      message: currentState.inferredAirport
+                        ? `Origin manually changed to ${origin}. The initial fallback guess was ${currentState.inferredAirport}.`
+                        : `Origin manually changed to ${origin}.`
+                    }));
+                  }}
                 />
 
                 <AirportField
                   label="Destination airport"
                   value={request.destination}
+                  placeholder="Enter the airport, city, or code you want to fly to"
                   onSelect={(destination) =>
                     updateRequest((currentRequest) => ({
                       ...currentRequest,
@@ -354,7 +570,7 @@ export default function App() {
                 </label>
 
                 <label className="field filter-field">
-                  <span>Candidate depth</span>
+                  <span>Search Intelligence</span>
                   <input
                     type="number"
                     min="1"
@@ -368,8 +584,8 @@ export default function App() {
                     }
                   />
                   <p className="field-help">
-                    Lower is faster. Higher checks more date combos but takes
-                    longer.
+                    Choose a value from 1 to 10. Higher values make the search
+                    smarter, while lower values make it faster.
                   </p>
                 </label>
 
@@ -455,6 +671,7 @@ export default function App() {
                       <input
                         type="date"
                         value={request.departureDateTo}
+                        min={request.departureDateFrom}
                         onChange={(event) =>
                           updateDepartureDateTo(event.target.value)
                         }
@@ -487,6 +704,7 @@ export default function App() {
                         <input
                           type="date"
                           value={request.returnDateTo ?? ""}
+                          min={request.returnDateFrom ?? undefined}
                           onChange={(event) =>
                             updateReturnDateTo(event.target.value)
                           }

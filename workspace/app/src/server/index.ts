@@ -3,7 +3,11 @@ import path from "node:path";
 import cors from "cors";
 import express from "express";
 
-import { searchAirlines, searchAirports } from "../core/catalog";
+import {
+  findClosestAirport,
+  searchAirlines,
+  searchAirports
+} from "../core/catalog";
 import { resolveAppPath } from "../core/project-paths";
 import { clampTimeWindow } from "../core/utils";
 import {
@@ -11,6 +15,7 @@ import {
   clearServerLogs,
   getServerLogs
 } from "./admin-log";
+import { ensureIncidentLogDirectory } from "./incident-log";
 import { FlightSearchService } from "../core/search";
 import {
   completeSearchJob,
@@ -24,6 +29,102 @@ import type { SearchRequest, SearchSummary } from "../shared/types";
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const searchService = new FlightSearchService();
+
+function serializeThrownValue(
+  value: unknown
+): Record<string, unknown> {
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack ?? null
+    };
+  }
+
+  return {
+    message: String(value)
+  };
+}
+
+function buildClientIncident(
+  input: unknown
+): { message: string; details: Record<string, unknown> } {
+  if (!input || typeof input !== "object") {
+    return {
+      message: "Client incident",
+      details: {
+        payloadType: input === null ? "null" : typeof input
+      }
+    };
+  }
+
+  const payload = input as Record<string, unknown>;
+  const message =
+    typeof payload.message === "string" && payload.message.trim()
+      ? payload.message.trim()
+      : "Client incident";
+  const details: Record<string, unknown> = {};
+
+  if (
+    payload.level === "info" ||
+    payload.level === "warn" ||
+    payload.level === "error"
+  ) {
+    details.level = payload.level;
+  }
+
+  if (typeof payload.timestamp === "string") {
+    details.reportedAt = payload.timestamp;
+  }
+
+  if (typeof payload.pageUrl === "string") {
+    details.pageUrl = payload.pageUrl;
+  }
+
+  if (typeof payload.userAgent === "string") {
+    details.userAgent = payload.userAgent;
+  }
+
+  if (typeof payload.details === "string") {
+    details.details = payload.details;
+  } else if (payload.details && typeof payload.details === "object") {
+    details.details = payload.details as Record<string, unknown>;
+  }
+
+  return {
+    message,
+    details
+  };
+}
+
+function registerProcessIncidentHandlers(): void {
+  process.on("uncaughtException", (error) => {
+    appendServerLog(
+      "error",
+      "Uncaught exception",
+      serializeThrownValue(error),
+      {
+        persist: true,
+        source: "process"
+      }
+    );
+    console.error(error);
+    process.exit(1);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    appendServerLog(
+      "error",
+      "Unhandled promise rejection",
+      serializeThrownValue(reason),
+      {
+        persist: true,
+        source: "process"
+      }
+    );
+    console.error(reason);
+  });
+}
 
 function summarizeSearchRequest(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== "object") {
@@ -101,12 +202,19 @@ app.use((request, response, next) => {
       return;
     }
 
+    if (request.path === "/api/health" && response.statusCode < 400) {
+      return;
+    }
+
     appendServerLog(
       response.statusCode >= 400 ? "error" : "info",
       `${request.method} ${request.path}`,
       {
         durationMs: Date.now() - startedAt,
         statusCode: response.statusCode
+      },
+      {
+        persist: response.statusCode >= 500
       }
     );
   });
@@ -127,10 +235,54 @@ app.delete("/api/admin/logs", (_request, response) => {
   response.json({ ok: true });
 });
 
+app.post("/api/admin/incidents", (request, response) => {
+  const incident = buildClientIncident(request.body);
+  appendServerLog(
+    "error",
+    `Client incident: ${incident.message}`,
+    incident.details,
+    {
+      persist: true,
+      source: "client"
+    }
+  );
+  response.status(202).json({ ok: true });
+});
+
 app.get("/api/airports", (request, response) => {
   const query =
     typeof request.query.query === "string" ? request.query.query : "";
   response.json({ airports: searchAirports(query) });
+});
+
+app.get("/api/airports/nearest", (request, response) => {
+  const latitude =
+    typeof request.query.latitude === "string"
+      ? Number.parseFloat(request.query.latitude)
+      : Number.NaN;
+  const longitude =
+    typeof request.query.longitude === "string"
+      ? Number.parseFloat(request.query.longitude)
+      : Number.NaN;
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    response.status(400).json({
+      error: "Latitude and longitude are required",
+      ok: false
+    });
+    return;
+  }
+
+  const airport = findClosestAirport(latitude, longitude);
+  if (!airport) {
+    response.status(404).json({
+      error: "Could not determine the closest airport",
+      ok: false
+    });
+    return;
+  }
+
+  response.json({ airport });
 });
 
 app.get("/api/airlines", (request, response) => {
@@ -158,6 +310,8 @@ app.post("/api/search", async (request, response) => {
       ...requestSummary,
       error: error instanceof Error ? error.message : "Search failed",
       stack: error instanceof Error ? error.stack ?? null : null
+    }, {
+      persist: true
     });
     response.status(400).json({
       ok: false,
@@ -195,6 +349,8 @@ app.post("/api/search/jobs", (request, response) => {
         ...requestSummary,
         error: message,
         stack: error instanceof Error ? error.stack ?? null : null
+      }, {
+        persist: true
       });
     }
   })();
@@ -221,6 +377,9 @@ app.use(express.static(builtWebPath));
 app.get("/{*path}", (_request, response) => {
   response.sendFile(path.join(builtWebPath, "index.html"));
 });
+
+ensureIncidentLogDirectory();
+registerProcessIncidentHandlers();
 
 app.listen(port, () => {
   appendServerLog("info", "Server started", { port });

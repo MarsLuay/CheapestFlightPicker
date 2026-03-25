@@ -70,6 +70,52 @@ export function prefersDirectBooking(source: BookingSource): boolean {
   return source.type !== "ota" && source.type !== "mixed";
 }
 
+function normalizeBookingParty(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/gu, "");
+}
+
+export function isLikelyDirectAirlineBookingOption(
+  option: FlightOption
+): boolean {
+  if (option.bookingSource.type === "direct_airline") {
+    return true;
+  }
+
+  if (option.bookingSource.type !== "unknown") {
+    return false;
+  }
+
+  const sellerName = option.bookingSource.sellerName?.trim();
+  if (!sellerName) {
+    return false;
+  }
+
+  const airlineCodes = new Set<string>();
+  const airlineNames = new Set<string>();
+
+  for (const slice of option.slices) {
+    for (const leg of slice.legs) {
+      if (leg.airlineCode) {
+        airlineCodes.add(normalizeBookingParty(leg.airlineCode));
+      }
+
+      if (leg.airlineName) {
+        airlineNames.add(normalizeBookingParty(leg.airlineName));
+      }
+    }
+  }
+
+  if (airlineCodes.size !== 1) {
+    return false;
+  }
+
+  const normalizedSellerName = normalizeBookingParty(sellerName);
+  return (
+    airlineCodes.has(normalizedSellerName) ||
+    airlineNames.has(normalizedSellerName)
+  );
+}
+
 export function clampTimeWindow(
   window: TimeWindow | null | undefined
 ): TimeWindow | undefined {

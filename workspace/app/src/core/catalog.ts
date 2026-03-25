@@ -148,6 +148,34 @@ export function findAirportByCode(code: string): AirportRecord | undefined {
   return loadAirports().find((airport) => airport.iata === normalized);
 }
 
+export function findClosestAirport(
+  latitude: number,
+  longitude: number
+): AirportRecord | undefined {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return undefined;
+  }
+
+  let closestAirport: AirportRecord | undefined;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (const airport of loadAirports()) {
+    const distance = calculateGreatCircleDistance(
+      latitude,
+      longitude,
+      airport.latitude,
+      airport.longitude
+    );
+
+    if (distance < closestDistance) {
+      closestAirport = airport;
+      closestDistance = distance;
+    }
+  }
+
+  return closestAirport;
+}
+
 export function findAirlineByCode(code: string): AirlineRecord | undefined {
   const normalized = code.toUpperCase();
   return loadAirlines().find((airline) => airline.iata === normalized);
@@ -264,6 +292,34 @@ function scoreAirlineMatch(
   }
 
   return Number.POSITIVE_INFINITY;
+}
+
+function toRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function calculateGreatCircleDistance(
+  latitudeA: number,
+  longitudeA: number,
+  latitudeB: number,
+  longitudeB: number
+): number {
+  const earthRadiusKm = 6371;
+  const latitudeDelta = toRadians(latitudeB - latitudeA);
+  const longitudeDelta = toRadians(longitudeB - longitudeA);
+  const normalizedLatitudeA = toRadians(latitudeA);
+  const normalizedLatitudeB = toRadians(latitudeB);
+
+  const haversineValue =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(normalizedLatitudeA) *
+      Math.cos(normalizedLatitudeB) *
+      Math.sin(longitudeDelta / 2) ** 2;
+
+  const arc =
+    2 * Math.atan2(Math.sqrt(haversineValue), Math.sqrt(1 - haversineValue));
+
+  return earthRadiusKm * arc;
 }
 
 function scoreAirportMatch(

@@ -22,10 +22,13 @@ The root of this repo is intentionally pretty clean to let even your grandma run
   - Cheapest direct there
   - Cheapest option with stops
 - Gives you Google Flights links for the results it finds
-- Has a hidden admin panel you can open with `` ` `` or `~` if you want logs
+- Has a hidden admin panel you can open with `` ` `` or `~` for logs, auto-origin diagnostics, timing guidance, price alerts, and Hacker Fare state
 
 ## Easiest way to run it
+
 ### Windows
+
+Run the file:
 
 ```bat
 setup-and-launch.bat
@@ -33,12 +36,16 @@ setup-and-launch.bat
 
 ### Linux
 
+Open Terminal and run:
+
 ```bash
 chmod +x setup-and-launch.sh
 ./setup-and-launch.sh
 ```
 
 ### macOS
+
+Open Terminal and run:
 
 ```bash
 chmod +x setup-and-launch.sh

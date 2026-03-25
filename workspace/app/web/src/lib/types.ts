@@ -50,6 +50,8 @@ export type AirportRecord = {
   country: string;
   iata: string;
   icao: string;
+  latitude: number;
+  longitude: number;
 };
 
 export type AirlineRecord = {
@@ -96,6 +98,57 @@ export type FlightOption = {
   notes?: string[];
 };
 
+export type TimingRecommendation = "book_now" | "wait";
+
+export type TimingConfidence = "low" | "medium" | "high";
+
+export type TimingTrend = "rising" | "falling" | "flat" | "unknown";
+
+export type TimingPricePosition = "near_low" | "typical" | "high" | "unknown";
+
+export type TimingGuidance = {
+  recommendation: TimingRecommendation;
+  confidence: TimingConfidence;
+  headline: string;
+  summary: string;
+  reasons: string[];
+  currentBestPrice: number;
+  currency: string;
+  observedLowPrice: number;
+  observedMedianPrice: number;
+  observedHighPrice: number;
+  pricePosition: TimingPricePosition;
+  trend: TimingTrend;
+  historySampleSize: number;
+  daysUntilDeparture: number;
+};
+
+export type PriceAlertKind =
+  | "new_low"
+  | "significant_drop"
+  | "significant_rise";
+
+export type PriceAlert = {
+  kind: PriceAlertKind;
+  headline: string;
+  summary: string;
+  changeAmount: number;
+  changePercent: number;
+  previousBestPrice: number;
+  currentBestPrice: number;
+  currency: string;
+};
+
+export type HackerFareInsight = {
+  savingsAmount: number;
+  savingsPercent: number;
+  hackerFarePrice: number;
+  traditionalRoundTripPrice: number;
+  currency: string;
+  headline: string;
+  summary: string;
+};
+
 export type SearchSummary = {
   request: SearchRequest;
   departureDatePrices: DatePrice[];
@@ -104,12 +157,16 @@ export type SearchSummary = {
   cheapestRoundTrip: FlightOption | null;
   cheapestTwoOneWays: FlightOption | null;
   cheapestDirectThere: FlightOption | null;
+  cheapestDirectReturn: FlightOption | null;
   cheapestMultiStop: FlightOption | null;
   evaluatedDatePairs: Array<{
     departureDate: string;
     returnDate?: string;
   }>;
   inspectedOptions: number;
+  timingGuidance: TimingGuidance | null;
+  priceAlert: PriceAlert | null;
+  hackerFareInsight: HackerFareInsight | null;
 };
 
 export type SearchProgress = {

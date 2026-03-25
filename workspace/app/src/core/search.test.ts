@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FlightSearchService } from "./search";
-import type { FlightOption } from "../shared/types";
+import type { FlightOption, SearchRequest } from "../shared/types";
 
 function buildOption(
   totalPrice: number,
@@ -24,6 +24,44 @@ function buildOption(
     },
     source,
     totalPrice
+  };
+}
+
+function buildUnknownAirlineOption(
+  totalPrice: number,
+  airlineCode: string,
+  airlineName: string
+): FlightOption {
+  return {
+    currency: "USD",
+    slices: [
+      {
+        durationMinutes: 120,
+        legs: [
+          {
+            airlineCode,
+            airlineName,
+            flightNumber: "123",
+            departureAirportCode: "SEA",
+            departureAirportName: "Seattle-Tacoma International Airport",
+            departureDateTime: "2026-05-08T15:00:00.000Z",
+            arrivalAirportCode: "JFK",
+            arrivalAirportName: "John F. Kennedy International Airport",
+            arrivalDateTime: "2026-05-08T21:00:00.000Z",
+            durationMinutes: 120
+          }
+        ],
+        stops: 0
+      }
+    ],
+    bookingSource: {
+      type: "unknown",
+      label: "Booking source not confirmed",
+      detected: false
+    },
+    source: "google_one_way",
+    totalPrice,
+    outboundDate: "2026-05-08"
   };
 }
 
@@ -173,5 +211,88 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(summary.cheapestTwoOneWays?.totalPrice).toBe(150);
     expect(summary.cheapestDirectThere?.totalPrice).toBe(90);
     expect(summary.cheapestDirectThere?.source).toBe("google_one_way");
+    expect(summary.cheapestDirectReturn?.totalPrice).toBe(70);
+    expect(summary.cheapestDirectReturn?.source).toBe("google_one_way");
+  });
+
+  it("uses supplemented airline identity to make direct-booking preference stricter than unresolved unknown sellers", async () => {
+    const service = new FlightSearchService();
+    const serviceWithMocks = service as unknown as {
+      bookingSourceSupplementService: {
+        supplementOptions: (
+          options: FlightOption[],
+          request: SearchRequest,
+          maxTargets?: number
+        ) => Promise<FlightOption[]>;
+        supplementSummary: <T>(summary: T) => Promise<T>;
+      };
+      provider: {
+        searchExactFlights: () => Promise<FlightOption[]>;
+        searchOneWayWithinWindow: () => Promise<Array<{ date: string; price: number }>>;
+      };
+    };
+
+    const unresolvedCheaper = buildUnknownAirlineOption(
+      80,
+      "DL",
+      "Delta Air Lines"
+    );
+    const supplementedDirect = buildUnknownAirlineOption(
+      95,
+      "AS",
+      "Alaska Airlines"
+    );
+
+    serviceWithMocks.provider = {
+      async searchOneWayWithinWindow() {
+        return [{ date: "2026-05-08", price: 80 }];
+      },
+      async searchExactFlights() {
+        return [unresolvedCheaper, supplementedDirect];
+      }
+    };
+
+    serviceWithMocks.bookingSourceSupplementService = {
+      async supplementOptions(options) {
+        return options.map((option) =>
+          option === supplementedDirect
+            ? {
+                ...option,
+                bookingSource: {
+                  ...option.bookingSource,
+                  sellerName: "Alaska Airlines"
+                }
+              }
+            : option
+        );
+      },
+      async supplementSummary(summary) {
+        return summary;
+      }
+    };
+
+    const summary = await service.search({
+      tripType: "one_way",
+      origin: "SEA",
+      destination: "JFK",
+      departureDateFrom: "2026-05-08",
+      departureDateTo: "2026-05-08",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      preferDirectBookingOnly: true,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      },
+      maxResults: 2
+    });
+
+    expect(summary.cheapestOverall?.totalPrice).toBe(95);
+    expect(summary.cheapestOverall?.bookingSource.sellerName).toBe(
+      "Alaska Airlines"
+    );
   });
 });

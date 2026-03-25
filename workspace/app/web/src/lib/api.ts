@@ -116,7 +116,10 @@ function buildSearchSuccessDetails(payload: SearchResponse): string | undefined 
     `returnDateCandidates=${payload.summary.returnDatePrices.length}`,
     `evaluatedDatePairs=${payload.summary.evaluatedDatePairs.length}`,
     `inspectedOptions=${payload.summary.inspectedOptions}`,
-    `cheapestOverall=${cheapestOverall}`
+    `cheapestOverall=${cheapestOverall}`,
+    `timingRecommendation=${payload.summary.timingGuidance?.recommendation ?? "none"}`,
+    `priceAlert=${payload.summary.priceAlert?.kind ?? "none"}`,
+    `separateOneWays=${payload.summary.hackerFareInsight ? "present" : "none"}`
   ].join("\n");
 }
 
@@ -215,6 +218,21 @@ export async function searchAirports(query: string): Promise<AirportRecord[]> {
   } catch {
     return [];
   }
+}
+
+export async function fetchNearestAirport(
+  latitude: number,
+  longitude: number
+): Promise<AirportRecord> {
+  const data = await requestJson<{ airport: AirportRecord }>(
+    `/api/airports/nearest?latitude=${encodeURIComponent(String(latitude))}&longitude=${encodeURIComponent(String(longitude))}`,
+    undefined,
+    {
+      timeoutMs: 10000
+    }
+  );
+
+  return data.airport;
 }
 
 export async function searchAirlines(query: string): Promise<AirlineRecord[]> {

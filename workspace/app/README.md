@@ -34,6 +34,7 @@ Useful commands:
 If something looks broken:
 
 - open admin mode with `` ` `` or `~`
+- check the flight controls, origin detection, and latest search signals cards
 - copy the report
 - send it over
 
