@@ -77,6 +77,7 @@ function buildSearchRequestDetails(request: SearchRequest): string {
     {
       tripType: request.tripType,
       route: `${request.origin} -> ${request.destination}`,
+      useExactDates: request.useExactDates ?? false,
       departureDateFrom: request.departureDateFrom,
       departureDateTo: request.departureDateTo,
       returnDateFrom: request.returnDateFrom ?? null,

@@ -9,6 +9,10 @@ const airlinesPath = resolveAppPath("data", "airlines.csv");
 let airportCache: AirportRecord[] | null = null;
 let airlineCache: AirlineRecord[] | null = null;
 
+function sanitizeCatalogText(value: string): string {
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, "").trim();
+}
+
 function parseCsvLine(line: string): string[] {
   const values: string[] = [];
   let current = "";
@@ -61,9 +65,9 @@ function parseAirportRecord(line: string): AirportRecord | null {
 
   return {
     id,
-    name,
-    city,
-    country,
+    name: sanitizeCatalogText(name),
+    city: sanitizeCatalogText(city),
+    country: sanitizeCatalogText(country),
     iata,
     icao,
     latitude: latitudeValue,
@@ -88,10 +92,10 @@ function parseAirlineRecord(line: string): AirlineRecord | null {
 
   return {
     id,
-    name,
+    name: sanitizeCatalogText(name),
     iata: iata.toUpperCase(),
     icao: icao === "\\N" ? "" : icao,
-    country,
+    country: sanitizeCatalogText(country),
     active: active === "Y"
   };
 }

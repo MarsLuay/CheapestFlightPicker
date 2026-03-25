@@ -103,10 +103,11 @@ export function AirportField({ label, value, onSelect }: AirportFieldProps) {
   }
 
   return (
-    <label className="field filter-field">
+    <label className="field filter-field filter-field--airport">
       <span>{label}</span>
-      <div className="autocomplete-shell">
+      <div className="autocomplete-shell airport-autocomplete-shell">
         <input
+          className="airport-autocomplete-input"
           value={query}
           onBlur={() => {
             setIsFocused(false);
@@ -128,7 +129,11 @@ export function AirportField({ label, value, onSelect }: AirportFieldProps) {
           placeholder="Type airport, city, or code"
         />
         {shouldShowSuggestions ? (
-          <div className="suggestion-list" role="listbox" aria-label={`${label} matches`}>
+          <div
+            className="suggestion-list"
+            role="listbox"
+            aria-label={`${label} matches`}
+          >
             {suggestionOptions.map((airport, index) => (
               <button
                 key={airport.id}
@@ -142,9 +147,7 @@ export function AirportField({ label, value, onSelect }: AirportFieldProps) {
                 }}
               >
                 <span className="suggestion-copy">
-                  <strong>
-                    {airport.iata} · {airport.city}
-                  </strong>
+                  <strong>{airport.iata} | {airport.city}</strong>
                   <span className="suggestion-detail">{airport.name}</span>
                   <span className="suggestion-detail">{airport.country}</span>
                 </span>

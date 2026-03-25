@@ -21,6 +21,7 @@ export type SearchRequest = {
   tripType: "one_way" | "round_trip";
   origin: string;
   destination: string;
+  useExactDates?: boolean;
   departureDateFrom: string;
   departureDateTo: string;
   returnDateFrom?: string;

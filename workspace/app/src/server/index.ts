@@ -33,6 +33,11 @@ function summarizeSearchRequest(input: unknown): Record<string, unknown> {
   }
 
   const request = input as Partial<SearchRequest>;
+  const useExactDates =
+    "useExactDates" in (input as Record<string, unknown>) &&
+    typeof (input as Record<string, unknown>).useExactDates === "boolean"
+      ? ((input as Record<string, unknown>).useExactDates as boolean)
+      : false;
 
   return {
     tripType: request.tripType ?? "unknown",
@@ -41,6 +46,7 @@ function summarizeSearchRequest(input: unknown): Record<string, unknown> {
       typeof request.destination === "string"
         ? `${request.origin} -> ${request.destination}`
         : "unknown",
+    useExactDates,
     departureDateFrom: request.departureDateFrom ?? null,
     departureDateTo: request.departureDateTo ?? null,
     returnDateFrom: request.returnDateFrom ?? null,

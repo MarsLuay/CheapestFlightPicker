@@ -31,47 +31,28 @@ The root of this repo is intentionally pretty clean to let even your grandma run
 setup-and-launch.bat
 ```
 
-This script does the following:
-
-- works from inside the repo or as a standalone release download
-- clones the repo next to itself if you only downloaded the launcher
-- pulls the latest repo changes first when the checkout is clean
-- installs dependencies
-- runs checks/tests
-- builds the app
-- starts the server
-- opens the app in your browser at `http://localhost:8787`
-
-If you download just the launcher from the GitHub release page, it will create a `CheapestFlightPicker` folder next to the script, clone the repo there, and then run everything for you.
-
-If you've got local edits, the launcher skips the auto-pull on purpose so it doesn't trample your work.
-
-### Linux / macOS
+### Linux
 
 ```bash
 chmod +x setup-and-launch.sh
 ./setup-and-launch.sh
 ```
 
-Same idea here: you can run it from the repo, or just download the release asset and let it clone the repo next to itself.
+### macOS
+
+```bash
+chmod +x setup-and-launch.sh
+./setup-and-launch.sh
+```
 
 ## Background
 
 I wanted to visit my girlfriend across the country as a broke college student, and google flights wasn't cutting it for me.
 
-After hours of researching other repos and methods people have released to find the 'cheapest' flight, the good resources were all paygated!
+After hours of researching other repos and methods people have released to find the 'cheapest' flight, the good resources were all paygated.
 
 I was not happy.
 Out of spite, I made this tool.
-
-## Repo layout
-
-- `workspace/app/src/core` is the main search/comparison logic
-- `workspace/app/src/providers/google-flights` is the Google request/response layer
-- `workspace/app/src/server` is the local API
-- `workspace/app/src/cli` is the command-line version
-- `workspace/app/web/src` is the React UI
-- `workspace/app/data` has airport and airline reference data
 
 ## License
 This repo is source-available under `PolyForm Noncommercial 1.0.0`.

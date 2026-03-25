@@ -14,6 +14,10 @@ import {
 } from "../lib/admin-log";
 import type { ServerLogEntry } from "../lib/types";
 
+type AdminPanelProps = {
+  uiSnapshot?: Record<string, unknown>;
+};
+
 function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "short",
@@ -93,13 +97,17 @@ function buildDiagnosticsReport(
   apiHealthy: boolean | null,
   clientLogs: ClientLogEntry[],
   serverLogs: ServerLogEntry[],
-  lastUpdatedAt: string | null
+  lastUpdatedAt: string | null,
+  uiSnapshot?: Record<string, unknown>
 ): string {
   return [
     "CHEAPEST FLIGHT PICKER ADMIN REPORT",
     "",
     "ENVIRONMENT",
     buildEnvironmentSnapshot(apiHealthy, clientLogs, serverLogs, lastUpdatedAt),
+    "",
+    "CURRENT UI STATE",
+    JSON.stringify(uiSnapshot ?? {}, null, 2),
     "",
     formatLogBlock("client", clientLogs),
     "",
@@ -124,7 +132,7 @@ async function copyTextToClipboard(text: string): Promise<void> {
   document.body.removeChild(textarea);
 }
 
-export function AdminPanel() {
+export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
   const clientLogs = useClientLogs();
   const [isOpen, setIsOpen] = useState(false);
   const [serverLogs, setServerLogs] = useState<ServerLogEntry[]>([]);
@@ -228,7 +236,8 @@ export function AdminPanel() {
     apiHealthy,
     clientLogs,
     serverLogs,
-    lastUpdatedAt
+    lastUpdatedAt,
+    uiSnapshot
   );
   const clientLogText = formatLogBlock("client", clientLogs);
   const serverLogText = formatLogBlock("server", serverLogs);
@@ -320,6 +329,13 @@ export function AdminPanel() {
         <section className="admin-card">
           <h3>Environment Snapshot</h3>
           <pre className="admin-snapshot">{environmentSnapshot}</pre>
+        </section>
+
+        <section className="admin-card">
+          <h3>Current UI State</h3>
+          <pre className="admin-snapshot">
+            {JSON.stringify(uiSnapshot ?? {}, null, 2)}
+          </pre>
         </section>
 
         <section className="admin-card">

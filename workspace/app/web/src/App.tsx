@@ -1,4 +1,4 @@
-import { startTransition, useState, type FormEvent } from "react";
+import { startTransition, useRef, useState, type FormEvent } from "react";
 
 import { runFlightSearch } from "./lib/api";
 import type { SearchProgress, SearchRequest, SearchSummary } from "./lib/types";
@@ -50,9 +50,84 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasCompletedSearch, setHasCompletedSearch] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
+  const [useExactDates, setUseExactDates] = useState(false);
+  const requestRef = useRef<SearchRequest>(initialRequest);
+
+  function updateRequest(
+    updater: SearchRequest | ((currentRequest: SearchRequest) => SearchRequest)
+  ) {
+    const nextRequest =
+      typeof updater === "function"
+        ? (updater as (currentRequest: SearchRequest) => SearchRequest)(
+            requestRef.current
+          )
+        : updater;
+
+    requestRef.current = nextRequest;
+    setRequest(nextRequest);
+  }
+
+  function updateTripType(nextTripType: SearchRequest["tripType"]) {
+    updateRequest((currentRequest) => ({
+      ...currentRequest,
+      tripType: nextTripType,
+      returnDateFrom:
+        useExactDates && nextTripType === "round_trip"
+          ? currentRequest.departureDateFrom
+          : currentRequest.returnDateFrom,
+      returnDateTo:
+        useExactDates && nextTripType === "round_trip"
+          ? currentRequest.departureDateTo
+          : currentRequest.returnDateTo
+    }));
+  }
+
+  function updateDepartureDateFrom(nextDepartureDateFrom: string) {
+    updateRequest((currentRequest) => ({
+      ...currentRequest,
+      departureDateFrom: nextDepartureDateFrom,
+      returnDateFrom:
+        useExactDates && currentRequest.tripType === "round_trip"
+          ? nextDepartureDateFrom
+          : currentRequest.returnDateFrom
+    }));
+  }
+
+  function updateReturnDateFrom(nextReturnDateFrom: string) {
+    updateRequest((currentRequest) => ({
+      ...currentRequest,
+      returnDateFrom: nextReturnDateFrom,
+      departureDateFrom:
+        useExactDates && currentRequest.tripType === "round_trip"
+          ? nextReturnDateFrom
+          : currentRequest.departureDateFrom
+    }));
+  }
+
+  function updateDepartureDateTo(nextDepartureDateTo: string) {
+    updateRequest((currentRequest) => ({
+      ...currentRequest,
+      departureDateTo: nextDepartureDateTo,
+      returnDateTo:
+        useExactDates && currentRequest.tripType === "round_trip"
+          ? nextDepartureDateTo
+          : currentRequest.returnDateTo
+    }));
+  }
+
+  function updateReturnDateTo(nextReturnDateTo: string) {
+    updateRequest((currentRequest) => ({
+      ...currentRequest,
+      returnDateTo: nextReturnDateTo,
+      departureDateTo:
+        useExactDates && currentRequest.tripType === "round_trip"
+          ? nextReturnDateTo
+          : currentRequest.departureDateTo
+    }));
+  }
 
   function updateMinimumTripDays(nextMinimumTripDays: number) {
-    setRequest((currentRequest) => {
+    updateRequest((currentRequest) => {
       const safeMinimumTripDays = Math.max(0, nextMinimumTripDays);
       const currentMaximumTripDays = currentRequest.maximumTripDays ?? 14;
 
@@ -68,7 +143,7 @@ export default function App() {
   }
 
   function updateMaximumTripDays(nextMaximumTripDays: number) {
-    setRequest((currentRequest) => {
+    updateRequest((currentRequest) => {
       const safeMaximumTripDays = Math.max(0, nextMaximumTripDays);
       const currentMinimumTripDays = currentRequest.minimumTripDays ?? 0;
 
@@ -83,13 +158,21 @@ export default function App() {
     });
   }
 
-  function collapseDateRangesToSingleDates() {
-    setRequest((currentRequest) => ({
+  function toggleExactDates(nextUseExactDates: boolean) {
+    setUseExactDates(nextUseExactDates);
+    if (!nextUseExactDates) {
+      return;
+    }
+
+    updateRequest((currentRequest) => ({
       ...currentRequest,
-      departureDateTo: currentRequest.departureDateFrom,
+      returnDateFrom:
+        currentRequest.tripType === "round_trip"
+          ? currentRequest.departureDateFrom
+          : currentRequest.returnDateFrom,
       returnDateTo:
         currentRequest.tripType === "round_trip"
-          ? currentRequest.returnDateFrom ?? currentRequest.returnDateTo
+          ? currentRequest.departureDateTo
           : currentRequest.returnDateTo
     }));
   }
@@ -107,7 +190,13 @@ export default function App() {
     });
 
     try {
-      const response = await runFlightSearch(request, setSearchProgress);
+      const response = await runFlightSearch(
+        {
+          ...requestRef.current,
+          useExactDates
+        },
+        setSearchProgress
+      );
       if (!response.ok) {
         setError(response.error);
         setSummary(null);
@@ -131,10 +220,34 @@ export default function App() {
     }
   }
 
+  const adminUiSnapshot = {
+    tripType: request.tripType,
+    origin: request.origin,
+    destination: request.destination,
+    useExactDates,
+    departureDateFrom: request.departureDateFrom,
+    departureDateTo: request.departureDateTo,
+    returnDateFrom: request.returnDateFrom ?? null,
+    returnDateTo: request.returnDateTo ?? null,
+    minimumTripDays: request.minimumTripDays ?? 0,
+    maximumTripDays: request.maximumTripDays ?? 14,
+    departureTimeWindow: request.departureTimeWindow ?? null,
+    arrivalTimeWindow: request.arrivalTimeWindow ?? null,
+    cabinClass: request.cabinClass,
+    stopsFilter: request.stopsFilter,
+    preferDirectBookingOnly: request.preferDirectBookingOnly,
+    airlines: request.airlines,
+    passengers: request.passengers,
+    maxResults: request.maxResults,
+    isSearching,
+    hasCompletedSearch,
+    latestError: error || null
+  };
+
   return (
     <div className="app-shell">
       <div className="background-veil" />
-      <AdminPanel />
+      <AdminPanel uiSnapshot={adminUiSnapshot} />
       <main className="page">
         <section className="hero-card">
           <h1>Cheapest Flight Picker</h1>
@@ -147,317 +260,375 @@ export default function App() {
         </section>
 
         <section className="form-card">
-          <form onSubmit={handleSearch}>
-          <div className="form-grid">
-            <div className="field filter-field">
-              <span>Trip type</span>
-              <div className="toggle-row">
-                {[
-                  { label: "One way", value: "one_way" },
-                  { label: "Round trip", value: "round_trip" }
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    className={`toggle-pill ${
-                      request.tripType === option.value ? "is-active" : ""
-                    }`}
-                    type="button"
-                    onClick={() =>
-                      setRequest({
-                        ...request,
-                        tripType: option.value as SearchRequest["tripType"]
-                      })
-                    }
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <AirportField
-              label="Origin airport"
-              value={request.origin}
-              onSelect={(origin) => setRequest({ ...request, origin })}
-            />
-
-            <AirportField
-              label="Destination airport"
-              value={request.destination}
-              onSelect={(destination) => setRequest({ ...request, destination })}
-            />
-
-            <label className="field filter-field">
-              <span>Cabin</span>
-              <select
-                value={request.cabinClass}
-                onChange={(event) =>
-                  setRequest({
-                    ...request,
-                    cabinClass: event.target.value as SearchRequest["cabinClass"]
-                  })
-                }
-              >
-                <option value="economy">Economy</option>
-                <option value="premium_economy">Premium economy</option>
-                <option value="business">Business</option>
-                <option value="first">First</option>
-              </select>
-            </label>
-
-            <label className="field filter-field">
-              <span>Stops</span>
-              <select
-                value={request.stopsFilter}
-                onChange={(event) =>
-                  setRequest({
-                    ...request,
-                    stopsFilter: event.target.value as SearchRequest["stopsFilter"]
-                  })
-                }
-              >
-                <option value="any">Any</option>
-                <option value="nonstop">Nonstop</option>
-                <option value="max_1_stop">Up to 1 stop</option>
-                <option value="max_2_stops">Up to 2 stops</option>
-              </select>
-            </label>
-
-            <label className="checkbox-field filter-field">
-              <input
-                className="checkbox-field__input"
-                type="checkbox"
-                checked={request.preferDirectBookingOnly}
-                onChange={(event) =>
-                  setRequest({
-                    ...request,
-                    preferDirectBookingOnly: event.target.checked
-                  })
-                }
-              />
-              <span className="checkbox-field__switch" aria-hidden="true">
-                <span className="checkbox-field__knob" />
-              </span>
-              <div>
-                <span>Prefer direct booking only</span>
-                <p className="field-help">
-                  If Google can tell who is selling the ticket, travel-agency
-                  fares are removed. If Google cannot tell, the fare may still
-                  show up.
+          <form className="search-form" onSubmit={handleSearch}>
+            <section className="form-section">
+              <div className="section-heading">
+                <p className="section-kicker">Start here</p>
+                <h2>Route and filters</h2>
+                <p className="section-copy">
+                  Set the route, seat class, stop limit, and how picky you want
+                  the search to be.
                 </p>
               </div>
-            </label>
 
-            <label className="field filter-field">
-              <span>Candidate depth</span>
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={request.maxResults}
-                onChange={(event) =>
-                  setRequest({
-                    ...request,
-                    maxResults: Number.parseInt(event.target.value, 10) || 5
-                  })
-                }
-              />
-              <p className="field-help">
-                Lower is faster. Higher checks more date combos but takes longer.
-              </p>
-            </label>
-          </div>
+              <div className="form-grid">
+                <div className="field filter-field">
+                  <span>Trip type</span>
+                  <div className="toggle-row">
+                    {[
+                      { label: "One way", value: "one_way" },
+                      { label: "Round trip", value: "round_trip" }
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        className={`toggle-pill ${
+                          request.tripType === option.value ? "is-active" : ""
+                        }`}
+                        type="button"
+                        onClick={() =>
+                          updateTripType(option.value as SearchRequest["tripType"])
+                        }
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-          <div className="date-window-grid">
-            <div className="date-window-actions">
-              <button
-                className="secondary-action secondary-action--compact"
-                type="button"
-                onClick={collapseDateRangesToSingleDates}
-              >
-                {request.tripType === "round_trip"
-                  ? "Use exact dates"
-                  : "Use exact departure date"}
-              </button>
-              <p className="muted-copy">
-                Matches the latest date to the earliest one so each range
-                becomes a single date.
-              </p>
-            </div>
+                <AirportField
+                  label="Origin airport"
+                  value={request.origin}
+                  onSelect={(origin) =>
+                    updateRequest((currentRequest) => ({
+                      ...currentRequest,
+                      origin
+                    }))
+                  }
+                />
 
-            <section className="range-card">
-              <h3>Departure date range</h3>
-              <p className="field-help">
-                The app will consider any outbound date between these two dates.
-              </p>
-              <div className="range-grid">
-                <label className="field">
-                  <span>Earliest departure</span>
-                  <input
-                    type="date"
-                    value={request.departureDateFrom}
+                <AirportField
+                  label="Destination airport"
+                  value={request.destination}
+                  onSelect={(destination) =>
+                    updateRequest((currentRequest) => ({
+                      ...currentRequest,
+                      destination
+                    }))
+                  }
+                />
+
+                <label className="field filter-field">
+                  <span>Cabin</span>
+                  <select
+                    value={request.cabinClass}
                     onChange={(event) =>
-                      setRequest({
-                        ...request,
-                        departureDateFrom: event.target.value
-                      })
+                      updateRequest((currentRequest) => ({
+                        ...currentRequest,
+                        cabinClass: event.target.value as SearchRequest["cabinClass"]
+                      }))
                     }
-                  />
+                  >
+                    <option value="economy">Economy</option>
+                    <option value="premium_economy">Premium economy</option>
+                    <option value="business">Business</option>
+                    <option value="first">First</option>
+                  </select>
                 </label>
 
-                <label className="field">
-                  <span>Latest departure</span>
-                  <input
-                    type="date"
-                    value={request.departureDateTo}
+                <label className="field filter-field">
+                  <span>Stops</span>
+                  <select
+                    value={request.stopsFilter}
                     onChange={(event) =>
-                      setRequest({ ...request, departureDateTo: event.target.value })
+                      updateRequest((currentRequest) => ({
+                        ...currentRequest,
+                        stopsFilter: event.target.value as SearchRequest["stopsFilter"]
+                      }))
+                    }
+                  >
+                    <option value="any">Any</option>
+                    <option value="nonstop">Nonstop</option>
+                    <option value="max_1_stop">Up to 1 stop</option>
+                    <option value="max_2_stops">Up to 2 stops</option>
+                  </select>
+                </label>
+
+                <label className="field filter-field">
+                  <span>Candidate depth</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={request.maxResults}
+                    onChange={(event) =>
+                      updateRequest((currentRequest) => ({
+                        ...currentRequest,
+                        maxResults: Number.parseInt(event.target.value, 10) || 5
+                      }))
                     }
                   />
+                  <p className="field-help">
+                    Lower is faster. Higher checks more date combos but takes
+                    longer.
+                  </p>
+                </label>
+
+                <label className="checkbox-field filter-field">
+                  <input
+                    className="checkbox-field__input"
+                    type="checkbox"
+                    checked={useExactDates}
+                    onChange={(event) => toggleExactDates(event.target.checked)}
+                  />
+                  <span className="checkbox-field__switch" aria-hidden="true">
+                    <span className="checkbox-field__knob" />
+                  </span>
+                  <div>
+                    <span>Use exact dates</span>
+                    <p className="field-help">
+                      Keeps the departure and return windows matched: earliest
+                      with earliest, latest with latest.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="checkbox-field filter-field">
+                  <input
+                    className="checkbox-field__input"
+                    type="checkbox"
+                    checked={request.preferDirectBookingOnly}
+                    onChange={(event) =>
+                      updateRequest((currentRequest) => ({
+                        ...currentRequest,
+                        preferDirectBookingOnly: event.target.checked
+                      }))
+                    }
+                  />
+                  <span className="checkbox-field__switch" aria-hidden="true">
+                    <span className="checkbox-field__knob" />
+                  </span>
+                  <div>
+                    <span>Prefer direct booking only</span>
+                    <p className="field-help">
+                      If Google can tell who is selling the ticket,
+                      travel-agency fares are removed. If Google cannot tell,
+                      the fare may still show up.
+                    </p>
+                  </div>
                 </label>
               </div>
             </section>
 
-            {request.tripType === "round_trip" ? (
-              <section className="range-card">
-                <h3>Return date range</h3>
-                <p className="field-help">
-                  Return dates come from this window, but they still have to fit
-                  your minimum and maximum trip length.
-                </p>
-                <div className="range-grid">
-                  <label className="field">
-                    <span>Earliest return</span>
-                    <input
-                      type="date"
-                      value={request.returnDateFrom ?? ""}
-                      onChange={(event) =>
-                        setRequest({
-                          ...request,
-                          returnDateFrom: event.target.value
-                        })
-                      }
-                    />
-                  </label>
-
-                  <label className="field">
-                    <span>Latest return</span>
-                    <input
-                      type="date"
-                      value={request.returnDateTo ?? ""}
-                      onChange={(event) =>
-                        setRequest({ ...request, returnDateTo: event.target.value })
-                      }
-                    />
-                  </label>
-
-                  <label className="field">
-                    <span>Minimum trip length</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="180"
-                      value={request.minimumTripDays ?? 0}
-                      onChange={(event) =>
-                        updateMinimumTripDays(
-                          Number.parseInt(event.target.value, 10) || 0
-                        )
-                      }
-                    />
-                  </label>
-
-                  <label className="field">
-                    <span>Maximum trip length</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="180"
-                      value={request.maximumTripDays ?? 14}
-                      onChange={(event) =>
-                        updateMaximumTripDays(
-                          Number.parseInt(event.target.value, 10) || 14
-                        )
-                      }
-                    />
-                  </label>
+            <section className="form-section">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Dates</p>
+                  <h2>Trip window</h2>
+                  <p className="section-copy">
+                    Give the app a flexible leaving and return window. If exact
+                    dates is turned on above, the departure and return windows
+                    stay linked together.
+                  </p>
                 </div>
-                <p className="range-note">
-                  Example: if you set the trip length to 7 to 14 days, the app
-                  only keeps returns that are 7 to 14 days after the departure.
+              </div>
+
+              <div className="date-window-grid">
+                <section className="range-card">
+                  <h3>Departure date range</h3>
+                  <p className="field-help">
+                    Pick the earliest and latest day you would be okay leaving.
+                  </p>
+                  <div className="range-grid">
+                    <label className="field">
+                      <span>Earliest departure</span>
+                      <input
+                        type="date"
+                        value={request.departureDateFrom}
+                        onChange={(event) =>
+                          updateDepartureDateFrom(event.target.value)
+                        }
+                      />
+                    </label>
+
+                    <label className="field">
+                      <span>Latest departure</span>
+                      <input
+                        type="date"
+                        value={request.departureDateTo}
+                        onChange={(event) =>
+                          updateDepartureDateTo(event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                {request.tripType === "round_trip" ? (
+                  <section className="range-card">
+                    <h3>Return date range</h3>
+                    <p className="field-help">
+                      Pick the earliest and latest day you would be okay coming
+                      back.
+                    </p>
+                    <div className="range-grid">
+                      <label className="field">
+                        <span>Earliest return</span>
+                        <input
+                          type="date"
+                          value={request.returnDateFrom ?? ""}
+                          onChange={(event) =>
+                            updateReturnDateFrom(event.target.value)
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>Latest return</span>
+                        <input
+                          type="date"
+                          value={request.returnDateTo ?? ""}
+                          onChange={(event) =>
+                            updateReturnDateTo(event.target.value)
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>Minimum trip length</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="180"
+                          value={request.minimumTripDays ?? 0}
+                          onChange={(event) =>
+                            updateMinimumTripDays(
+                              Number.parseInt(event.target.value, 10) || 0
+                            )
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>Maximum trip length</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="180"
+                          value={request.maximumTripDays ?? 14}
+                          onChange={(event) =>
+                            updateMaximumTripDays(
+                              Number.parseInt(event.target.value, 10) || 14
+                            )
+                          }
+                        />
+                      </label>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="form-section">
+              <div className="section-heading">
+                <p className="section-kicker">Timing</p>
+                <h2>Departure and arrival hours</h2>
+                <p className="section-copy">
+                  Tighten the time of day if you want to avoid red-eyes,
+                  ultra-early departures, or late arrivals.
                 </p>
-              </section>
-            ) : null}
-          </div>
+              </div>
 
-          <div className="slider-grid">
-            <TimeRangeSlider
-              label="Departure time window"
-              value={request.departureTimeWindow ?? { from: 0, to: 24 }}
-              onChange={(departureTimeWindow) =>
-                setRequest({ ...request, departureTimeWindow })
-              }
-            />
+              <div className="slider-grid">
+                <TimeRangeSlider
+                  label="Departure time window"
+                  value={request.departureTimeWindow ?? { from: 0, to: 24 }}
+                  onChange={(departureTimeWindow) =>
+                    updateRequest((currentRequest) => ({
+                      ...currentRequest,
+                      departureTimeWindow
+                    }))
+                  }
+                />
 
-            <TimeRangeSlider
-              label="Arrival time window"
-              value={request.arrivalTimeWindow ?? { from: 0, to: 24 }}
-              onChange={(arrivalTimeWindow) =>
-                setRequest({ ...request, arrivalTimeWindow })
-              }
-            />
-          </div>
-
-          <AirlinePicker
-            selected={request.airlines}
-            onChange={(airlines) => setRequest({ ...request, airlines })}
-          />
-
-          <div className="action-row">
-            <button
-              className="primary-action"
-              type="submit"
-              disabled={isSearching}
-            >
-              {isSearching ? "Searching live fares..." : "Find cheapest flights"}
-            </button>
-            <p className="muted-copy">
-              Windows-first local app, but the same build works on Linux and macOS too.
-            </p>
-          </div>
-
-          {isSearching ? (
-            <div className="search-progress" role="status" aria-live="polite">
-              <div
-                className="search-progress__bar"
-                aria-label="Searching live fares"
-                aria-valuemax={searchProgress?.totalSteps ?? 1}
-                aria-valuemin={0}
-                aria-valuenow={searchProgress?.completedSteps ?? 0}
-                role="progressbar"
-              >
-                <div
-                  className="search-progress__fill"
-                  style={{ width: `${searchProgress?.percent ?? 0}%` }}
+                <TimeRangeSlider
+                  label="Arrival time window"
+                  value={request.arrivalTimeWindow ?? { from: 0, to: 24 }}
+                  onChange={(arrivalTimeWindow) =>
+                    updateRequest((currentRequest) => ({
+                      ...currentRequest,
+                      arrivalTimeWindow
+                    }))
+                  }
                 />
               </div>
-              <div className="search-progress__copy">
-                <p className="muted-copy">
-                  {searchProgress?.stage ?? "Searching live fares"}
-                </p>
-                {searchProgress?.detail ? (
-                  <p className="muted-copy">{searchProgress.detail}</p>
-                ) : null}
-                <p className="muted-copy">
-                  {searchProgress?.percent ?? 0}% complete
-                  {searchProgress
-                    ? ` (${searchProgress.completedSteps}/${searchProgress.totalSteps} steps)`
-                    : ""}
+            </section>
+
+            <section className="form-section">
+              <div className="section-heading">
+                <p className="section-kicker">Optional</p>
+                <h2>Airline picks</h2>
+                <p className="section-copy">
+                  Leave it blank for any airline, or lock the search to the
+                  carriers you trust.
                 </p>
               </div>
-            </div>
-          ) : null}
 
-          {error ? <p className="error-banner">{error}</p> : null}
+              <AirlinePicker
+                selected={request.airlines}
+                onChange={(airlines) =>
+                  updateRequest((currentRequest) => ({
+                    ...currentRequest,
+                    airlines
+                  }))
+                }
+              />
+            </section>
+
+            <div className="action-row">
+              <button
+                className="primary-action"
+                type="submit"
+                disabled={isSearching}
+              >
+                {isSearching
+                  ? "Searching live fares..."
+                  : "Find cheapest flights"}
+              </button>
+            </div>
+
+            {isSearching ? (
+              <div className="search-progress" role="status" aria-live="polite">
+                <div
+                  className="search-progress__bar"
+                  aria-label="Searching live fares"
+                  aria-valuemax={searchProgress?.totalSteps ?? 1}
+                  aria-valuemin={0}
+                  aria-valuenow={searchProgress?.completedSteps ?? 0}
+                  role="progressbar"
+                >
+                  <div
+                    className="search-progress__fill"
+                    style={{ width: `${searchProgress?.percent ?? 0}%` }}
+                  />
+                </div>
+                <div className="search-progress__copy">
+                  <p className="muted-copy">
+                    {searchProgress?.stage ?? "Searching live fares"}
+                  </p>
+                  {searchProgress?.detail ? (
+                    <p className="muted-copy">{searchProgress.detail}</p>
+                  ) : null}
+                  <p className="muted-copy">
+                    {searchProgress?.percent ?? 0}% complete
+                    {searchProgress
+                      ? ` (${searchProgress.completedSteps}/${searchProgress.totalSteps} steps)`
+                      : ""}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {error ? <p className="error-banner">{error}</p> : null}
           </form>
         </section>
 
