@@ -3,5 +3,4 @@ app/dist
 app/.cache
 app/coverage
 app/npm-debug.log*
-cheapestflightpicker.git
 .DS_Store

@@ -33,6 +33,7 @@ setup-and-launch.bat
 
 This script does the following:
 
+- pulls the latest repo changes first when the checkout is clean
 - installs dependencies
 - runs checks/tests
 - builds the app
@@ -40,6 +41,8 @@ This script does the following:
 - opens the app in your browser at `http://localhost:8787`
 
 This top-level folder is now the actual repo, so the launcher expects `workspace/app` to already be part of the checkout. If that folder is missing, the repo needs to be re-cloned.
+
+If you've got local edits, the launcher skips the auto-pull on purpose so it doesn't trample your work.
 
 ### Linux / macOS
 
@@ -65,7 +68,6 @@ Out of spite, I made this tool.
 - `workspace/app/src/cli` is the command-line version
 - `workspace/app/web/src` is the React UI
 - `workspace/app/data` has airport and airline reference data
-- `workspace/cheapestflightpicker.git` is just a local bare backup/history repo now
 
 ## License
 This repo is source-available under `PolyForm Noncommercial 1.0.0`.

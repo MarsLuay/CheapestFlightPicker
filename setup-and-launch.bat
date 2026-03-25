@@ -1,8 +1,33 @@
 @echo off
 setlocal
 set "ROOT_DIR=%~dp0"
-set "WORKSPACE_DIR=%ROOT_DIR%workspace"
+if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
+set "WORKSPACE_DIR=%ROOT_DIR%\workspace"
 set "APP_DIR=%WORKSPACE_DIR%\app"
+
+where git >nul 2>nul
+if errorlevel 1 (
+  echo git is required but was not found on PATH.
+  exit /b 1
+)
+
+if not exist "%ROOT_DIR%\.git" (
+  echo The repo metadata was not found at "%ROOT_DIR%".
+  echo Re-clone the Cheapest Flight Picker repo before running this launcher.
+  exit /b 1
+)
+
+echo Checking for repo updates...
+git -C "%ROOT_DIR%" status --porcelain --untracked-files=normal | findstr . >nul
+if errorlevel 1 (
+  git -C "%ROOT_DIR%" pull --ff-only origin main
+  if errorlevel 1 (
+    echo Failed to update the repo automatically.
+    exit /b 1
+  )
+) else (
+  echo Local changes detected. Skipping auto-update so your work stays untouched.
+)
 
 if not exist "%APP_DIR%\package.json" (
   echo workspace\app is missing or incomplete.
