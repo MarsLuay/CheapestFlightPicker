@@ -6,11 +6,14 @@ set "REPO_URL=https://github.com/MarsLuay/CheapestFlightPicker.git"
 set "REPO_DIR=%LAUNCHER_DIR%"
 set "STANDALONE_REPO_DIR=%LAUNCHER_DIR%\CheapestFlightPicker"
 
-where git >nul 2>nul
-if errorlevel 1 (
-  echo git is required but was not found on PATH.
-  exit /b 1
-)
+call :ensure_command git "Git.Git" "Git"
+if errorlevel 1 exit /b 1
+
+call :ensure_command node "OpenJS.NodeJS.LTS" "Node.js LTS"
+if errorlevel 1 exit /b 1
+
+call :ensure_command npm "OpenJS.NodeJS.LTS" "Node.js LTS"
+if errorlevel 1 exit /b 1
 
 if exist "!REPO_DIR!\.git" (
   if not exist "!REPO_DIR!\workspace\app\package.json" (
@@ -99,3 +102,69 @@ if errorlevel 1 (
 
 start "" http://localhost:8787
 echo App launched in your browser. Close the server window to stop it.
+exit /b 0
+
+:ensure_command
+set "COMMAND_NAME=%~1"
+set "WINGET_ID=%~2"
+set "DISPLAY_NAME=%~3"
+
+where "%COMMAND_NAME%" >nul 2>nul
+if not errorlevel 1 exit /b 0
+
+echo %DISPLAY_NAME% was not found. Trying to install it with winget...
+where winget >nul 2>nul
+if errorlevel 1 (
+  echo winget is not available on this machine, so %DISPLAY_NAME% could not be installed automatically.
+  echo Install %DISPLAY_NAME%, then run this launcher again.
+  exit /b 1
+)
+
+winget install --id "%WINGET_ID%" --exact --accept-package-agreements --accept-source-agreements --silent
+if errorlevel 1 (
+  echo Failed to install %DISPLAY_NAME% automatically.
+  echo Install %DISPLAY_NAME%, then run this launcher again.
+  exit /b 1
+)
+
+call :refresh_path
+where "%COMMAND_NAME%" >nul 2>nul
+if not errorlevel 1 exit /b 0
+
+for %%P in (
+  "%ProgramFiles%\Git\cmd"
+  "%ProgramFiles%\Git\bin"
+  "%ProgramFiles%\nodejs"
+  "%LocalAppData%\Programs\Git\cmd"
+  "%LocalAppData%\Programs\Git\bin"
+  "%LocalAppData%\Programs\nodejs"
+) do (
+  if exist %%~P (
+    set "PATH=%%~P;!PATH!"
+  )
+)
+
+where "%COMMAND_NAME%" >nul 2>nul
+if not errorlevel 1 exit /b 0
+
+echo %DISPLAY_NAME% installed, but this shell still cannot find %COMMAND_NAME%.
+echo Close and rerun the launcher if the install just finished.
+exit /b 1
+
+:refresh_path
+for /f "usebackq tokens=2,*" %%A in (`reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul ^| find /i "Path"`) do set "MACHINE_PATH=%%B"
+for /f "usebackq tokens=2,*" %%A in (`reg query "HKCU\Environment" /v Path 2^>nul ^| find /i "Path"`) do set "USER_PATH=%%B"
+
+if defined MACHINE_PATH (
+  set "PATH=!MACHINE_PATH!"
+)
+
+if defined USER_PATH (
+  if defined PATH (
+    set "PATH=!PATH!;!USER_PATH!"
+  ) else (
+    set "PATH=!USER_PATH!"
+  )
+)
+
+exit /b 0
