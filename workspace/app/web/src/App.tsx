@@ -83,6 +83,17 @@ export default function App() {
     });
   }
 
+  function collapseDateRangesToSingleDates() {
+    setRequest((currentRequest) => ({
+      ...currentRequest,
+      departureDateTo: currentRequest.departureDateFrom,
+      returnDateTo:
+        currentRequest.tripType === "round_trip"
+          ? currentRequest.returnDateFrom ?? currentRequest.returnDateTo
+          : currentRequest.returnDateTo
+    }));
+  }
+
   async function handleSearch(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     setIsSearching(true);
@@ -258,6 +269,22 @@ export default function App() {
           </div>
 
           <div className="date-window-grid">
+            <div className="date-window-actions">
+              <button
+                className="secondary-action secondary-action--compact"
+                type="button"
+                onClick={collapseDateRangesToSingleDates}
+              >
+                {request.tripType === "round_trip"
+                  ? "Use exact dates"
+                  : "Use exact departure date"}
+              </button>
+              <p className="muted-copy">
+                Matches the latest date to the earliest one so each range
+                becomes a single date.
+              </p>
+            </div>
+
             <section className="range-card">
               <h3>Departure date range</h3>
               <p className="field-help">
@@ -295,9 +322,8 @@ export default function App() {
               <section className="range-card">
                 <h3>Return date range</h3>
                 <p className="field-help">
-                  The app will consider any return date in this window that is at
-                  least the minimum trip length after departure and no longer than
-                  the maximum trip length.
+                  Return dates come from this window, but they still have to fit
+                  your minimum and maximum trip length.
                 </p>
                 <div className="range-grid">
                   <label className="field">
@@ -356,9 +382,8 @@ export default function App() {
                   </label>
                 </div>
                 <p className="range-note">
-                  Example: with a 3 month departure and return window plus a
-                  trip length between 7 and 14 days, the search only keeps
-                  options where the return lands inside that stay-length window.
+                  Example: if you set the trip length to 7 to 14 days, the app
+                  only keeps returns that are 7 to 14 days after the departure.
                 </p>
               </section>
             ) : null}

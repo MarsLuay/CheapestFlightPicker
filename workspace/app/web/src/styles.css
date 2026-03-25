@@ -250,6 +250,14 @@ select {
   margin-top: 20px;
 }
 
+.date-window-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  grid-column: 1 / -1;
+}
+
 .range-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
@@ -594,6 +602,10 @@ select {
   border-color: rgba(241, 190, 132, 0.32);
   outline: none;
   transform: translateY(-1px);
+}
+
+.secondary-action--compact {
+  min-height: 42px;
 }
 
 .primary-action:disabled {
