@@ -38,8 +38,7 @@ function buildSummary(request: SearchRequest): SearchSummary {
     cheapestOverall: null,
     cheapestRoundTrip: null,
     cheapestTwoOneWays: null,
-    cheapestDirectThere: null,
-    cheapestDirectReturn: null,
+    cheapestNonstop: null,
     cheapestMultiStop: null,
     evaluatedDatePairs: [],
     inspectedOptions: 0,
@@ -121,5 +120,42 @@ describe("runFlightSearch", () => {
     expect(fetchMock.mock.calls[3]?.[0]).toBe(
       "/api/search/jobs/replacement-job"
     );
+  });
+
+  it("aborts an in-flight search when the caller cancels it", async () => {
+    globalThis.window = globalThis as typeof globalThis & Window;
+
+    const request = buildRequest();
+    const controller = new AbortController();
+    const runningJob: SearchJobStatus = {
+      id: "running-job",
+      status: "running",
+      createdAt: "2026-03-25T07:59:13.100Z",
+      updatedAt: "2026-03-25T07:59:14.100Z",
+      progress: {
+        stage: "Checking exact flight options",
+        detail: "1 of 6 exact fare lookups finished",
+        completedSteps: 1,
+        totalSteps: 6,
+        percent: 17
+      }
+    };
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ jobId: "running-job" }, 202))
+      .mockResolvedValueOnce(createJsonResponse(runningJob, 200));
+
+    globalThis.fetch = fetchMock;
+
+    const responsePromise = runFlightSearch(request, {
+      signal: controller.signal
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+
+    await expect(responsePromise).rejects.toThrow("Search canceled.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

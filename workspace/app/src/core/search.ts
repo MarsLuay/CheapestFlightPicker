@@ -4,7 +4,7 @@ import { TimingGuidanceService } from "./timing-guidance";
 import {
   combineTwoOneWays,
   findCheapest,
-  findCheapestDirectThere,
+  findCheapestNonstop,
   findCheapestMultiStop,
   isLikelyDirectAirlineBookingOption,
   mapWithConcurrency
@@ -16,6 +16,7 @@ import type {
   DatePrice,
   FlightOption,
   SearchProgress,
+  SearchProgressPreview,
   SearchRequest,
   SearchSummary
 } from "../shared/types";
@@ -40,12 +41,75 @@ function differenceInDays(startDate: string, endDate: string): number {
 
 type SearchProgressReporter = (progress: SearchProgress) => void;
 
+function toPreviewSummary(
+  summary: Pick<
+    SearchSummary,
+    | "departureDatePrices"
+    | "returnDatePrices"
+    | "cheapestOverall"
+    | "cheapestRoundTrip"
+    | "cheapestTwoOneWays"
+    | "cheapestNonstop"
+    | "cheapestMultiStop"
+    | "evaluatedDatePairs"
+    | "inspectedOptions"
+  >
+): SearchProgressPreview {
+  return {
+    departureDatePrices: summary.departureDatePrices,
+    returnDatePrices: summary.returnDatePrices,
+    cheapestOverall: summary.cheapestOverall,
+    cheapestRoundTrip: summary.cheapestRoundTrip,
+    cheapestTwoOneWays: summary.cheapestTwoOneWays,
+    cheapestNonstop: summary.cheapestNonstop,
+    cheapestMultiStop: summary.cheapestMultiStop,
+    evaluatedDatePairs: summary.evaluatedDatePairs,
+    inspectedOptions: summary.inspectedOptions
+  };
+}
+
+function flightOptionsMatch(left: FlightOption, right: FlightOption): boolean {
+  if (left.source !== right.source || left.slices.length !== right.slices.length) {
+    return false;
+  }
+
+  return left.slices.every((leftSlice, sliceIndex) => {
+    const rightSlice = right.slices[sliceIndex];
+    if (
+      !rightSlice ||
+      leftSlice.stops !== rightSlice.stops ||
+      leftSlice.legs.length !== rightSlice.legs.length
+    ) {
+      return false;
+    }
+
+    return leftSlice.legs.every((leftLeg, legIndex) => {
+      const rightLeg = rightSlice.legs[legIndex];
+      return (
+        Boolean(rightLeg) &&
+        leftLeg.airlineCode === rightLeg.airlineCode &&
+        leftLeg.flightNumber === rightLeg.flightNumber &&
+        leftLeg.departureAirportCode === rightLeg.departureAirportCode &&
+        leftLeg.arrivalAirportCode === rightLeg.arrivalAirportCode &&
+        leftLeg.departureDateTime === rightLeg.departureDateTime &&
+        leftLeg.arrivalDateTime === rightLeg.arrivalDateTime
+      );
+    });
+  });
+}
+
 class ProgressTracker {
   private completedSteps = 0;
 
   private currentDetail: string | undefined;
 
   private currentStage = "Preparing search";
+
+  private previewCheapestOverall: FlightOption | null | undefined;
+
+  private previewInspectedOptions: number | undefined;
+
+  private previewSummary: SearchProgressPreview | null | undefined;
 
   constructor(
     private totalSteps: number,
@@ -76,6 +140,25 @@ class ProgressTracker {
     this.emit();
   }
 
+  setPreviewCheapestOverall(
+    option: FlightOption | null,
+    inspectedOptions?: number,
+    emit = true
+  ): void {
+    this.previewCheapestOverall = option;
+    this.previewInspectedOptions = inspectedOptions;
+    if (emit) {
+      this.emit();
+    }
+  }
+
+  setPreviewSummary(summary: SearchProgressPreview | null, emit = true): void {
+    this.previewSummary = summary;
+    if (emit) {
+      this.emit();
+    }
+  }
+
   finish(detail?: string): void {
     this.completedSteps = this.totalSteps;
     this.currentStage = "Completed";
@@ -92,7 +175,10 @@ class ProgressTracker {
       percent: Math.max(
         0,
         Math.min(100, Math.round((this.completedSteps / this.totalSteps) * 100))
-      )
+      ),
+      previewCheapestOverall: this.previewCheapestOverall,
+      previewInspectedOptions: this.previewInspectedOptions,
+      previewSummary: this.previewSummary
     });
   }
 }
@@ -154,6 +240,193 @@ export class FlightSearchService {
     };
   }
 
+  private buildSingleSliceOption(
+    option: FlightOption,
+    sliceIndex: number,
+    departureDate: string
+  ): FlightOption | null {
+    const slice = option.slices[sliceIndex];
+    if (!slice) {
+      return null;
+    }
+
+    return {
+      source: "google_one_way",
+      totalPrice:
+        option.slicePrices?.[sliceIndex] ??
+        (sliceIndex === 0 ? option.totalPrice : option.totalPrice),
+      currency: option.currency,
+      slices: [slice],
+      slicePrices:
+        option.slicePrices?.[sliceIndex] !== undefined
+          ? [option.slicePrices[sliceIndex] ?? 0]
+          : undefined,
+      bookingSource: option.bookingSource,
+      outboundDate: departureDate
+    };
+  }
+
+  private async repriceOneWayOption(
+    request: SearchRequest,
+    origin: string,
+    destination: string,
+    departureDate: string,
+    target: FlightOption
+  ): Promise<FlightOption | null> {
+    const freshOptions = await this.provider.searchExactFlights(
+      {
+        tripType: "one_way",
+        origin,
+        destination,
+        departureDate,
+        cabinClass: request.cabinClass,
+        stopsFilter: request.stopsFilter,
+        preferDirectBookingOnly: request.preferDirectBookingOnly,
+        requireFreeCarryOnBag: request.requireFreeCarryOnBag,
+        airlines: request.airlines,
+        passengers: request.passengers,
+        departureTimeWindow: request.departureTimeWindow ?? undefined,
+        arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
+      },
+      {
+        bypassCache: true
+      }
+    );
+    const refinedOptions = await this.refineOptionsForDirectBookingPreference(
+      freshOptions,
+      this.buildOneWaySupplementRequest(
+        request,
+        origin,
+        destination,
+        departureDate
+      )
+    );
+
+    return (
+      refinedOptions.find((candidate) => flightOptionsMatch(candidate, target)) ?? null
+    );
+  }
+
+  private async repriceOption(
+    request: SearchRequest,
+    option: FlightOption | null
+  ): Promise<FlightOption | null> {
+    if (!option) {
+      return null;
+    }
+
+    if (option.source === "google_one_way" && option.outboundDate) {
+      return this.repriceOneWayOption(
+        request,
+        request.origin,
+        request.destination,
+        option.outboundDate,
+        option
+      );
+    }
+
+    if (
+      option.source === "google_round_trip" &&
+      option.outboundDate &&
+      option.returnDate
+    ) {
+      const freshOptions = await this.provider.searchExactFlights(
+        {
+          tripType: "round_trip",
+          origin: request.origin,
+          destination: request.destination,
+          departureDate: option.outboundDate,
+          returnDate: option.returnDate,
+          cabinClass: request.cabinClass,
+          stopsFilter: request.stopsFilter,
+          preferDirectBookingOnly: request.preferDirectBookingOnly,
+          requireFreeCarryOnBag: request.requireFreeCarryOnBag,
+          airlines: request.airlines,
+          passengers: request.passengers,
+          departureTimeWindow: request.departureTimeWindow ?? undefined,
+          arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
+        },
+        {
+          bypassCache: true
+        }
+      );
+      const refinedOptions = await this.refineOptionsForDirectBookingPreference(
+        freshOptions,
+        request
+      );
+
+      return (
+        refinedOptions.find((candidate) => flightOptionsMatch(candidate, option)) ??
+        null
+      );
+    }
+
+    if (
+      option.source === "two_one_way_combo" &&
+      option.outboundDate &&
+      option.returnDate
+    ) {
+      const outboundTarget = this.buildSingleSliceOption(
+        option,
+        0,
+        option.outboundDate
+      );
+      const inboundTarget = this.buildSingleSliceOption(
+        option,
+        1,
+        option.returnDate
+      );
+
+      if (!outboundTarget || !inboundTarget) {
+        return null;
+      }
+
+      const [repricedOutbound, repricedInbound] = await Promise.all([
+        this.repriceOneWayOption(
+          request,
+          request.origin,
+          request.destination,
+          option.outboundDate,
+          outboundTarget
+        ),
+        this.repriceOneWayOption(
+          request,
+          request.destination,
+          request.origin,
+          option.returnDate,
+          inboundTarget
+        )
+      ]);
+
+      if (!repricedOutbound || !repricedInbound) {
+        return null;
+      }
+
+      return combineTwoOneWays(
+        repricedOutbound,
+        repricedInbound,
+        option.outboundDate,
+        option.returnDate
+      );
+    }
+
+    return null;
+  }
+
+  private replaceMatchingOption(
+    options: FlightOption[],
+    target: FlightOption | null,
+    replacement: FlightOption | null
+  ): FlightOption[] {
+    if (!target || !replacement) {
+      return options;
+    }
+
+    return options.map((option) =>
+      flightOptionsMatch(option, target) ? replacement : option
+    );
+  }
+
   async search(
     input: unknown,
     progressReporter?: SearchProgressReporter
@@ -190,6 +463,20 @@ export class FlightSearchService {
       "Departure date range scanned",
       `Found ${departureDatePrices.length} departure date candidates`
     );
+    tracker.setPreviewSummary(
+      toPreviewSummary({
+        departureDatePrices,
+        returnDatePrices: [],
+        cheapestOverall: null,
+        cheapestRoundTrip: null,
+        cheapestTwoOneWays: null,
+        cheapestNonstop: null,
+        cheapestMultiStop: null,
+        evaluatedDatePairs: [],
+        inspectedOptions: 0
+      }),
+      false
+    );
 
     const candidateDates = departureDatePrices.slice(
       0,
@@ -201,6 +488,8 @@ export class FlightSearchService {
     );
 
     let completedLookups = 0;
+    const previewOptions: FlightOption[] = [];
+    const previewEvaluatedDatePairs: CandidatePair[] = [];
     const optionsByDate = await mapWithConcurrency(
       candidateDates,
       2,
@@ -213,12 +502,37 @@ export class FlightSearchService {
           cabinClass: request.cabinClass,
           stopsFilter: request.stopsFilter,
           preferDirectBookingOnly: request.preferDirectBookingOnly,
+          requireFreeCarryOnBag: request.requireFreeCarryOnBag,
           airlines: request.airlines,
           passengers: request.passengers,
           departureTimeWindow: request.departureTimeWindow ?? undefined,
           arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
         });
+        previewOptions.push(...options);
+        previewEvaluatedDatePairs.push({
+          departureDate: entry.date
+        });
+        const previewCheapestOverall = findCheapest(previewOptions);
         completedLookups += 1;
+        tracker.setPreviewSummary(
+          toPreviewSummary({
+            departureDatePrices,
+            returnDatePrices: [],
+            cheapestOverall: previewCheapestOverall,
+            cheapestRoundTrip: null,
+            cheapestTwoOneWays: null,
+            cheapestNonstop: findCheapestNonstop(previewOptions),
+            cheapestMultiStop: findCheapestMultiStop(previewOptions),
+            evaluatedDatePairs: [...previewEvaluatedDatePairs],
+            inspectedOptions: previewOptions.length
+          }),
+          false
+        );
+        tracker.setPreviewCheapestOverall(
+          previewCheapestOverall,
+          completedLookups,
+          false
+        );
         tracker.completeStep(
           "Checking exact flight options",
           `${completedLookups} of ${candidateDates.length} exact fare lookups finished`
@@ -229,8 +543,41 @@ export class FlightSearchService {
 
     let options = optionsByDate.flat().slice(0, request.maxResults * 4);
     options = await this.refineOptionsForDirectBookingPreference(options, request);
-    const cheapestOverall = findCheapest(options);
-    const cheapestDirectThere = findCheapestDirectThere(options);
+    let cheapestOverall = findCheapest(options);
+    if (cheapestOverall) {
+      tracker.setStage(
+        "Refreshing best fare",
+        "Repricing the current cheapest itinerary before the timing read"
+      );
+      const repricedCheapestOverall = await this.repriceOption(
+        request,
+        cheapestOverall
+      );
+      options = this.replaceMatchingOption(
+        options,
+        cheapestOverall,
+        repricedCheapestOverall
+      );
+      cheapestOverall = findCheapest(options);
+    }
+    const cheapestNonstop = findCheapestNonstop(options);
+    tracker.setPreviewSummary(
+      toPreviewSummary({
+        departureDatePrices,
+        returnDatePrices: [],
+        cheapestOverall,
+        cheapestRoundTrip: null,
+        cheapestTwoOneWays: null,
+        cheapestNonstop,
+        cheapestMultiStop: findCheapestMultiStop(options),
+        evaluatedDatePairs: candidateDates.map((entry) => ({
+          departureDate: entry.date
+        })),
+        inspectedOptions: options.length
+      }),
+      false
+    );
+    tracker.setPreviewCheapestOverall(cheapestOverall, completedLookups, false);
     tracker.completeStep(
       "Ranking cheapest options",
       `Compared ${options.length} exact flight options`
@@ -243,8 +590,7 @@ export class FlightSearchService {
       cheapestOverall,
       cheapestRoundTrip: null,
       cheapestTwoOneWays: null,
-      cheapestDirectThere,
-      cheapestDirectReturn: null,
+      cheapestNonstop,
       cheapestMultiStop: findCheapestMultiStop(options),
       evaluatedDatePairs: candidateDates.map((entry) => ({
         departureDate: entry.date
@@ -254,11 +600,20 @@ export class FlightSearchService {
       priceAlert: null,
       hackerFareInsight: null
     };
-    const annotatedSummary = this.timingGuidanceService.annotateSummary(summary);
+    const annotatedSummary = await this.timingGuidanceService.annotateSummary(
+      summary,
+      options
+    );
     const supplementedSummary =
       await this.bookingSourceSupplementService.supplementSummary(
         annotatedSummary
       );
+    tracker.setPreviewSummary(toPreviewSummary(supplementedSummary), false);
+    tracker.setPreviewCheapestOverall(
+      supplementedSummary.cheapestOverall,
+      completedLookups,
+      false
+    );
     tracker.finish(
       cheapestOverall
         ? `Cheapest option found for ${cheapestOverall.currency} ${cheapestOverall.totalPrice}`
@@ -292,6 +647,20 @@ export class FlightSearchService {
       "Departure date range scanned",
       `Found ${departureDatePrices.length} departure date candidates`
     );
+    tracker.setPreviewSummary(
+      toPreviewSummary({
+        departureDatePrices,
+        returnDatePrices: [],
+        cheapestOverall: null,
+        cheapestRoundTrip: null,
+        cheapestTwoOneWays: null,
+        cheapestNonstop: null,
+        cheapestMultiStop: null,
+        evaluatedDatePairs: [],
+        inspectedOptions: 0
+      }),
+      false
+    );
 
     tracker.setStage(
       "Scanning return date range",
@@ -307,6 +676,20 @@ export class FlightSearchService {
     tracker.completeStep(
       "Return date range scanned",
       `Found ${returnDatePrices.length} return date candidates`
+    );
+    tracker.setPreviewSummary(
+      toPreviewSummary({
+        departureDatePrices,
+        returnDatePrices,
+        cheapestOverall: null,
+        cheapestRoundTrip: null,
+        cheapestTwoOneWays: null,
+        cheapestNonstop: null,
+        cheapestMultiStop: null,
+        evaluatedDatePairs: [],
+        inspectedOptions: 0
+      }),
+      false
     );
 
     const candidatePairs = this.buildCandidatePairs(
@@ -325,6 +708,11 @@ export class FlightSearchService {
     );
 
     let completedLookups = 0;
+    let completedPairEvaluations = 0;
+    const previewRoundTripOptions: FlightOption[] = [];
+    const previewTwoOneWayOptions: FlightOption[] = [];
+    const previewNonstopOptions: FlightOption[] = [];
+    const previewEvaluatedDatePairs: CandidatePair[] = [];
     function reportExactLookupComplete(): void {
       completedLookups += 1;
       tracker.completeStep(
@@ -349,6 +737,7 @@ export class FlightSearchService {
               cabinClass: request.cabinClass,
               stopsFilter: request.stopsFilter,
               preferDirectBookingOnly: request.preferDirectBookingOnly,
+              requireFreeCarryOnBag: request.requireFreeCarryOnBag,
               airlines: request.airlines,
               passengers: request.passengers,
               departureTimeWindow: request.departureTimeWindow ?? undefined,
@@ -367,6 +756,7 @@ export class FlightSearchService {
               cabinClass: request.cabinClass,
               stopsFilter: request.stopsFilter,
               preferDirectBookingOnly: request.preferDirectBookingOnly,
+              requireFreeCarryOnBag: request.requireFreeCarryOnBag,
               airlines: request.airlines,
               passengers: request.passengers,
               departureTimeWindow: request.departureTimeWindow ?? undefined,
@@ -385,6 +775,7 @@ export class FlightSearchService {
               cabinClass: request.cabinClass,
               stopsFilter: request.stopsFilter,
               preferDirectBookingOnly: request.preferDirectBookingOnly,
+              requireFreeCarryOnBag: request.requireFreeCarryOnBag,
               airlines: request.airlines,
               passengers: request.passengers,
               departureTimeWindow: request.departureTimeWindow ?? undefined,
@@ -423,6 +814,9 @@ export class FlightSearchService {
           );
 
         const cheapestRoundTrip = findCheapest(refinedRoundTripOptions);
+        const cheapestNonstopRoundTrip = findCheapestNonstop(
+          refinedRoundTripOptions
+        );
         const cheapestOutbound = findCheapest(refinedOutboundOptions);
         const cheapestInbound = findCheapest(refinedInboundOptions);
         const cheapestTwoOneWays =
@@ -434,38 +828,154 @@ export class FlightSearchService {
                 pair.returnDate
               )
             : null;
+        const cheapestNonstopOutbound = findCheapestNonstop(
+          refinedOutboundOptions
+        );
+        const cheapestNonstopInbound = findCheapestNonstop(refinedInboundOptions);
+        const cheapestNonstopTwoOneWays =
+          cheapestNonstopOutbound && cheapestNonstopInbound && pair.returnDate
+            ? combineTwoOneWays(
+                cheapestNonstopOutbound,
+                cheapestNonstopInbound,
+                pair.departureDate,
+                pair.returnDate
+              )
+            : null;
+        const cheapestOverallForPair = findCheapest(
+          [cheapestRoundTrip, cheapestTwoOneWays].filter(
+            (entry): entry is FlightOption => entry !== null
+          )
+        );
+        if (cheapestRoundTrip) {
+          previewRoundTripOptions.push(cheapestRoundTrip);
+        }
+        if (cheapestTwoOneWays) {
+          previewTwoOneWayOptions.push(cheapestTwoOneWays);
+        }
+        const cheapestNonstop = findCheapest(
+          [cheapestNonstopRoundTrip, cheapestNonstopTwoOneWays].filter(
+            (entry): entry is FlightOption => entry !== null
+          )
+        );
+        if (cheapestNonstop) {
+          previewNonstopOptions.push(cheapestNonstop);
+        }
+        previewEvaluatedDatePairs.push(pair);
+        completedPairEvaluations += 1;
+        const previewCheapestOverall = findCheapest([
+          ...previewRoundTripOptions,
+          ...previewTwoOneWayOptions
+        ]);
+        tracker.setPreviewSummary(
+          toPreviewSummary({
+            departureDatePrices,
+            returnDatePrices,
+            cheapestOverall: previewCheapestOverall,
+            cheapestRoundTrip: findCheapest(previewRoundTripOptions),
+            cheapestTwoOneWays: findCheapest(previewTwoOneWayOptions),
+            cheapestNonstop: findCheapest(previewNonstopOptions),
+            cheapestMultiStop: findCheapestMultiStop([
+              ...previewRoundTripOptions,
+              ...previewTwoOneWayOptions
+            ]),
+            evaluatedDatePairs: [...previewEvaluatedDatePairs],
+            inspectedOptions:
+              previewRoundTripOptions.length + previewTwoOneWayOptions.length
+          }),
+          false
+        );
+        tracker.setPreviewCheapestOverall(
+          previewCheapestOverall,
+          completedPairEvaluations
+        );
 
         return {
           cheapestRoundTrip,
           cheapestTwoOneWays,
-          cheapestDirectThere: findCheapestDirectThere(refinedOutboundOptions),
-          cheapestDirectReturn: findCheapestDirectThere(refinedInboundOptions)
+          cheapestNonstop
         };
       }
     );
 
-    const roundTripOptions = evaluated
+    let roundTripOptions = evaluated
       .map((entry) => entry.cheapestRoundTrip)
       .filter((entry): entry is FlightOption => entry !== null);
-    const twoOneWayOptions = evaluated
+    let twoOneWayOptions = evaluated
       .map((entry) => entry.cheapestTwoOneWays)
       .filter((entry): entry is FlightOption => entry !== null);
-    const directThereOptions = evaluated
-      .map((entry) => entry.cheapestDirectThere)
+    let nonstopOptions = evaluated
+      .map((entry) => entry.cheapestNonstop)
       .filter((entry): entry is FlightOption => entry !== null);
-    const directReturnOptions = evaluated
-      .map((entry) => entry.cheapestDirectReturn)
-      .filter((entry): entry is FlightOption => entry !== null);
-
-    const cheapestRoundTrip = findCheapest(roundTripOptions);
-    const cheapestTwoOneWays = findCheapest(twoOneWayOptions);
-    const cheapestDirectThere = findCheapest(directThereOptions);
-    const cheapestDirectReturn = findCheapest(directReturnOptions);
-    const cheapestOverall = findCheapest(
+    let cheapestRoundTrip = findCheapest(roundTripOptions);
+    let cheapestTwoOneWays = findCheapest(twoOneWayOptions);
+    let cheapestOverall = findCheapest(
       [cheapestRoundTrip, cheapestTwoOneWays].filter(
         (entry): entry is FlightOption => entry !== null
       )
     );
+
+    if (cheapestOverall) {
+      tracker.setStage(
+        "Refreshing best fare",
+        "Repricing the current cheapest itinerary before the timing read"
+      );
+      const repricedCheapestOverall = await this.repriceOption(
+        request,
+        cheapestOverall
+      );
+
+      if (cheapestOverall.source === "google_round_trip") {
+        roundTripOptions = this.replaceMatchingOption(
+          roundTripOptions,
+          cheapestOverall,
+          repricedCheapestOverall
+        );
+        nonstopOptions = this.replaceMatchingOption(
+          nonstopOptions,
+          cheapestOverall,
+          repricedCheapestOverall
+        );
+      } else if (cheapestOverall.source === "two_one_way_combo") {
+        twoOneWayOptions = this.replaceMatchingOption(
+          twoOneWayOptions,
+          cheapestOverall,
+          repricedCheapestOverall
+        );
+        nonstopOptions = this.replaceMatchingOption(
+          nonstopOptions,
+          cheapestOverall,
+          repricedCheapestOverall
+        );
+      }
+
+      cheapestRoundTrip = findCheapest(roundTripOptions);
+      cheapestTwoOneWays = findCheapest(twoOneWayOptions);
+      cheapestOverall = findCheapest(
+        [cheapestRoundTrip, cheapestTwoOneWays].filter(
+          (entry): entry is FlightOption => entry !== null
+        )
+      );
+    }
+
+    const cheapestNonstop = findCheapest(nonstopOptions);
+    tracker.setPreviewSummary(
+      toPreviewSummary({
+        departureDatePrices,
+        returnDatePrices,
+        cheapestOverall,
+        cheapestRoundTrip,
+        cheapestTwoOneWays,
+        cheapestNonstop,
+        cheapestMultiStop: findCheapestMultiStop([
+          ...roundTripOptions,
+          ...twoOneWayOptions
+        ]),
+        evaluatedDatePairs: candidatePairs,
+        inspectedOptions: roundTripOptions.length + twoOneWayOptions.length
+      }),
+      false
+    );
+    tracker.setPreviewCheapestOverall(cheapestOverall, completedPairEvaluations, false);
     tracker.completeStep(
       "Ranking cheapest options",
       `Compared ${roundTripOptions.length + twoOneWayOptions.length} final option groups`
@@ -478,8 +988,7 @@ export class FlightSearchService {
       cheapestOverall,
       cheapestRoundTrip,
       cheapestTwoOneWays,
-      cheapestDirectThere,
-      cheapestDirectReturn,
+      cheapestNonstop,
       cheapestMultiStop: findCheapestMultiStop([
         ...roundTripOptions,
         ...twoOneWayOptions
@@ -490,11 +999,20 @@ export class FlightSearchService {
       priceAlert: null,
       hackerFareInsight: null
     };
-    const annotatedSummary = this.timingGuidanceService.annotateSummary(summary);
+    const annotatedSummary = await this.timingGuidanceService.annotateSummary(
+      summary,
+      [...roundTripOptions, ...twoOneWayOptions]
+    );
     const supplementedSummary =
       await this.bookingSourceSupplementService.supplementSummary(
         annotatedSummary
       );
+    tracker.setPreviewSummary(toPreviewSummary(supplementedSummary), false);
+    tracker.setPreviewCheapestOverall(
+      supplementedSummary.cheapestOverall,
+      completedPairEvaluations,
+      false
+    );
     tracker.finish(
       cheapestOverall
         ? `Cheapest option found for ${cheapestOverall.currency} ${cheapestOverall.totalPrice}`

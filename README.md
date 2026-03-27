@@ -19,7 +19,7 @@ The root of this repo is intentionally pretty clean to let even your grandma run
   - Cheapest overall
   - Cheapest round-trip
   - Cheapest two one-ways
-  - Cheapest direct there
+  - Cheapest nonstop
   - Cheapest option with stops
 - Gives you Google Flights links for the results it finds
 - Has a hidden admin panel you can open with `` ` `` or `~` for logs, auto-origin diagnostics, timing guidance, price alerts, and Hacker Fare state

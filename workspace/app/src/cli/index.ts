@@ -100,6 +100,10 @@ program
     "Filter out OTA fares when Google exposes the seller",
     false
   )
+  .option(
+    "--no-require-free-carry-on-bag",
+    "Allow flights with no free carry-on bag"
+  )
   .option("--airlines <codes>", "Comma-separated airline codes", "")
   .option(
     "--max-results <count>",
@@ -120,6 +124,7 @@ program
       cabinClass: options.cabin,
       stopsFilter: options.stops,
       preferDirectBookingOnly: Boolean(options.preferDirectBookingOnly),
+      requireFreeCarryOnBag: options.requireFreeCarryOnBag,
       airlines: parseAirlines(options.airlines),
       passengers: {
         adults: 1,
@@ -148,10 +153,7 @@ program
       printOption("Cheapest overall", summary.cheapestOverall);
       printOption("Cheapest round-trip", summary.cheapestRoundTrip);
       printOption("Cheapest two one-ways", summary.cheapestTwoOneWays);
-      printOption("Cheapest direct there", summary.cheapestDirectThere);
-      if (request.tripType === "round_trip") {
-        printOption("Cheapest direct return", summary.cheapestDirectReturn);
-      }
+      printOption("Cheapest nonstop", summary.cheapestNonstop);
       printOption("Cheapest option with stops", summary.cheapestMultiStop);
       printPriceAlert(summary.priceAlert);
       printHackerFareInsight(summary.hackerFareInsight);

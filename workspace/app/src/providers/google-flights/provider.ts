@@ -1,5 +1,6 @@
 import { JsonFileCache } from "../../core/cache";
 import { findAirlineByCode, findAirportByCode } from "../../core/catalog";
+import { optionAppearsToIncludeFreeCarryOnBag } from "../../core/fare-characteristics";
 import {
   clampTimeWindow,
   combineBookingSources,
@@ -26,6 +27,10 @@ const calendarUrl =
 const shoppingUrl =
   "https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetShoppingResults";
 
+type ExactSearchRuntimeOptions = {
+  bypassCache?: boolean;
+};
+
 export class GoogleFlightsProvider {
   private readonly client = createGoogleFlightsClient();
 
@@ -33,14 +38,16 @@ export class GoogleFlightsProvider {
     directorySegments: [".cache", "google-flights", "calendar"],
     ttlMs: 1000 * 60 * 30,
     maxEntries: 300,
-    sweepIntervalMs: 1000 * 60 * 2
+    sweepIntervalMs: 1000 * 60 * 2,
+    version: 2
   });
 
   private readonly exactSearchCache = new JsonFileCache<FlightOption[]>({
     directorySegments: [".cache", "google-flights", "exact"],
     ttlMs: 1000 * 60 * 20,
     maxEntries: 800,
-    sweepIntervalMs: 1000 * 60 * 2
+    sweepIntervalMs: 1000 * 60 * 2,
+    version: 6
   });
 
   constructor() {
@@ -52,8 +59,7 @@ export class GoogleFlightsProvider {
     const normalizedParams = this.normalizeTimeWindows(params);
     const cacheKey = {
       params: normalizedParams,
-      type: "calendar",
-      version: 2
+      type: "calendar"
     };
     const cachedResults = this.calendarCache.get(cacheKey);
     if (cachedResults) {
@@ -68,15 +74,18 @@ export class GoogleFlightsProvider {
   }
 
   async searchExactFlights(
-    params: ExactFlightSearchParams
+    params: ExactFlightSearchParams,
+    runtimeOptions?: ExactSearchRuntimeOptions
   ): Promise<FlightOption[]> {
     const normalizedParams = this.normalizeTimeWindows(params);
     const cacheKey = {
       params: normalizedParams,
-      type: "exact",
-      version: 3
+      type: "exact"
     };
-    const cachedResults = this.exactSearchCache.get(cacheKey);
+    const cachedResults =
+      runtimeOptions?.bypassCache !== true
+        ? this.exactSearchCache.get(cacheKey)
+        : null;
     if (cachedResults) {
       return cachedResults;
     }
@@ -96,30 +105,13 @@ export class GoogleFlightsProvider {
         ),
         normalizedParams.preferDirectBookingOnly
       );
-      this.exactSearchCache.set(cacheKey, options);
-      return options;
-    }
-
-    const directPairs = this.buildRoundTripPairsFromSingleResponse(
-      results,
-      normalizedParams.origin,
-      normalizedParams.destination
-    );
-
-    if (directPairs.length > 0) {
-      const options = this.applyDirectBookingPreference(
-        directPairs.map(([outbound, inbound]) =>
-          this.toRoundTripOption(
-            outbound,
-            inbound,
-            normalizedParams.departureDate,
-            normalizedParams.returnDate
-          )
-        ),
-        normalizedParams.preferDirectBookingOnly
+      const filteredOptions = this.applyFreeCarryOnRequirement(
+        options,
+        normalizedParams.requireFreeCarryOnBag,
+        normalizedParams.cabinClass
       );
-      this.exactSearchCache.set(cacheKey, options);
-      return options;
+      this.exactSearchCache.set(cacheKey, filteredOptions);
+      return filteredOptions;
     }
 
     const outboundCandidates = results
@@ -143,14 +135,19 @@ export class GoogleFlightsProvider {
           `f.req=${followUpPayload}`
         );
         const followUpResults = parseExactSearchResponse(followUpResponse);
-        return followUpResults.map((returnFlight) =>
-          this.toRoundTripOption(
-            selectedFlight,
-            returnFlight,
-            normalizedParams.departureDate,
-            normalizedParams.returnDate
+        return followUpResults
+          .filter((returnFlight) =>
+            this.looksLikeSingleBookingRoundTrip(selectedFlight, returnFlight)
           )
-        );
+          .map((returnFlight) =>
+            this.toRoundTripOption(
+              selectedFlight,
+              returnFlight,
+              normalizedParams.departureDate,
+              normalizedParams.returnDate,
+              returnFlight.price
+            )
+          );
       }
     );
 
@@ -158,8 +155,13 @@ export class GoogleFlightsProvider {
       followUps.flat(),
       normalizedParams.preferDirectBookingOnly
     );
-    this.exactSearchCache.set(cacheKey, options);
-    return options;
+    const filteredOptions = this.applyFreeCarryOnRequirement(
+      options,
+      normalizedParams.requireFreeCarryOnBag,
+      normalizedParams.cabinClass
+    );
+    this.exactSearchCache.set(cacheKey, filteredOptions);
+    return filteredOptions;
   }
 
   async searchOneWayWithinWindow(
@@ -184,53 +186,54 @@ export class GoogleFlightsProvider {
     });
   }
 
-  private buildRoundTripPairsFromSingleResponse(
-    results: GoogleFlightResult[],
-    origin: string,
-    destination: string
-  ): Array<[GoogleFlightResult, GoogleFlightResult]> {
-    const outbound = results.filter(
-      (flight) =>
-        flight.legs[0]?.departureAirportCode === origin &&
-        flight.legs[flight.legs.length - 1]?.arrivalAirportCode === destination
-    );
-
-    const inbound = results.filter(
-      (flight) =>
-        flight.legs[0]?.departureAirportCode === destination &&
-        flight.legs[flight.legs.length - 1]?.arrivalAirportCode === origin
-    );
-
-    const pairs: Array<[GoogleFlightResult, GoogleFlightResult]> = [];
-    for (const left of outbound.slice(0, 4)) {
-      for (const right of inbound.slice(0, 4)) {
-        pairs.push([left, right]);
-      }
-    }
-
-    return pairs;
-  }
-
   private toRoundTripOption(
     outbound: GoogleFlightResult,
     inbound: GoogleFlightResult,
     departureDate: string,
-    returnDate?: string
+    returnDate?: string,
+    totalPrice = inbound.price
   ): FlightOption {
     return {
       source: "google_round_trip",
-      totalPrice: outbound.price + inbound.price,
+      totalPrice,
       currency: "USD",
       slices: [this.toSlice(outbound), this.toSlice(inbound)],
-      slicePrices: [outbound.price, inbound.price],
       bookingSource: combineBookingSources([
         outbound.bookingSource,
         inbound.bookingSource
       ]),
       outboundDate: departureDate,
       returnDate,
-      notes: ["Combined from Google Flights round-trip candidate results"]
+      notes: [
+        "Combined from Google Flights round-trip candidate results",
+        "Google Flights priced this as a full round-trip total"
+      ]
     };
+  }
+
+  private looksLikeSingleBookingRoundTrip(
+    outbound: GoogleFlightResult,
+    inbound: GoogleFlightResult
+  ): boolean {
+    const outboundSource = outbound.bookingSource;
+    const inboundSource = inbound.bookingSource;
+
+    if (!outboundSource.detected || !inboundSource.detected) {
+      return true;
+    }
+
+    if (outboundSource.type !== inboundSource.type) {
+      return false;
+    }
+
+    const outboundSeller = outboundSource.sellerName?.trim().toLowerCase();
+    const inboundSeller = inboundSource.sellerName?.trim().toLowerCase();
+
+    if (outboundSeller && inboundSeller) {
+      return outboundSeller === inboundSeller;
+    }
+
+    return true;
   }
 
   private toFlightOption(
@@ -295,5 +298,19 @@ export class GoogleFlightsProvider {
     }
 
     return options.filter((option) => prefersDirectBooking(option.bookingSource));
+  }
+
+  private applyFreeCarryOnRequirement(
+    options: FlightOption[],
+    requireFreeCarryOnBag: boolean | undefined,
+    cabinClass: string
+  ): FlightOption[] {
+    if (!requireFreeCarryOnBag) {
+      return options;
+    }
+
+    return options.filter((option) =>
+      optionAppearsToIncludeFreeCarryOnBag(option, cabinClass)
+    );
   }
 }

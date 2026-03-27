@@ -59,6 +59,7 @@ export const searchRequestSchema = z
     cabinClass: z.enum(cabinClassValues),
     stopsFilter: z.enum(stopsFilterValues),
     preferDirectBookingOnly: z.boolean().default(false),
+    requireFreeCarryOnBag: z.boolean().default(true),
     airlines: z
       .array(
         z

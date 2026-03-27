@@ -4,7 +4,10 @@ import type {
   AmadeusAccessTokenResponse,
   AmadeusFlightOffer,
   AmadeusFlightOfferSearchParams,
-  AmadeusFlightOffersResponse
+  AmadeusFlightOffersResponse,
+  AmadeusItineraryPriceMetricsEntry,
+  AmadeusItineraryPriceMetricsParams,
+  AmadeusItineraryPriceMetricsResponse
 } from "./types";
 
 type AmadeusClientOptions = {
@@ -31,6 +34,24 @@ export class AmadeusClient {
     const accessToken = await this.getAccessToken();
     const response = await axios.get<AmadeusFlightOffersResponse>(
       `${this.options.baseUrl}/v2/shopping/flight-offers`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        params,
+        timeout: 1000 * 20
+      }
+    );
+
+    return Array.isArray(response.data.data) ? response.data.data : [];
+  }
+
+  async getItineraryPriceMetrics(
+    params: AmadeusItineraryPriceMetricsParams
+  ): Promise<AmadeusItineraryPriceMetricsEntry[]> {
+    const accessToken = await this.getAccessToken();
+    const response = await axios.get<AmadeusItineraryPriceMetricsResponse>(
+      `${this.options.baseUrl}/v1/analytics/itinerary-price-metrics`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`

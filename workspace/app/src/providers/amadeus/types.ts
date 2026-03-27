@@ -18,6 +18,33 @@ export type AmadeusFlightOfferSearchParams = {
   includedAirlineCodes?: string;
 };
 
+export type AmadeusItineraryPriceMetricsParams = {
+  originIataCode: string;
+  destinationIataCode: string;
+  departureDate: string;
+  currencyCode?: string;
+  oneWay?: boolean;
+};
+
+export type AmadeusItineraryPriceMetric = {
+  amount?: string;
+  quartileRanking?:
+    | "MINIMUM"
+    | "FIRST"
+    | "MEDIUM"
+    | "THIRD"
+    | "MAXIMUM"
+    | string;
+};
+
+export type AmadeusItineraryPriceMetricsEntry = {
+  priceMetrics?: AmadeusItineraryPriceMetric[];
+};
+
+export type AmadeusItineraryPriceMetricsResponse = {
+  data?: AmadeusItineraryPriceMetricsEntry[];
+};
+
 export type AmadeusFlightOfferSegment = {
   departure?: {
     iataCode?: string;

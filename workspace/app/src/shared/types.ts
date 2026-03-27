@@ -59,6 +59,7 @@ export type SearchRequest = {
   cabinClass: CabinClass;
   stopsFilter: StopsFilter;
   preferDirectBookingOnly: boolean;
+  requireFreeCarryOnBag?: boolean;
   airlines: string[];
   passengers: PassengerCounts;
   maxResults: number;
@@ -178,8 +179,7 @@ export type SearchSummary = {
   cheapestOverall: FlightOption | null;
   cheapestRoundTrip: FlightOption | null;
   cheapestTwoOneWays: FlightOption | null;
-  cheapestDirectThere: FlightOption | null;
-  cheapestDirectReturn: FlightOption | null;
+  cheapestNonstop: FlightOption | null;
   cheapestMultiStop: FlightOption | null;
   evaluatedDatePairs: Array<{
     departureDate: string;
@@ -191,12 +191,30 @@ export type SearchSummary = {
   hackerFareInsight: HackerFareInsight | null;
 };
 
+export type SearchProgressPreview = {
+  departureDatePrices: DatePrice[];
+  returnDatePrices: DatePrice[];
+  cheapestOverall: FlightOption | null;
+  cheapestRoundTrip: FlightOption | null;
+  cheapestTwoOneWays: FlightOption | null;
+  cheapestNonstop: FlightOption | null;
+  cheapestMultiStop: FlightOption | null;
+  evaluatedDatePairs: Array<{
+    departureDate: string;
+    returnDate?: string;
+  }>;
+  inspectedOptions: number;
+};
+
 export type SearchProgress = {
   stage: string;
   detail?: string;
   completedSteps: number;
   totalSteps: number;
   percent: number;
+  previewCheapestOverall?: FlightOption | null;
+  previewInspectedOptions?: number;
+  previewSummary?: SearchProgressPreview | null;
 };
 
 export type SearchJobStatus = {

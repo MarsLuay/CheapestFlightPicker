@@ -12,6 +12,7 @@ export type CalendarSearchParams = {
   travelDate: string;
   cabinClass: string;
   stopsFilter: string;
+  requireFreeCarryOnBag?: boolean;
   airlines: string[];
   passengers: PassengerCounts;
   departureTimeWindow?: TimeWindow;
@@ -27,6 +28,7 @@ export type ExactFlightSearchParams = {
   cabinClass: string;
   stopsFilter: string;
   preferDirectBookingOnly?: boolean;
+  requireFreeCarryOnBag?: boolean;
   airlines: string[];
   passengers: PassengerCounts;
   departureTimeWindow?: TimeWindow;

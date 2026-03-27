@@ -302,7 +302,8 @@ export class AmadeusMissingInfoSupplementProvider
         directorySegments: [".cache", "amadeus", "missing-info-misses"],
         ttlMs: negativeCacheTtlMs,
         maxEntries: 500,
-        sweepIntervalMs: 1000 * 60 * 2
+        sweepIntervalMs: 1000 * 60 * 2,
+        version: 1
       });
     this.logger = options?.logger;
     this.now = options?.now ?? Date.now;

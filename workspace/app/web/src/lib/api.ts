@@ -14,14 +14,32 @@ type RequestJsonOptions<T> = {
   logSuccess?: boolean;
   requestDetails?: string;
   successDetails?: (payload: T) => string | undefined;
+  signal?: AbortSignal;
   timeoutMs?: number;
+};
+
+type RunFlightSearchOptions = {
+  onProgress?: (progress: SearchProgress) => void;
+  signal?: AbortSignal;
 };
 
 const searchJobTimeoutMs = 1000 * 60 * 20;
 const maxSearchJobRecoveryAttempts = 1;
 
-function toErrorMessage(error: unknown, url: string): string {
-  if (error instanceof DOMException && error.name === "AbortError") {
+function isAbortError(error: unknown): error is DOMException {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function toErrorMessage(
+  error: unknown,
+  url: string,
+  options?: { canceled?: boolean }
+): string {
+  if (isAbortError(error)) {
+    if (options?.canceled) {
+      return `Request canceled for ${url}.`;
+    }
+
     return `Request timed out for ${url}.`;
   }
 
@@ -93,6 +111,7 @@ function buildSearchRequestDetails(request: SearchRequest): string {
       cabinClass: request.cabinClass,
       stopsFilter: request.stopsFilter,
       preferDirectBookingOnly: request.preferDirectBookingOnly,
+      requireFreeCarryOnBag: request.requireFreeCarryOnBag ?? true,
       airlines: request.airlines,
       passengers: request.passengers,
       maxResults: request.maxResults
@@ -123,9 +142,25 @@ function buildSearchSuccessDetails(payload: SearchResponse): string | undefined 
   ].join("\n");
 }
 
-function sleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, delayMs);
+function sleep(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      signal?.removeEventListener("abort", handleAbort);
+      resolve();
+    }, delayMs);
+
+    function handleAbort() {
+      window.clearTimeout(timeout);
+      signal?.removeEventListener("abort", handleAbort);
+      reject(new DOMException("Aborted", "AbortError"));
+    }
+
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+
+    signal?.addEventListener("abort", handleAbort, { once: true });
   });
 }
 
@@ -137,9 +172,24 @@ async function requestJson<T>(
   const method = init?.method ?? "GET";
   const timeoutMs = options?.timeoutMs ?? 45000;
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  let didTimeout = false;
+  const timeout = window.setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, timeoutMs);
   const startedAt = performance.now();
   let alreadyLoggedFailure = false;
+  const externalSignal = options?.signal;
+
+  function forwardAbort() {
+    controller.abort();
+  }
+
+  if (externalSignal?.aborted) {
+    forwardAbort();
+  } else {
+    externalSignal?.addEventListener("abort", forwardAbort, { once: true });
+  }
 
   if (options?.logStart) {
     addClientLog("info", `${method} ${url} started`, options.requestDetails);
@@ -191,6 +241,13 @@ async function requestJson<T>(
 
     return payload as T;
   } catch (error) {
+    const wasCanceledByCaller =
+      isAbortError(error) && externalSignal?.aborted && !didTimeout;
+
+    if (wasCanceledByCaller) {
+      throw error;
+    }
+
     const message = toErrorMessage(error, url);
     if (!alreadyLoggedFailure) {
       addClientLog(
@@ -202,6 +259,7 @@ async function requestJson<T>(
     throw new Error(message);
   } finally {
     window.clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", forwardAbort);
   }
 }
 
@@ -248,8 +306,12 @@ export async function searchAirlines(query: string): Promise<AirlineRecord[]> {
 
 export async function runFlightSearch(
   request: SearchRequest,
-  onProgress?: (progress: SearchProgress) => void
+  optionsOrProgress?: RunFlightSearchOptions | ((progress: SearchProgress) => void)
 ): Promise<SearchResponse> {
+  const options =
+    typeof optionsOrProgress === "function"
+      ? { onProgress: optionsOrProgress }
+      : optionsOrProgress ?? {};
   const requestDetails = buildSearchRequestDetails(request);
   addClientLog("info", "POST /api/search started", requestDetails);
   const searchStartedAt = performance.now();
@@ -266,6 +328,7 @@ export async function runFlightSearch(
         method: "POST"
       },
       {
+        signal: options.signal,
         timeoutMs: 15000
       }
     );
@@ -287,6 +350,7 @@ export async function runFlightSearch(
           `/api/search/jobs/${job.jobId}`,
           undefined,
           {
+            signal: options.signal,
             timeoutMs: 15000
           }
         );
@@ -307,7 +371,7 @@ export async function runFlightSearch(
               requestDetails
             ])
           );
-          onProgress?.({
+          options.onProgress?.({
             stage: "Restarting search",
             detail: "The local server restarted, so the search is starting again.",
             completedSteps: 0,
@@ -320,7 +384,7 @@ export async function runFlightSearch(
 
         throw error;
       }
-      onProgress?.(jobStatus.progress);
+      options.onProgress?.(jobStatus.progress);
 
       if (jobStatus.status === "completed" && jobStatus.summary) {
         const response: SearchResponse = {
@@ -351,9 +415,14 @@ export async function runFlightSearch(
         };
       }
 
-      await sleep(350);
+      await sleep(350, options.signal);
     }
   } catch (error) {
+    if (options.signal?.aborted && isAbortError(error)) {
+      addClientLog("warn", "POST /api/search canceled", requestDetails);
+      throw new Error("Search canceled.");
+    }
+
     const message = toErrorMessage(error, "/api/search");
     addClientLog(
       "error",

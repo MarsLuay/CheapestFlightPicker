@@ -90,13 +90,49 @@ function buildOption(overrides: Partial<FlightOption> = {}): FlightOption {
   };
 }
 
-function buildExpectedHourWindow(dateTime: string) {
-  const hour = new Date(dateTime).getHours();
+function buildNormalizedWindow(
+  window: SearchRequest["departureTimeWindow"]
+): { from: number; to: number } | undefined {
+  if (!window) {
+    return undefined;
+  }
 
-  return {
-    from: hour,
-    to: hour
+  const rawFrom = Math.max(0, Math.min(24, Math.round(window.from)));
+  const rawTo = Math.max(0, Math.min(24, Math.round(window.to)));
+
+  if (rawFrom === 0 && rawTo === 24) {
+    return undefined;
+  }
+
+  const from = rawFrom === 24 ? 23 : rawFrom;
+  const to = rawTo === 24 ? 23 : rawTo;
+
+  return from <= to ? { from, to } : { from: to, to: from };
+}
+
+function buildExactHourWindow(
+  dateTime: string,
+  fallback: SearchRequest["departureTimeWindow"]
+): { from: number; to: number } | undefined {
+  const normalizedFallback = buildNormalizedWindow(fallback);
+  const parsedDate = new Date(dateTime);
+  const exactWindow = {
+    from: parsedDate.getHours(),
+    to: parsedDate.getHours()
   };
+
+  if (!normalizedFallback) {
+    return exactWindow;
+  }
+
+  if (
+    exactWindow.from < normalizedFallback.from ||
+    exactWindow.to > normalizedFallback.to
+  ) {
+    return normalizedFallback;
+  }
+
+  return exactWindow;
 }
 
 function decodeBase64Url(value: string): Uint8Array {
@@ -246,22 +282,178 @@ describe("google flight link builder", () => {
     expect(segments).toEqual([
       {
         airlines: ["UA"],
-        arrivalTimeWindow: buildExpectedHourWindow("2026-05-12T13:00:00.000Z"),
+        arrivalTimeWindow: buildExactHourWindow(
+          "2026-05-12T13:00:00.000Z",
+          request.arrivalTimeWindow
+        ),
         date: "2026-05-12",
-        departureTimeWindow: buildExpectedHourWindow("2026-05-12T08:00:00.000Z"),
+        departureTimeWindow: buildExactHourWindow(
+          "2026-05-12T08:00:00.000Z",
+          request.departureTimeWindow
+        ),
         fromAirport: { code: "SEA", type: 1 },
         maxStops: 0,
         toAirport: { code: "PIT", type: 1 }
       },
       {
         airlines: ["UA"],
-        arrivalTimeWindow: buildExpectedHourWindow("2026-05-12T23:10:00.000Z"),
+        arrivalTimeWindow: buildExactHourWindow(
+          "2026-05-12T23:10:00.000Z",
+          request.arrivalTimeWindow
+        ),
         date: "2026-05-12",
-        departureTimeWindow: buildExpectedHourWindow("2026-05-12T18:00:00.000Z"),
+        departureTimeWindow: buildExactHourWindow(
+          "2026-05-12T18:00:00.000Z",
+          request.departureTimeWindow
+        ),
         fromAirport: { code: "PIT", type: 1 },
         maxStops: 0,
         toAirport: { code: "SEA", type: 1 }
       }
+    ]);
+  });
+
+  it("tightens round-trip links to the displayed itinerary hours when they fit inside the user's filters", () => {
+    const request = buildRequest({
+      departureTimeWindow: { from: 4, to: 23 },
+      arrivalTimeWindow: { from: 4, to: 23 }
+    });
+    const option = buildOption({
+      outboundDate: "2026-05-12",
+      returnDate: "2026-05-19",
+      slices: [
+        {
+          durationMinutes: 300,
+          stops: 0,
+          legs: [
+            {
+              airlineCode: "UA",
+              airlineName: "United Airlines",
+              flightNumber: "123",
+              departureAirportCode: "SEA",
+              departureAirportName: "Seattle-Tacoma International Airport",
+              departureDateTime: "2026-05-12T05:00:00.000Z",
+              arrivalAirportCode: "PIT",
+              arrivalAirportName: "Pittsburgh International Airport",
+              arrivalDateTime: "2026-05-12T10:00:00.000Z",
+              durationMinutes: 300
+            }
+          ]
+        },
+        {
+          durationMinutes: 310,
+          stops: 0,
+          legs: [
+            {
+              airlineCode: "UA",
+              airlineName: "United Airlines",
+              flightNumber: "456",
+              departureAirportCode: "PIT",
+              departureAirportName: "Pittsburgh International Airport",
+              departureDateTime: "2026-05-19T23:00:00.000Z",
+              arrivalAirportCode: "SEA",
+              arrivalAirportName: "Seattle-Tacoma International Airport",
+              arrivalDateTime: "2026-05-20T04:10:00.000Z",
+              durationMinutes: 310
+            }
+          ]
+        }
+      ]
+    });
+
+    const tfs = buildGoogleFlightsTfsParam(option, request);
+    const fields = decodeMessage(decodeBase64Url(tfs ?? ""));
+    const segments = fields
+      .filter((field) => field.field === 3)
+      .map((field) => decodeSegment(field.value as Uint8Array));
+
+    expect(segments).toEqual([
+      expect.objectContaining({
+        departureTimeWindow: buildExactHourWindow(
+          "2026-05-12T05:00:00.000Z",
+          request.departureTimeWindow
+        ),
+        arrivalTimeWindow: buildExactHourWindow(
+          "2026-05-12T10:00:00.000Z",
+          request.arrivalTimeWindow
+        )
+      }),
+      expect.objectContaining({
+        departureTimeWindow: buildExactHourWindow(
+          "2026-05-19T23:00:00.000Z",
+          request.departureTimeWindow
+        ),
+        arrivalTimeWindow: buildExactHourWindow(
+          "2026-05-20T04:10:00.000Z",
+          request.arrivalTimeWindow
+        )
+      })
+    ]);
+  });
+
+  it("falls back to the user's requested windows when an exact round-trip hour would conflict", () => {
+    const request = buildRequest({
+      departureTimeWindow: { from: 9, to: 14 },
+      arrivalTimeWindow: { from: 12, to: 20 }
+    });
+    const option = buildOption({
+      outboundDate: "2026-05-12",
+      returnDate: "2026-05-19",
+      slices: [
+        {
+          durationMinutes: 300,
+          stops: 0,
+          legs: [
+            {
+              airlineCode: "UA",
+              airlineName: "United Airlines",
+              flightNumber: "123",
+              departureAirportCode: "SEA",
+              departureAirportName: "Seattle-Tacoma International Airport",
+              departureDateTime: "2026-05-12T05:00:00.000Z",
+              arrivalAirportCode: "PIT",
+              arrivalAirportName: "Pittsburgh International Airport",
+              arrivalDateTime: "2026-05-12T10:00:00.000Z",
+              durationMinutes: 300
+            }
+          ]
+        },
+        {
+          durationMinutes: 310,
+          stops: 0,
+          legs: [
+            {
+              airlineCode: "UA",
+              airlineName: "United Airlines",
+              flightNumber: "456",
+              departureAirportCode: "PIT",
+              departureAirportName: "Pittsburgh International Airport",
+              departureDateTime: "2026-05-19T23:00:00.000Z",
+              arrivalAirportCode: "SEA",
+              arrivalAirportName: "Seattle-Tacoma International Airport",
+              arrivalDateTime: "2026-05-20T04:10:00.000Z",
+              durationMinutes: 310
+            }
+          ]
+        }
+      ]
+    });
+
+    const tfs = buildGoogleFlightsTfsParam(option, request);
+    const fields = decodeMessage(decodeBase64Url(tfs ?? ""));
+    const segments = fields
+      .filter((field) => field.field === 3)
+      .map((field) => decodeSegment(field.value as Uint8Array));
+
+    expect(segments).toEqual([
+      expect.objectContaining({
+        departureTimeWindow: { from: 9, to: 14 },
+        arrivalTimeWindow: { from: 12, to: 20 }
+      }),
+      expect.objectContaining({
+        departureTimeWindow: { from: 9, to: 14 },
+        arrivalTimeWindow: { from: 12, to: 20 }
+      })
     ]);
   });
 

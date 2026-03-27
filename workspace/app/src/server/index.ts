@@ -163,6 +163,7 @@ function summarizeSearchRequest(input: unknown): Record<string, unknown> {
     cabinClass: request.cabinClass ?? null,
     stopsFilter: request.stopsFilter ?? null,
     preferDirectBookingOnly: request.preferDirectBookingOnly ?? false,
+    requireFreeCarryOnBag: request.requireFreeCarryOnBag ?? true,
     airlines: Array.isArray(request.airlines) ? request.airlines : [],
     passengers: request.passengers ?? null,
     maxResults: request.maxResults ?? null

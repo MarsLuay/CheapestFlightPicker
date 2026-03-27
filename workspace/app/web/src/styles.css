@@ -310,6 +310,22 @@ select {
   max-width: 62ch;
 }
 
+.form-subsection {
+  display: grid;
+  gap: 14px;
+}
+
+.form-subsection__heading {
+  display: grid;
+  gap: 4px;
+}
+
+.form-subsection__heading h3 {
+  color: rgba(255, 246, 234, 0.95);
+  font-size: 1rem;
+  margin: 0;
+}
+
 .form-grid,
 .date-window-grid,
 .range-grid,
@@ -768,6 +784,10 @@ select {
   margin-top: 16px;
 }
 
+.search-progress--card {
+  margin-top: 18px;
+}
+
 .search-progress__bar {
   background: rgba(246, 221, 187, 0.12);
   border: 1px solid rgba(246, 221, 187, 0.14);
@@ -978,6 +998,83 @@ select {
   padding: 22px;
 }
 
+.result-card--cheapest-overall {
+  background:
+    radial-gradient(circle at top left, rgba(241, 190, 132, 0.16), transparent 30%),
+    radial-gradient(circle at 82% 18%, rgba(120, 201, 155, 0.14), transparent 26%),
+    linear-gradient(180deg, rgba(13, 29, 40, 0.96), rgba(7, 18, 28, 0.9));
+  border: 1px solid rgba(241, 190, 132, 0.28);
+  box-shadow:
+    0 26px 72px rgba(4, 10, 16, 0.34),
+    inset 0 1px 0 rgba(255, 246, 234, 0.08);
+  overflow: hidden;
+  position: relative;
+}
+
+.result-card--cheapest-overall::before,
+.result-card--cheapest-overall::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+}
+
+.result-card--cheapest-overall::before {
+  background:
+    radial-gradient(circle at 18% 28%, rgba(241, 190, 132, 0.28), transparent 18%),
+    radial-gradient(circle at 74% 22%, rgba(215, 96, 53, 0.22), transparent 20%),
+    radial-gradient(circle at 68% 72%, rgba(120, 201, 155, 0.18), transparent 24%),
+    radial-gradient(circle at 28% 80%, rgba(241, 190, 132, 0.12), transparent 24%);
+  filter: blur(18px);
+  inset: -34%;
+  opacity: 0.92;
+  transform-origin: center;
+  will-change: transform;
+  animation: cheapest-overall-aurora 24s linear infinite;
+}
+
+.result-card--cheapest-overall::after {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 246, 234, 0.06), transparent 56%),
+    conic-gradient(
+      from 0deg at 50% 50%,
+      transparent 0deg,
+      rgba(255, 246, 234, 0.03) 58deg,
+      rgba(255, 246, 234, 0.12) 92deg,
+      transparent 140deg,
+      transparent 360deg
+    );
+  inset: -16%;
+  mix-blend-mode: screen;
+  opacity: 0.38;
+  transform-origin: center;
+  will-change: transform, opacity;
+  animation: cheapest-overall-sheen 28s linear infinite;
+}
+
+.result-card--cheapest-overall > * {
+  position: relative;
+  z-index: 1;
+}
+
+.result-card--cheapest-overall .big-price {
+  color: #ffd8a7;
+  text-shadow: 0 0 18px rgba(241, 190, 132, 0.18);
+}
+
+.result-card--cheapest-overall .slice-card {
+  background:
+    linear-gradient(180deg, rgba(246, 221, 187, 0.08), rgba(246, 221, 187, 0.04)),
+    rgba(8, 20, 30, 0.62);
+  border-color: rgba(246, 221, 187, 0.12);
+}
+
+.result-card--cheapest-overall .source-badge--direct,
+.result-card--cheapest-overall .source-badge--ota,
+.result-card--cheapest-overall .source-badge--mixed,
+.result-card--cheapest-overall .source-badge--unknown {
+  backdrop-filter: blur(10px);
+}
+
 .result-card header {
   align-items: flex-start;
   display: flex;
@@ -1140,6 +1237,45 @@ select {
   text-decoration: underline;
   text-decoration-color: rgba(241, 190, 132, 0.9);
   text-underline-offset: 3px;
+}
+
+@keyframes cheapest-overall-aurora {
+  0% {
+    transform: translate3d(-2%, -1%, 0) scale(1.02) rotate(0deg);
+  }
+
+  25% {
+    transform: translate3d(2%, -2%, 0) scale(1.06) rotate(90deg);
+  }
+
+  50% {
+    transform: translate3d(3%, 2%, 0) scale(1.03) rotate(180deg);
+  }
+
+  75% {
+    transform: translate3d(-1%, 3%, 0) scale(1.05) rotate(270deg);
+  }
+
+  100% {
+    transform: translate3d(-2%, -1%, 0) scale(1.02) rotate(360deg);
+  }
+}
+
+@keyframes cheapest-overall-sheen {
+  0% {
+    opacity: 0.28;
+    transform: rotate(0deg) scale(1);
+  }
+
+  50% {
+    opacity: 0.52;
+    transform: rotate(180deg) scale(1.04);
+  }
+
+  100% {
+    opacity: 0.28;
+    transform: rotate(360deg) scale(1);
+  }
 }
 
 @media (max-width: 720px) {

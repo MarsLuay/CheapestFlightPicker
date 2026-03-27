@@ -154,8 +154,7 @@ function getSupplementTargets(summary: SearchSummary): FlightOption[] {
     summary.cheapestOverall,
     summary.cheapestRoundTrip,
     summary.cheapestTwoOneWays,
-    summary.cheapestDirectThere,
-    summary.cheapestDirectReturn,
+    summary.cheapestNonstop,
     summary.cheapestMultiStop
   ]) {
     if (shouldAttemptBookingSourceSupplement(option, summary.request)) {
@@ -279,14 +278,7 @@ export class BookingSourceSupplementService {
         summary.cheapestTwoOneWays,
         replacements
       ),
-      cheapestDirectThere: replaceOption(
-        summary.cheapestDirectThere,
-        replacements
-      ),
-      cheapestDirectReturn: replaceOption(
-        summary.cheapestDirectReturn,
-        replacements
-      ),
+      cheapestNonstop: replaceOption(summary.cheapestNonstop, replacements),
       cheapestMultiStop: replaceOption(summary.cheapestMultiStop, replacements)
     };
   }

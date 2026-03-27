@@ -1,11 +1,17 @@
 import {
   startTransition,
+  useEffect,
   useRef,
   useState,
   type FormEvent
 } from "react";
 
 import { runFlightSearch } from "./lib/api";
+import {
+  buildAdjacentCabinBoxTitle,
+  buildAdjacentCabinSearchRequest,
+  getCabinLabel
+} from "./lib/cabin-upgrade";
 import {
   withDepartureDateFrom,
   withDepartureDateTo,
@@ -21,7 +27,12 @@ import {
   getBrowserTimeZone,
   inferOriginFromTimeZone
 } from "./lib/timezone-origin";
-import type { SearchProgress, SearchRequest, SearchSummary } from "./lib/types";
+import type {
+  SearchProgress,
+  SearchRequest,
+  SearchSummary,
+  UpgradeFareCardState
+} from "./lib/types";
 import { AdminPanel } from "./components/AdminPanel";
 import { AirlinePicker } from "./components/AirlinePicker";
 import { AirportField } from "./components/AirportField";
@@ -91,6 +102,7 @@ function createInitialRequest(
     cabinClass: "economy",
     stopsFilter: "any",
     preferDirectBookingOnly: false,
+    requireFreeCarryOnBag: savedPreferences?.requireFreeCarryOnBag ?? true,
     airlines: [],
     passengers: {
       adults: 1,
@@ -158,10 +170,80 @@ function resolveInitialFormState(): InitialFormState {
   };
 }
 
+function createInitialUpgradeFareCardState(
+  summary: SearchSummary,
+  submittedRequest: SearchRequest
+): UpgradeFareCardState {
+  const title = buildAdjacentCabinBoxTitle(submittedRequest.cabinClass);
+  const adjacentRequest = buildAdjacentCabinSearchRequest(submittedRequest);
+  const baseCabinLabel = getCabinLabel(submittedRequest.cabinClass).toLowerCase();
+
+  if (!adjacentRequest) {
+    return {
+      title,
+      targetCabinClass: submittedRequest.cabinClass,
+      request: summary.request,
+      option: summary.cheapestOverall,
+      progress: null,
+      status: "mirrored",
+      summaryNote:
+        "You already searched the highest cabin, so this mirrors the main cheapest fare.",
+      emptyMessage: "No first-class fare qualified in the main search."
+    };
+  }
+
+  const targetCabinLabel = getCabinLabel(adjacentRequest.cabinClass).toLowerCase();
+
+  return {
+    title,
+    targetCabinClass: adjacentRequest.cabinClass,
+    request: adjacentRequest,
+    option: null,
+    progress: {
+      stage: "Preparing adjacent cabin search",
+      detail: `Starting a ${targetCabinLabel} follow-up search after the ${baseCabinLabel} results loaded.`,
+      completedSteps: 0,
+      totalSteps: 1,
+      percent: 0
+    },
+    status: "searching",
+    summaryNote: `Checking the next cabin up from your selected ${baseCabinLabel} search.`,
+    emptyMessage: `Searching ${targetCabinLabel} fares one cabin above your selected ${baseCabinLabel} search.`
+  };
+}
+
+function createLivePreviewSummary(
+  request: SearchRequest,
+  previewSummary?: SearchProgress["previewSummary"] | null
+): SearchSummary {
+  return {
+    request,
+    departureDatePrices: previewSummary?.departureDatePrices ?? [],
+    returnDatePrices: previewSummary?.returnDatePrices ?? [],
+    cheapestOverall: previewSummary?.cheapestOverall ?? null,
+    cheapestRoundTrip: previewSummary?.cheapestRoundTrip ?? null,
+    cheapestTwoOneWays: previewSummary?.cheapestTwoOneWays ?? null,
+    cheapestNonstop: previewSummary?.cheapestNonstop ?? null,
+    cheapestMultiStop: previewSummary?.cheapestMultiStop ?? null,
+    evaluatedDatePairs: previewSummary?.evaluatedDatePairs ?? [],
+    inspectedOptions: previewSummary?.inspectedOptions ?? 0,
+    timingGuidance: null,
+    priceAlert: null,
+    hackerFareInsight: null
+  };
+}
+
 export default function App() {
   const [initialFormState] = useState(resolveInitialFormState);
   const [request, setRequest] = useState<SearchRequest>(initialFormState.request);
   const [summary, setSummary] = useState<SearchSummary | null>(null);
+  const [livePreviewSummary, setLivePreviewSummary] =
+    useState<SearchSummary | null>(null);
+  const [upgradeFareBox, setUpgradeFareBox] = useState<UpgradeFareCardState | null>(
+    null
+  );
+  const [upgradeSearchRequest, setUpgradeSearchRequest] =
+    useState<SearchRequest | null>(null);
   const [error, setError] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [hasCompletedSearch, setHasCompletedSearch] = useState(false);
@@ -171,6 +253,8 @@ export default function App() {
     () => initialFormState.originDetection
   );
   const requestRef = useRef<SearchRequest>(request);
+  const upgradeSearchAbortControllerRef = useRef<AbortController | null>(null);
+  const upgradeSearchRunIdRef = useRef(0);
 
   function persistSavedSearchPreferences(
     nextRequest: SearchRequest,
@@ -190,7 +274,8 @@ export default function App() {
       arrivalTimeWindow: nextRequest.arrivalTimeWindow ?? {
         from: 0,
         to: 24
-      }
+      },
+      requireFreeCarryOnBag: nextRequest.requireFreeCarryOnBag ?? true
     });
   }
 
@@ -308,10 +393,147 @@ export default function App() {
     );
   }
 
+  useEffect(() => {
+    if (!upgradeSearchRequest || !summary) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const runId = ++upgradeSearchRunIdRef.current;
+    const baseCabinLabel = getCabinLabel(summary.request.cabinClass).toLowerCase();
+    const targetCabinLabel = getCabinLabel(
+      upgradeSearchRequest.cabinClass
+    ).toLowerCase();
+
+    upgradeSearchAbortControllerRef.current?.abort();
+    upgradeSearchAbortControllerRef.current = controller;
+
+    void runFlightSearch(upgradeSearchRequest, {
+      onProgress(progress) {
+        if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
+          return;
+        }
+
+        startTransition(() => {
+          setUpgradeFareBox((current) => {
+            if (!current) {
+              return current;
+            }
+
+            return {
+              ...current,
+              option: progress.previewCheapestOverall ?? current.option,
+              progress,
+              status: "searching",
+              summaryNote: progress.previewCheapestOverall
+                ? `Best ${targetCabinLabel} fare so far while the follow-up search keeps checking more combinations.`
+                : `Checking the next cabin up from your selected ${baseCabinLabel} search.`
+            };
+          });
+        });
+      },
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
+          return;
+        }
+
+        startTransition(() => {
+          setUpgradeFareBox((current) => {
+            if (!current) {
+              return current;
+            }
+
+            if (!response.ok) {
+              return current.option
+                ? {
+                    ...current,
+                    progress: null,
+                    status: "failed",
+                    summaryNote: `The ${targetCabinLabel} follow-up search hit a snag, but this was the best fare found before it stopped.`
+                  }
+                : {
+                    ...current,
+                    progress: null,
+                    status: "failed",
+                    summaryNote: undefined,
+                    emptyMessage: `The ${targetCabinLabel} follow-up search hit a snag: ${response.error}`
+                  };
+            }
+
+            return {
+              ...current,
+              option: response.summary.cheapestOverall,
+              progress: null,
+              status: "ready",
+              summaryNote: response.summary.cheapestOverall
+                ? `Finished checking ${targetCabinLabel} fares one cabin above your selected ${baseCabinLabel} search.`
+                : `Checked ${targetCabinLabel} fares one cabin above your selected ${baseCabinLabel} search.`,
+              emptyMessage: `No ${targetCabinLabel} fare qualified one cabin above your selected ${baseCabinLabel} search.`
+            };
+          });
+          setUpgradeSearchRequest(null);
+        });
+      })
+      .catch((error) => {
+        if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
+          return;
+        }
+
+        startTransition(() => {
+          setUpgradeFareBox((current) => {
+            if (!current) {
+              return current;
+            }
+
+            return current.option
+              ? {
+                  ...current,
+                  progress: null,
+                  status: "failed",
+                  summaryNote: `The ${targetCabinLabel} follow-up search stopped early, but this was the best fare found before it stopped.`
+                }
+              : {
+                  ...current,
+                  progress: null,
+                  status: "failed",
+                  summaryNote: undefined,
+                  emptyMessage:
+                    error instanceof Error
+                      ? error.message
+                      : `The ${targetCabinLabel} follow-up search stopped unexpectedly.`
+                };
+          });
+          setUpgradeSearchRequest(null);
+        });
+      });
+
+    return () => {
+      controller.abort();
+      if (upgradeSearchAbortControllerRef.current === controller) {
+        upgradeSearchAbortControllerRef.current = null;
+      }
+    };
+  }, [summary, upgradeSearchRequest]);
+
   async function handleSearch(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
+    const submittedRequest = {
+      ...requestRef.current,
+      useExactDates
+    };
+
+    upgradeSearchRunIdRef.current += 1;
+    upgradeSearchAbortControllerRef.current?.abort();
+    upgradeSearchAbortControllerRef.current = null;
+    setUpgradeFareBox(null);
+    setUpgradeSearchRequest(null);
     setIsSearching(true);
+    setHasCompletedSearch(false);
     setError("");
+    setSummary(null);
+    setLivePreviewSummary(createLivePreviewSummary(submittedRequest));
     setSearchProgress({
       stage: "Preparing search",
       detail: "Submitting your search request",
@@ -321,22 +543,31 @@ export default function App() {
     });
 
     try {
-      const response = await runFlightSearch(
-        {
-          ...requestRef.current,
-          useExactDates
-        },
-        setSearchProgress
-      );
+      const response = await runFlightSearch(submittedRequest, {
+        onProgress(progress) {
+          setSearchProgress(progress);
+          startTransition(() => {
+            setLivePreviewSummary(
+              createLivePreviewSummary(submittedRequest, progress.previewSummary)
+            );
+          });
+        }
+      });
       if (!response.ok) {
         setError(response.error);
         setSummary(null);
+        setLivePreviewSummary(null);
         return;
       }
 
       startTransition(() => {
         setSummary(response.summary);
+        setLivePreviewSummary(null);
+        setUpgradeFareBox(
+          createInitialUpgradeFareCardState(response.summary, submittedRequest)
+        );
       });
+      setUpgradeSearchRequest(buildAdjacentCabinSearchRequest(submittedRequest));
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -344,12 +575,15 @@ export default function App() {
           : "Search failed unexpectedly"
       );
       setSummary(null);
+      setLivePreviewSummary(null);
     } finally {
       setIsSearching(false);
       setHasCompletedSearch(true);
       setSearchProgress(null);
     }
   }
+
+  const displayedSummary = summary ?? livePreviewSummary;
 
   const adminUiSnapshot = {
     route: {
@@ -362,6 +596,7 @@ export default function App() {
       cabinClass: request.cabinClass,
       stopsFilter: request.stopsFilter,
       preferDirectBookingOnly: request.preferDirectBookingOnly,
+      requireFreeCarryOnBag: request.requireFreeCarryOnBag ?? true,
       airlines: request.airlines,
       passengers: request.passengers
     },
@@ -404,45 +639,64 @@ export default function App() {
           }
         : null
     },
-    latestSummary: summary
+    upgradeSearch: upgradeFareBox
       ? {
-          inspectedOptions: summary.inspectedOptions,
-          evaluatedDatePairs: summary.evaluatedDatePairs.length,
-          departureDateCandidates: summary.departureDatePrices.length,
-          returnDateCandidates: summary.returnDatePrices.length,
-          cheapestOverall: summary.cheapestOverall
+          title: upgradeFareBox.title,
+          targetCabinClass: upgradeFareBox.targetCabinClass,
+          status: upgradeFareBox.status,
+          progress: upgradeFareBox.progress
             ? {
-                price: `${summary.cheapestOverall.currency} ${summary.cheapestOverall.totalPrice}`,
-                source: summary.cheapestOverall.source,
-                bookingSource: summary.cheapestOverall.bookingSource.label
+                stage: upgradeFareBox.progress.stage,
+                detail: upgradeFareBox.progress.detail ?? null,
+                completedSteps: upgradeFareBox.progress.completedSteps,
+                totalSteps: upgradeFareBox.progress.totalSteps,
+                percent: upgradeFareBox.progress.percent
               }
             : null,
-          cheapestRoundTrip: summary.cheapestRoundTrip
-            ? `${summary.cheapestRoundTrip.currency} ${summary.cheapestRoundTrip.totalPrice}`
-            : null,
-          cheapestTwoOneWays: summary.cheapestTwoOneWays
-            ? `${summary.cheapestTwoOneWays.currency} ${summary.cheapestTwoOneWays.totalPrice}`
-            : null,
-          timingGuidance: summary.timingGuidance
+          currentBest: upgradeFareBox.option
+            ? `${upgradeFareBox.option.currency} ${upgradeFareBox.option.totalPrice}`
+            : null
+        }
+      : null,
+    latestSummary: displayedSummary
+      ? {
+          inspectedOptions: displayedSummary.inspectedOptions,
+          evaluatedDatePairs: displayedSummary.evaluatedDatePairs.length,
+          departureDateCandidates: displayedSummary.departureDatePrices.length,
+          returnDateCandidates: displayedSummary.returnDatePrices.length,
+          cheapestOverall: displayedSummary.cheapestOverall
             ? {
-                recommendation: summary.timingGuidance.recommendation,
-                confidence: summary.timingGuidance.confidence,
-                trend: summary.timingGuidance.trend,
-                pricePosition: summary.timingGuidance.pricePosition,
-                historySampleSize: summary.timingGuidance.historySampleSize,
-                summary: summary.timingGuidance.summary
+                price: `${displayedSummary.cheapestOverall.currency} ${displayedSummary.cheapestOverall.totalPrice}`,
+                source: displayedSummary.cheapestOverall.source,
+                bookingSource: displayedSummary.cheapestOverall.bookingSource.label
               }
             : null,
-          priceAlert: summary.priceAlert
+          cheapestRoundTrip: displayedSummary.cheapestRoundTrip
+            ? `${displayedSummary.cheapestRoundTrip.currency} ${displayedSummary.cheapestRoundTrip.totalPrice}`
+            : null,
+          cheapestTwoOneWays: displayedSummary.cheapestTwoOneWays
+            ? `${displayedSummary.cheapestTwoOneWays.currency} ${displayedSummary.cheapestTwoOneWays.totalPrice}`
+            : null,
+          timingGuidance: displayedSummary.timingGuidance
             ? {
-                kind: summary.priceAlert.kind,
-                changePercent: summary.priceAlert.changePercent,
-                summary: summary.priceAlert.summary
+                recommendation: displayedSummary.timingGuidance.recommendation,
+                confidence: displayedSummary.timingGuidance.confidence,
+                trend: displayedSummary.timingGuidance.trend,
+                pricePosition: displayedSummary.timingGuidance.pricePosition,
+                historySampleSize: displayedSummary.timingGuidance.historySampleSize,
+                summary: displayedSummary.timingGuidance.summary
               }
             : null,
-          separateOneWayInsight: summary.hackerFareInsight
+          priceAlert: displayedSummary.priceAlert
             ? {
-                summary: summary.hackerFareInsight.summary
+                kind: displayedSummary.priceAlert.kind,
+                changePercent: displayedSummary.priceAlert.changePercent,
+                summary: displayedSummary.priceAlert.summary
+              }
+            : null,
+          separateOneWayInsight: displayedSummary.hackerFareInsight
+            ? {
+                summary: displayedSummary.hackerFareInsight.summary
               }
             : null
         }
@@ -471,12 +725,17 @@ export default function App() {
                 <p className="section-kicker">Start here</p>
                 <h2>Route and filters</h2>
                 <p className="section-copy">
-                  Set the route, seat class, stop limit, and how picky you want
-                  the search to be.
+                  Set the route first, then tighten fare filters and booking
+                  preferences.
                 </p>
               </div>
 
-              <div className="form-grid">
+              <div className="form-subsection">
+                <div className="form-subsection__heading">
+                  <p className="section-kicker">Route</p>
+                  <h3>Where and how you want to fly</h3>
+                </div>
+                <div className="form-grid">
                 <div className="field filter-field">
                   <span>Trip type</span>
                   <div className="toggle-row">
@@ -532,7 +791,15 @@ export default function App() {
                     }))
                   }
                 />
+                </div>
+              </div>
 
+              <div className="form-subsection">
+                <div className="form-subsection__heading">
+                  <p className="section-kicker">Fare Filters</p>
+                  <h3>Seat, stops, and carry-on rules</h3>
+                </div>
+                <div className="form-grid">
                 <label className="field filter-field">
                   <span>Cabin</span>
                   <select
@@ -569,6 +836,29 @@ export default function App() {
                   </select>
                 </label>
 
+                <label className="checkbox-field filter-field">
+                  <input
+                    className="checkbox-field__input"
+                    type="checkbox"
+                    checked={request.requireFreeCarryOnBag ?? true}
+                    onChange={(event) =>
+                      updateRequest((currentRequest) => ({
+                        ...currentRequest,
+                        requireFreeCarryOnBag: event.target.checked
+                      }))
+                    }
+                  />
+                  <span className="checkbox-field__switch" aria-hidden="true">
+                    <span className="checkbox-field__knob" />
+                  </span>
+                  <div>
+                    <span>Require 1 free carry-on bag</span>
+                    <p className="field-help">
+                      Gets rid of flights with no free carry-on.
+                    </p>
+                  </div>
+                </label>
+
                 <label className="field filter-field">
                   <span>Search Intelligence</span>
                   <input
@@ -588,7 +878,15 @@ export default function App() {
                     smarter, while lower values make it faster.
                   </p>
                 </label>
+                </div>
+              </div>
 
+              <div className="form-subsection">
+                <div className="form-subsection__heading">
+                  <p className="section-kicker">Preferences</p>
+                  <h3>How strict the search should be</h3>
+                </div>
+                <div className="form-grid">
                 <label className="checkbox-field filter-field">
                   <input
                     className="checkbox-field__input"
@@ -632,6 +930,7 @@ export default function App() {
                     </p>
                   </div>
                 </label>
+                </div>
               </div>
             </section>
 
@@ -851,8 +1150,11 @@ export default function App() {
         </section>
 
         <ResultsView
-          hasCompletedSearch={hasCompletedSearch}
-          summary={summary}
+          showResults={hasCompletedSearch || isSearching}
+          isSearching={isSearching}
+          mainSearchProgress={searchProgress}
+          summary={displayedSummary}
+          upgradeFareBox={upgradeFareBox}
         />
 
         <footer className="app-footer">

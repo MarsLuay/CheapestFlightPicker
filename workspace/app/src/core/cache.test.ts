@@ -84,4 +84,23 @@ describe("JsonFileCache", () => {
     expect(cache.get({ route: "SEA-PIT-3" })).toEqual({ price: 103 });
     expect(fs.readdirSync(directoryPath).length).toBe(2);
   });
+
+  it("keeps different cache versions isolated from each other", () => {
+    const directoryPath = createTempDirectory();
+    const v1Cache = new JsonFileCache<{ price: number }>({
+      directoryPath,
+      ttlMs: 1000,
+      version: 1
+    });
+    const v2Cache = new JsonFileCache<{ price: number }>({
+      directoryPath,
+      ttlMs: 1000,
+      version: 2
+    });
+
+    v1Cache.set({ route: "SEA-PIT" }, { price: 123 });
+
+    expect(v1Cache.get({ route: "SEA-PIT" })).toEqual({ price: 123 });
+    expect(v2Cache.get({ route: "SEA-PIT" })).toBeNull();
+  });
 });

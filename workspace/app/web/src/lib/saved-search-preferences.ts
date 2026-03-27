@@ -13,6 +13,7 @@ type SavedSearchPreferences = Pick<
   | "maximumTripDays"
   | "minimumTripDays"
   | "origin"
+  | "requireFreeCarryOnBag"
   | "useExactDates"
 >;
 
@@ -98,6 +99,10 @@ function normalizeSavedSearchPreferences(
     allowBlank: true
   });
   const useExactDates = normalizeBoolean(record.useExactDates);
+  const requireFreeCarryOnBag =
+    record.requireFreeCarryOnBag === undefined
+      ? true
+      : normalizeBoolean(record.requireFreeCarryOnBag);
   const minimumTripDays = normalizeTripLength(record.minimumTripDays);
   const maximumTripDays = normalizeTripLength(record.maximumTripDays);
   const departureTimeWindow = normalizeTimeWindow(record.departureTimeWindow);
@@ -107,6 +112,7 @@ function normalizeSavedSearchPreferences(
     !origin ||
     destination === null ||
     useExactDates === null ||
+    requireFreeCarryOnBag === null ||
     minimumTripDays === null ||
     maximumTripDays === null ||
     !departureTimeWindow ||
@@ -119,6 +125,7 @@ function normalizeSavedSearchPreferences(
     origin,
     destination,
     useExactDates,
+    requireFreeCarryOnBag,
     minimumTripDays: Math.min(minimumTripDays, maximumTripDays),
     maximumTripDays: Math.max(maximumTripDays, minimumTripDays),
     departureTimeWindow,

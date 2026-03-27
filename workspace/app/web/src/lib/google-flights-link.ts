@@ -58,12 +58,45 @@ function getSliceEndpoints(option: FlightOption) {
   };
 }
 
+function buildExactHourWindow(
+  dateTime: string | undefined,
+  fallback: TimeWindow | undefined
+): TimeWindow | undefined {
+  if (!dateTime) {
+    return fallback;
+  }
+
+  const parsedDate = new Date(dateTime);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return fallback;
+  }
+
+  const exactWindow = {
+    from: parsedDate.getHours(),
+    to: parsedDate.getHours()
+  };
+
+  if (!fallback) {
+    return exactWindow;
+  }
+
+  if (
+    exactWindow.from < fallback.from ||
+    exactWindow.to > fallback.to
+  ) {
+    return fallback;
+  }
+
+  return exactWindow;
+}
+
 function buildSegmentFromSlice(
   slice: FlightSlice | undefined,
   date: string | undefined,
   fallbackFromAirport: string,
   fallbackToAirport: string,
-  request: SearchRequest
+  request: SearchRequest,
+  strictTimeWindows: boolean
 ): EncodedSegment | null {
   if (!date) {
     return null;
@@ -71,6 +104,8 @@ function buildSegmentFromSlice(
 
   const firstLeg = slice?.legs[0];
   const lastLeg = slice?.legs[slice.legs.length - 1];
+  const normalizedDepartureWindow = normalizeTimeWindow(request.departureTimeWindow);
+  const normalizedArrivalWindow = normalizeTimeWindow(request.arrivalTimeWindow);
   const fromAirport = firstLeg?.departureAirportCode ?? fallbackFromAirport;
   const toAirport = lastLeg?.arrivalAirportCode ?? fallbackToAirport;
   const airlines = Array.from(
@@ -80,21 +115,16 @@ function buildSegmentFromSlice(
         .filter((airlineCode) => airlineCode.length > 0) ?? request.airlines
     )
   ).sort();
-  const sliceDepartureTimeWindow = firstLeg
-    ? buildExactHourWindow(firstLeg.departureDateTime)
-    : undefined;
-  const sliceArrivalTimeWindow = lastLeg
-    ? buildExactHourWindow(lastLeg.arrivalDateTime)
-    : undefined;
 
   return {
     airlines,
-    arrivalTimeWindow:
-      sliceArrivalTimeWindow ?? normalizeTimeWindow(request.arrivalTimeWindow),
+    arrivalTimeWindow: strictTimeWindows
+      ? buildExactHourWindow(lastLeg?.arrivalDateTime, normalizedArrivalWindow)
+      : normalizedArrivalWindow,
     date,
-    departureTimeWindow:
-      sliceDepartureTimeWindow ??
-      normalizeTimeWindow(request.departureTimeWindow),
+    departureTimeWindow: strictTimeWindows
+      ? buildExactHourWindow(firstLeg?.departureDateTime, normalizedDepartureWindow)
+      : normalizedDepartureWindow,
     fromAirport,
     maxStops: resolveMaxStops(slice, request.stopsFilter),
     toAirport
@@ -105,6 +135,8 @@ function buildSegments(
   option: FlightOption,
   request: SearchRequest
 ): EncodedSegment[] {
+  const strictTimeWindows =
+    option.source === "google_round_trip" && option.slices.length > 1;
   const {
     outboundDestination,
     outboundOrigin,
@@ -117,7 +149,8 @@ function buildSegments(
     option.outboundDate,
     outboundOrigin ?? request.origin,
     outboundDestination ?? request.destination,
-    request
+    request,
+    strictTimeWindows
   );
 
   const returnSegment = option.returnDate
@@ -126,7 +159,8 @@ function buildSegments(
         option.returnDate,
         returnOrigin ?? request.destination,
         returnDestination ?? request.origin,
-        request
+        request,
+        strictTimeWindows
       )
     : null;
 
@@ -208,20 +242,6 @@ function normalizeTimeWindow(
   const to = rawTo === 24 ? 23 : rawTo;
 
   return from <= to ? { from, to } : { from: to, to: from };
-}
-
-function buildExactHourWindow(dateTime: string): TimeWindow | undefined {
-  const date = new Date(dateTime);
-  const hour = date.getHours();
-
-  if (!Number.isFinite(hour)) {
-    return undefined;
-  }
-
-  return {
-    from: hour,
-    to: hour
-  };
 }
 
 function encodeVarint(value: bigint | number): Uint8Array {

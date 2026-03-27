@@ -79,8 +79,7 @@ function buildSummary(
     cheapestOverall: option,
     cheapestRoundTrip: null,
     cheapestTwoOneWays: null,
-    cheapestDirectThere: option,
-    cheapestDirectReturn: null,
+    cheapestNonstop: option,
     cheapestMultiStop: null,
     evaluatedDatePairs: [],
     inspectedOptions: 1,
@@ -230,10 +229,10 @@ describe("BookingSourceSupplementService", () => {
     expect(nextSummary.cheapestOverall?.bookingSource.sellerName).toBe(
       "Delta Air Lines"
     );
-    expect(nextSummary.cheapestDirectThere?.bookingSource.sellerName).toBe(
+    expect(nextSummary.cheapestNonstop?.bookingSource.sellerName).toBe(
       "Delta Air Lines"
     );
-    expect(nextSummary.cheapestOverall).toBe(nextSummary.cheapestDirectThere);
+    expect(nextSummary.cheapestOverall).toBe(nextSummary.cheapestNonstop);
   });
 
   it("skips backup-provider calls for non-targeted unresolved results", async () => {

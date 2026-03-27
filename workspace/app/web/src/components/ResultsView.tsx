@@ -1,13 +1,17 @@
+import type { ReactNode } from "react";
+
 import { buildGoogleFlightsSearchLinks } from "../lib/google-flights-link";
 import type {
   BookingSourceType,
   DatePrice,
   FlightOption,
   PriceAlert,
+  SearchProgress,
   SearchRequest,
   SearchSummary,
   TimingConfidence,
-  TimingGuidance
+  TimingGuidance,
+  UpgradeFareCardState
 } from "../lib/types";
 
 function formatPrice(amount: number, currency: string) {
@@ -67,9 +71,83 @@ function getSliceTitle(option: FlightOption, sliceIndex: number) {
   return sliceIndex === 0 ? "Outbound one-way" : "Return one-way";
 }
 
-function PriceStrip({ dates, label }: { dates: DatePrice[]; label: string }) {
+function ResultPlaceholderCard({
+  title,
+  message,
+  kicker,
+  children,
+  className
+}: {
+  title: string;
+  message: string;
+  kicker?: string;
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={className ? `result-card ${className}` : "result-card"}>
+      <header>
+        <div>
+          {kicker ? <p className="section-kicker">{kicker}</p> : null}
+          <h3>{title}</h3>
+        </div>
+      </header>
+      <p className="muted-copy">{message}</p>
+      {children}
+    </section>
+  );
+}
+
+function SearchProgressBlock({
+  label,
+  progress
+}: {
+  label: string;
+  progress: SearchProgress;
+}) {
+  return (
+    <div className="search-progress search-progress--card" role="status" aria-live="polite">
+      <div
+        className="search-progress__bar"
+        aria-label={label}
+        aria-valuemax={progress.totalSteps}
+        aria-valuemin={0}
+        aria-valuenow={progress.completedSteps}
+        role="progressbar"
+      >
+        <div
+          className="search-progress__fill"
+          style={{ width: `${progress.percent}%` }}
+        />
+      </div>
+      <div className="search-progress__copy">
+        <p className="muted-copy">{progress.stage}</p>
+        {progress.detail ? <p className="muted-copy">{progress.detail}</p> : null}
+        <p className="muted-copy">
+          {progress.percent}% complete ({progress.completedSteps}/{progress.totalSteps} steps)
+        </p>
+        {progress.previewInspectedOptions ? (
+          <p className="muted-copy">
+            Best live fare after {progress.previewInspectedOptions} checked candidate
+            {progress.previewInspectedOptions === 1 ? "" : "s"}.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PriceStrip({
+  dates,
+  label,
+  emptyMessage
+}: {
+  dates: DatePrice[];
+  label: string;
+  emptyMessage: string;
+}) {
   if (dates.length === 0) {
-    return null;
+    return <ResultPlaceholderCard message={emptyMessage} title={label} />;
   }
 
   return (
@@ -110,9 +188,25 @@ function getPriceAlertBadgeLabel(alert: PriceAlert) {
     : `-${alert.changePercent}%`;
 }
 
-function TimingGuidanceCard({ guidance }: { guidance: TimingGuidance | null }) {
+function TimingGuidanceCard({
+  guidance,
+  isSearching
+}: {
+  guidance: TimingGuidance | null;
+  isSearching: boolean;
+}) {
   if (!guidance) {
-    return null;
+    return (
+      <ResultPlaceholderCard
+        kicker="Timing guidance"
+        message={
+          isSearching
+            ? "Timing guidance fills in after the live fare comparison finishes."
+            : "Not enough history has built up yet to make a solid book-now versus wait call."
+        }
+        title={isSearching ? "Timing read coming up" : "No timing read yet"}
+      />
+    );
   }
 
   return (
@@ -173,9 +267,25 @@ function TimingGuidanceCard({ guidance }: { guidance: TimingGuidance | null }) {
   );
 }
 
-function PriceAlertCard({ alert }: { alert: PriceAlert | null }) {
+function PriceAlertCard({
+  alert,
+  isSearching
+}: {
+  alert: PriceAlert | null;
+  isSearching: boolean;
+}) {
   if (!alert) {
-    return null;
+    return (
+      <ResultPlaceholderCard
+        kicker="Price alert"
+        message={
+          isSearching
+            ? "Price alerts are checked after the current live search settles on its fare comparisons."
+            : "No big fare swing has shown up yet, so there is nothing to flag right now."
+        }
+        title={isSearching ? "Watching for an alert" : "No alert right now"}
+      />
+    );
   }
 
   return (
@@ -199,29 +309,44 @@ function OptionCard({
   request,
   title,
   emptyMessage,
-  summaryNote
+  summaryNote,
+  progress,
+  progressLabel,
+  highlight
 }: {
   option: FlightOption | null;
   request: SearchRequest;
   title: string;
   emptyMessage: string;
   summaryNote?: string;
+  progress?: SearchProgress | null;
+  progressLabel?: string;
+  highlight?: boolean;
 }) {
+  const cardClassName = highlight ? "result-card--cheapest-overall" : undefined;
+
   if (!option) {
     return (
-      <section className="result-card">
-        <header>
-          <h3>{title}</h3>
-        </header>
-        <p className="muted-copy">{emptyMessage}</p>
-      </section>
+      <ResultPlaceholderCard
+        className={cardClassName}
+        message={emptyMessage}
+        title={title}
+      >
+        {summaryNote ? <p className="muted-copy">{summaryNote}</p> : null}
+        {progress ? (
+          <SearchProgressBlock
+            label={progressLabel ?? `Searching ${title}`}
+            progress={progress}
+          />
+        ) : null}
+      </ResultPlaceholderCard>
     );
   }
 
   const searchLinks = buildGoogleFlightsSearchLinks(option, request);
 
   return (
-    <section className="result-card">
+    <section className={cardClassName ? `result-card ${cardClassName}` : "result-card"}>
       <header>
         <div>
           <h3>{title}</h3>
@@ -306,6 +431,12 @@ function OptionCard({
           ))}
         </ul>
       ) : null}
+      {progress ? (
+        <SearchProgressBlock
+          label={progressLabel ?? `Searching ${title}`}
+          progress={progress}
+        />
+      ) : null}
       {searchLinks.length > 0 ? (
         <div className="result-card__actions">
           {searchLinks.length > 1 ? (
@@ -331,42 +462,53 @@ function OptionCard({
 }
 
 export function ResultsView({
-  hasCompletedSearch,
-  summary
+  showResults,
+  isSearching,
+  mainSearchProgress,
+  summary,
+  upgradeFareBox
 }: {
-  hasCompletedSearch: boolean;
+  showResults: boolean;
+  isSearching: boolean;
+  mainSearchProgress: SearchProgress | null;
   summary: SearchSummary | null;
+  upgradeFareBox: UpgradeFareCardState | null;
 }) {
-  if (!hasCompletedSearch) {
+  if (!showResults) {
     return null;
   }
 
   if (!summary) {
     return (
       <section className="results-shell placeholder-card">
-        <h2>No search summary yet</h2>
+        <h2>{isSearching ? "Starting live search" : "No search summary yet"}</h2>
         <p>
-          The search did not return a usable result summary. Try adjusting your
-          filters or check the error banner above.
+          {isSearching
+            ? "The cards will start filling in as soon as the first live fare checks finish."
+            : "The search did not return a usable result summary. Try adjusting your filters or check the error banner above."}
         </p>
       </section>
     );
   }
 
-  const hasSpecificsAndExtras =
-    summary.departureDatePrices.length > 0 ||
-    summary.returnDatePrices.length > 0 ||
-    summary.timingGuidance !== null;
-
   return (
     <section className="results-shell">
       <div className="results-header">
         <div>
-          <h2>Search summary</h2>
+          <h2>{isSearching ? "Live search in progress" : "Search summary"}</h2>
           <p>
-            Evaluated {summary.evaluatedDatePairs.length} date combinations and{" "}
-            {summary.inspectedOptions} flight options.
+            {isSearching ? "Checked" : "Evaluated"}{" "}
+            {summary.evaluatedDatePairs.length} date combination
+            {summary.evaluatedDatePairs.length === 1 ? "" : "s"} and{" "}
+            {summary.inspectedOptions} qualifying flight option
+            {summary.inspectedOptions === 1 ? "" : "s"}
+            {isSearching ? " so far." : "."}
           </p>
+          {isSearching ? (
+            <p className="muted-copy">
+              These cards update live as lower fares show up.
+            </p>
+          ) : null}
           {summary.request.tripType === "round_trip" ? (
             <p className="muted-copy">
               Departure window {formatDate(summary.request.departureDateFrom)} to{" "}
@@ -386,75 +528,118 @@ export function ResultsView({
         </div>
       </div>
 
-      <PriceAlertCard alert={summary.priceAlert} />
-      {hasSpecificsAndExtras ? (
-        <details className="results-disclosure">
-          <summary className="results-disclosure__summary">
-            <div>
-              <p className="section-kicker">Details</p>
-              <h3>Specifics + Extras</h3>
-              <p className="muted-copy">
-                Best departure dates, best return dates, and timing guidance.
-              </p>
-            </div>
-            <span className="results-disclosure__chevron" aria-hidden="true">
-              v
-            </span>
-          </summary>
-          <div className="results-disclosure__content">
-            <PriceStrip
-              dates={summary.departureDatePrices}
-              label="Best departure dates"
-            />
-            <PriceStrip
-              dates={summary.returnDatePrices}
-              label="Best return dates"
-            />
-            <TimingGuidanceCard guidance={summary.timingGuidance} />
+      <PriceAlertCard alert={summary.priceAlert} isSearching={isSearching} />
+      <details className="results-disclosure">
+        <summary className="results-disclosure__summary">
+          <div>
+            <p className="section-kicker">Details</p>
+            <h3>Specifics + Extras</h3>
+            <p className="muted-copy">
+              Best departure dates, best return dates, and timing guidance.
+            </p>
           </div>
-        </details>
-      ) : null}
+          <span className="results-disclosure__chevron" aria-hidden="true">
+            v
+          </span>
+        </summary>
+        <div className="results-disclosure__content">
+          <PriceStrip
+            dates={summary.departureDatePrices}
+            emptyMessage={
+              isSearching
+                ? "Still ranking departure dates as live fares keep coming in."
+                : "No standout departure dates surfaced from this run."
+            }
+            label="Best departure dates"
+          />
+          <PriceStrip
+            dates={summary.returnDatePrices}
+            emptyMessage={
+              summary.request.tripType === "round_trip" && isSearching
+                ? "Still ranking return dates while the tool compares date pairs."
+                : summary.request.tripType === "round_trip"
+                  ? "No standout return dates surfaced from this run."
+                : "Return dates only apply when you're searching round-trip."
+            }
+            label="Best return dates"
+          />
+          <TimingGuidanceCard
+            guidance={summary.timingGuidance}
+            isSearching={isSearching}
+          />
+        </div>
+      </details>
 
       <div className="result-grid">
         <OptionCard
           title="Cheapest overall"
           option={summary.cheapestOverall}
           request={summary.request}
-          emptyMessage="Nothing qualified as the overall cheapest option yet."
+          highlight
+          progress={isSearching ? mainSearchProgress : null}
+          progressLabel="Pinning down the cheapest overall fare"
+          emptyMessage={
+            isSearching
+              ? "Waiting for the first live fare to land so this card can start updating."
+              : "Nothing qualified as the overall cheapest option yet."
+          }
         />
         <OptionCard
           title="Cheapest round-trip"
           option={summary.cheapestRoundTrip}
           request={summary.request}
-          emptyMessage="No round-trip result qualified."
+          emptyMessage={
+            summary.request.tripType === "one_way"
+              ? "Round-trip fares only appear when you're searching round-trip."
+              : isSearching
+                ? "Still checking full round-trip fares against the other options."
+                : "No round-trip result qualified."
+          }
         />
         <OptionCard
           title="Cheapest two one-ways"
           option={summary.cheapestTwoOneWays}
           request={summary.request}
           summaryNote={summary.hackerFareInsight?.summary}
-          emptyMessage="No two one-way combination beat the current candidates."
+          emptyMessage={
+            summary.request.tripType === "one_way"
+              ? "Two one-way combinations only apply when you're searching round-trip."
+              : isSearching
+                ? "Still comparing separate outbound and return fares against round-trip tickets."
+                : "No two one-way combination beat the current candidates."
+          }
         />
         <OptionCard
-          title="Cheapest direct there"
-          option={summary.cheapestDirectThere}
+          title="Cheapest nonstop"
+          option={summary.cheapestNonstop}
           request={summary.request}
-          emptyMessage="No direct outbound option qualified."
+          emptyMessage={
+            isSearching
+              ? "Still checking for the cheapest qualifying nonstop option."
+              : "No nonstop option qualified."
+          }
         />
-        {summary.request.tripType === "round_trip" ? (
-          <OptionCard
-            title="Cheapest direct return"
-            option={summary.cheapestDirectReturn}
-            request={summary.request}
-            emptyMessage="No direct return option qualified."
-          />
-        ) : null}
         <OptionCard
           title="Cheapest option with stops"
           option={summary.cheapestMultiStop}
           request={summary.request}
-          emptyMessage="No stop-inclusive option qualified."
+          emptyMessage={
+            isSearching
+              ? "Still checking whether any stop-inclusive itinerary beats the current field."
+              : "No stop-inclusive option qualified."
+          }
         />
+        {upgradeFareBox ? (
+          <OptionCard
+            title={upgradeFareBox.title}
+            option={upgradeFareBox.option}
+            request={upgradeFareBox.request}
+            summaryNote={upgradeFareBox.summaryNote}
+            progress={upgradeFareBox.progress}
+            progressLabel={`Searching ${upgradeFareBox.title}`}
+            emptyMessage={upgradeFareBox.emptyMessage}
+          />
+        ) : null}
       </div>
     </section>
   );

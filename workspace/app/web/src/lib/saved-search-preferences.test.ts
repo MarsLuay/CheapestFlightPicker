@@ -45,6 +45,7 @@ describe("loadSavedSearchPreferences", () => {
       origin: "SEA",
       destination: "JFK",
       useExactDates: true,
+      requireFreeCarryOnBag: true,
       minimumTripDays: 7,
       maximumTripDays: 14,
       departureTimeWindow: {
@@ -82,6 +83,7 @@ describe("saveSavedSearchPreferences", () => {
         origin: " sea ",
         destination: "",
         useExactDates: false,
+        requireFreeCarryOnBag: true,
         minimumTripDays: 4,
         maximumTripDays: 11,
         departureTimeWindow: {
@@ -104,6 +106,7 @@ describe("saveSavedSearchPreferences", () => {
       origin: "SEA",
       destination: "",
       useExactDates: false,
+      requireFreeCarryOnBag: true,
       minimumTripDays: 4,
       maximumTripDays: 11,
       departureTimeWindow: {

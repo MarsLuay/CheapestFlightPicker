@@ -16,6 +16,7 @@ type JsonFileCacheOptions = {
   ttlMs: number;
   maxEntries?: number;
   sweepIntervalMs?: number;
+  version?: number | string;
 };
 
 function normalizeValue(value: unknown): unknown {
@@ -57,6 +58,8 @@ export class JsonFileCache<T> {
 
   private readonly sweepIntervalMs: number;
 
+  private readonly version: number | string | undefined;
+
   private lastSweepAt = 0;
 
   private lastCreatedAt = 0;
@@ -74,6 +77,7 @@ export class JsonFileCache<T> {
     this.ttlMs = options.ttlMs;
     this.maxEntries = options.maxEntries ?? 500;
     this.sweepIntervalMs = options.sweepIntervalMs ?? 1000 * 60 * 5;
+    this.version = options.version;
 
     this.ensureDirectory();
   }
@@ -192,8 +196,15 @@ export class JsonFileCache<T> {
   }
 
   private getFilePath(keyParts: unknown): string {
+    const digestKey =
+      this.version === undefined
+        ? keyParts
+        : {
+            keyParts,
+            version: this.version
+          };
     const digest = createHash("sha256")
-      .update(stableSerialize(keyParts))
+      .update(stableSerialize(digestKey))
       .digest("hex");
 
     return path.join(this.directoryPath, `${digest}.json`);

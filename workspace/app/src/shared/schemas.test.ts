@@ -27,6 +27,30 @@ describe("searchRequestSchema", () => {
     expect(request.airlines).toEqual(["DL"]);
     expect(request.minimumTripDays).toBe(0);
     expect(request.maximumTripDays).toBe(14);
+    expect(request.requireFreeCarryOnBag).toBe(true);
+  });
+
+  it("accepts the free carry-on requirement filter", () => {
+    const request = searchRequestSchema.parse({
+      tripType: "one_way",
+      origin: "sea",
+      destination: "las",
+      departureDateFrom: "2026-04-15",
+      departureDateTo: "2026-04-18",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      requireFreeCarryOnBag: true,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      },
+      maxResults: 5
+    });
+
+    expect(request.requireFreeCarryOnBag).toBe(true);
   });
 
   it("rejects a round-trip request without a return window", () => {

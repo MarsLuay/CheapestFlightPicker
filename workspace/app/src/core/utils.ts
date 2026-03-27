@@ -204,10 +204,10 @@ export function findCheapest(options: FlightOption[]): FlightOption | null {
   });
 }
 
-export function findCheapestDirectThere(
-  options: FlightOption[]
-): FlightOption | null {
-  const matches = options.filter((option) => option.slices[0]?.stops === 0);
+export function findCheapestNonstop(options: FlightOption[]): FlightOption | null {
+  const matches = options.filter(
+    (option) => option.slices.length > 0 && option.slices.every((slice) => slice.stops === 0)
+  );
   return findCheapest(matches);
 }
 
