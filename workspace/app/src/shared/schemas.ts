@@ -7,6 +7,8 @@ import {
 } from "./types";
 
 const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/u;
+const dayMs = 24 * 60 * 60 * 1000;
+const maxSearchPassengers = 9;
 
 const upperCode = (message: string) =>
   z
@@ -33,25 +35,58 @@ const timeWindowSchema = z
     };
   });
 
+function parseIsoCalendarDateToUtcTimestamp(value: string): number | null {
+  const match = value.match(isoDateRegex);
+  if (!match) {
+    return null;
+  }
+
+  const [yearPart, monthPart, dayPart] = value.split("-");
+  const year = Number.parseInt(yearPart ?? "", 10);
+  const month = Number.parseInt(monthPart ?? "", 10);
+  const day = Number.parseInt(dayPart ?? "", 10);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return null;
+  }
+
+  const timestamp = Date.UTC(year, month - 1, day);
+  const parsedDate = new Date(timestamp);
+
+  if (
+    parsedDate.getUTCFullYear() !== year ||
+    parsedDate.getUTCMonth() !== month - 1 ||
+    parsedDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return timestamp;
+}
+
+const isoCalendarDate = (label: string) =>
+  z
+    .string()
+    .regex(isoDateRegex, `${label} must use YYYY-MM-DD`)
+    .refine(
+      (value) => parseIsoCalendarDateToUtcTimestamp(value) !== null,
+      `${label} must be a real calendar date`
+    );
+
 export const searchRequestSchema = z
   .object({
     tripType: z.enum(tripTypeValues),
+    useExactDates: z.boolean().default(false),
     origin: upperCode("Origin airport code must be 3 letters"),
     destination: upperCode("Destination airport code must be 3 letters"),
-    departureDateFrom: z
-      .string()
-      .regex(isoDateRegex, "Departure date must use YYYY-MM-DD"),
-    departureDateTo: z
-      .string()
-      .regex(isoDateRegex, "Departure date must use YYYY-MM-DD"),
-    returnDateFrom: z
-      .string()
-      .regex(isoDateRegex, "Return date must use YYYY-MM-DD")
-      .optional(),
-    returnDateTo: z
-      .string()
-      .regex(isoDateRegex, "Return date must use YYYY-MM-DD")
-      .optional(),
+    departureDateFrom: isoCalendarDate("Departure date"),
+    departureDateTo: isoCalendarDate("Departure date"),
+    returnDateFrom: isoCalendarDate("Return date").optional(),
+    returnDateTo: isoCalendarDate("Return date").optional(),
     minimumTripDays: z.number().int().min(0).max(180).default(0),
     maximumTripDays: z.number().int().min(0).max(180).default(14),
     departureTimeWindow: timeWindowSchema.nullish(),
@@ -95,9 +130,37 @@ export const searchRequestSchema = z
       });
     }
 
-    const departureFrom = new Date(value.departureDateFrom);
-    const departureTo = new Date(value.departureDateTo);
-    if (departureFrom.getTime() > departureTo.getTime()) {
+    if (value.passengers.infantsOnLap > value.passengers.adults) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Lap infants cannot exceed the number of adults",
+        path: ["passengers", "infantsOnLap"]
+      });
+    }
+
+    const totalPassengers =
+      value.passengers.adults +
+      value.passengers.children +
+      value.passengers.infantsInSeat +
+      value.passengers.infantsOnLap;
+    if (totalPassengers > maxSearchPassengers) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Google Flights supports at most 9 total passengers per search, including infants",
+        path: ["passengers"]
+      });
+    }
+
+    const departureFrom = parseIsoCalendarDateToUtcTimestamp(
+      value.departureDateFrom
+    );
+    const departureTo = parseIsoCalendarDateToUtcTimestamp(value.departureDateTo);
+    if (departureFrom === null || departureTo === null) {
+      return;
+    }
+
+    if (departureFrom > departureTo) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Departure start date must be on or before departure end date",
@@ -115,9 +178,13 @@ export const searchRequestSchema = z
         return;
       }
 
-      const returnFrom = new Date(value.returnDateFrom);
-      const returnTo = new Date(value.returnDateTo);
-      if (returnFrom.getTime() > returnTo.getTime()) {
+      const returnFrom = parseIsoCalendarDateToUtcTimestamp(value.returnDateFrom);
+      const returnTo = parseIsoCalendarDateToUtcTimestamp(value.returnDateTo);
+      if (returnFrom === null || returnTo === null) {
+        return;
+      }
+
+      if (returnFrom > returnTo) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Return start date must be on or before return end date",
@@ -125,12 +192,44 @@ export const searchRequestSchema = z
         });
       }
 
-      if (returnTo.getTime() < departureFrom.getTime()) {
+      if (returnTo < departureFrom) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Return window must not end before the departure window starts",
           path: ["returnDateTo"]
         });
+      }
+
+      if (value.useExactDates) {
+        const departureSpanDays = Math.round(
+          (departureTo - departureFrom) / dayMs
+        );
+        const returnSpanDays = Math.round(
+          (returnTo - returnFrom) / dayMs
+        );
+
+        if (departureSpanDays !== returnSpanDays) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Exact-date searches require departure and return windows to span the same number of days",
+            path: ["returnDateTo"]
+          });
+        }
+
+        const exactTripLengthDays = Math.round(
+          (returnFrom - departureFrom) / dayMs
+        );
+        if (exactTripLengthDays < 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Exact-date searches require each matched return date to be on or after its departure date",
+            path: ["returnDateFrom"]
+          });
+        }
+
+        return;
       }
 
       const minimumTripDays = value.minimumTripDays ?? 0;
@@ -145,12 +244,12 @@ export const searchRequestSchema = z
       }
 
       const possibleReturnFrom = Math.max(
-        returnFrom.getTime(),
-        departureFrom.getTime() + minimumTripDays * 24 * 60 * 60 * 1000
+        returnFrom,
+        departureFrom + minimumTripDays * dayMs
       );
       const possibleReturnTo = Math.min(
-        returnTo.getTime(),
-        departureTo.getTime() + maximumTripDays * 24 * 60 * 60 * 1000
+        returnTo,
+        departureTo + maximumTripDays * dayMs
       );
 
       if (possibleReturnFrom > possibleReturnTo) {

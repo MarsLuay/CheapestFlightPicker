@@ -28,11 +28,46 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+function parseLocalDateTime(value: string): Date | null {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/u
+  );
+  if (!match) {
+    const parsedDate = new Date(value);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+  }
+
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second = "00"
+  ] = match;
+  const parsedDate = new Date(
+    Number.parseInt(year ?? "", 10),
+    Number.parseInt(month ?? "", 10) - 1,
+    Number.parseInt(day ?? "", 10),
+    Number.parseInt(hour ?? "", 10),
+    Number.parseInt(minute ?? "", 10),
+    Number.parseInt(second, 10)
+  );
+
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
 function formatDateTime(value: string) {
+  const parsedDate = parseLocalDateTime(value);
+  if (!parsedDate) {
+    return value;
+  }
+
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short"
-  }).format(new Date(value));
+  }).format(parsedDate);
 }
 
 function formatDuration(minutes: number) {
@@ -156,7 +191,7 @@ function PriceStrip({
         <h3>{label}</h3>
       </header>
       <div className="pill-row">
-        {dates.slice(0, 10).map((entry) => (
+        {dates.slice(0, 12).map((entry) => (
           <div className="price-pill" key={`${label}-${entry.date}`}>
             <strong>{formatDate(entry.date)}</strong>
             <span>{formatPrice(entry.price, "USD")}</span>
@@ -520,9 +555,12 @@ export function ResultsView({
               {summary.request.returnDateTo
                 ? formatDate(summary.request.returnDateTo)
                 : "n/a"}
-              . Trip length between {summary.request.minimumTripDays ?? 0} and{" "}
-              {summary.request.maximumTripDays ?? 14} day
-              {(summary.request.maximumTripDays ?? 14) === 1 ? "" : "s"}.
+              .{" "}
+              {summary.request.useExactDates
+                ? "Exact-date mode matched each departure date to the return date in the same position inside the return window."
+                : `Trip length between ${summary.request.minimumTripDays ?? 0} and ${
+                    summary.request.maximumTripDays ?? 14
+                  } day${(summary.request.maximumTripDays ?? 14) === 1 ? "" : "s"}.`}
             </p>
           ) : null}
         </div>

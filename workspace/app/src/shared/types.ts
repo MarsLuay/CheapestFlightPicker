@@ -46,6 +46,7 @@ export type BookingSource = {
 
 export type SearchRequest = {
   tripType: TripType;
+  useExactDates?: boolean;
   origin: string;
   destination: string;
   departureDateFrom: string;

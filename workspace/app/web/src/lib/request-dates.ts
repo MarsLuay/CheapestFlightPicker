@@ -1,4 +1,5 @@
 import type { SearchRequest } from "./types";
+import { differenceInCalendarDays, shiftDateInput } from "./date-input";
 
 function syncLatestDateToEarliest(
   earliestDate: string,
@@ -18,6 +19,42 @@ function shouldSyncExactDates(
   return useExactDates && request.tripType === "round_trip";
 }
 
+function shiftLinkedDate(date: string | undefined, deltaDays: number): string | undefined {
+  if (!date || deltaDays === 0) {
+    return date;
+  }
+
+  return shiftDateInput(date, deltaDays);
+}
+
+function getMinimumReturnDateFrom(
+  departureDateFrom: string,
+  minimumTripDays: number
+): string {
+  return shiftDateInput(departureDateFrom, Math.max(0, minimumTripDays));
+}
+
+function syncReturnWindowToMinimumTrip(
+  request: SearchRequest,
+  departureDateFrom = request.departureDateFrom,
+  minimumTripDays = request.minimumTripDays ?? 0
+): Pick<SearchRequest, "returnDateFrom" | "returnDateTo"> {
+  const returnDateFrom = getMinimumReturnDateFrom(
+    departureDateFrom,
+    minimumTripDays
+  );
+  const returnDateTo =
+    syncLatestDateToEarliest(
+      returnDateFrom,
+      request.returnDateTo ?? request.returnDateFrom ?? returnDateFrom
+    ) ?? returnDateFrom;
+
+  return {
+    returnDateFrom,
+    returnDateTo
+  };
+}
+
 export function withDepartureDateFrom(
   request: SearchRequest,
   nextDepartureDateFrom: string,
@@ -28,19 +65,34 @@ export function withDepartureDateFrom(
     request.departureDateTo;
 
   if (shouldSyncExactDates(request, useExactDates)) {
+    const departureFromDelta = differenceInCalendarDays(
+      request.departureDateFrom,
+      nextDepartureDateFrom
+    );
+    const departureToDelta = differenceInCalendarDays(
+      request.departureDateTo,
+      departureDateTo
+    );
+
     return {
       ...request,
       departureDateFrom: nextDepartureDateFrom,
       departureDateTo,
-      returnDateFrom: nextDepartureDateFrom,
-      returnDateTo: departureDateTo
+      returnDateFrom: shiftLinkedDate(request.returnDateFrom, departureFromDelta),
+      returnDateTo: shiftLinkedDate(request.returnDateTo, departureToDelta)
     };
   }
+
+  const syncedReturnDates =
+    request.tripType === "round_trip"
+      ? syncReturnWindowToMinimumTrip(request, nextDepartureDateFrom)
+      : {};
 
   return {
     ...request,
     departureDateFrom: nextDepartureDateFrom,
-    departureDateTo
+    departureDateTo,
+    ...syncedReturnDates
   };
 }
 
@@ -54,10 +106,15 @@ export function withDepartureDateTo(
     nextDepartureDateTo;
 
   if (shouldSyncExactDates(request, useExactDates)) {
+    const departureToDelta = differenceInCalendarDays(
+      request.departureDateTo,
+      departureDateTo
+    );
+
     return {
       ...request,
       departureDateTo,
-      returnDateTo: departureDateTo
+      returnDateTo: shiftLinkedDate(request.returnDateTo, departureToDelta)
     };
   }
 
@@ -72,23 +129,47 @@ export function withReturnDateFrom(
   nextReturnDateFrom: string,
   useExactDates: boolean
 ): SearchRequest {
+  const minimumReturnDateFrom =
+    request.tripType === "round_trip" && !shouldSyncExactDates(request, useExactDates)
+      ? getMinimumReturnDateFrom(
+          request.departureDateFrom,
+          request.minimumTripDays ?? 0
+        )
+      : nextReturnDateFrom;
+  const returnDateFrom =
+    nextReturnDateFrom < minimumReturnDateFrom
+      ? minimumReturnDateFrom
+      : nextReturnDateFrom;
   const returnDateTo =
-    syncLatestDateToEarliest(nextReturnDateFrom, request.returnDateTo) ??
+    syncLatestDateToEarliest(returnDateFrom, request.returnDateTo) ??
     request.returnDateTo;
 
   if (shouldSyncExactDates(request, useExactDates)) {
+    const returnFromDelta = differenceInCalendarDays(
+      request.returnDateFrom ?? returnDateFrom,
+      returnDateFrom
+    );
+    const returnToDelta = differenceInCalendarDays(
+      request.returnDateTo ?? returnDateTo ?? returnDateFrom,
+      returnDateTo ?? returnDateFrom
+    );
+
     return {
       ...request,
-      departureDateFrom: nextReturnDateFrom,
-      departureDateTo: returnDateTo ?? request.departureDateTo,
-      returnDateFrom: nextReturnDateFrom,
+      departureDateFrom:
+        shiftLinkedDate(request.departureDateFrom, returnFromDelta) ??
+        request.departureDateFrom,
+      departureDateTo:
+        shiftLinkedDate(request.departureDateTo, returnToDelta) ??
+        request.departureDateTo,
+      returnDateFrom,
       returnDateTo
     };
   }
 
   return {
     ...request,
-    returnDateFrom: nextReturnDateFrom,
+    returnDateFrom,
     returnDateTo
   };
 }
@@ -103,9 +184,16 @@ export function withReturnDateTo(
     nextReturnDateTo;
 
   if (shouldSyncExactDates(request, useExactDates)) {
+    const returnToDelta = differenceInCalendarDays(
+      request.returnDateTo ?? returnDateTo,
+      returnDateTo
+    );
+
     return {
       ...request,
-      departureDateTo: returnDateTo,
+      departureDateTo:
+        shiftLinkedDate(request.departureDateTo, returnToDelta) ??
+        request.departureDateTo,
       returnDateTo
     };
   }
@@ -113,5 +201,34 @@ export function withReturnDateTo(
   return {
     ...request,
     returnDateTo
+  };
+}
+
+export function withMinimumTripDays(
+  request: SearchRequest,
+  nextMinimumTripDays: number
+): SearchRequest {
+  const minimumTripDays = Math.max(0, nextMinimumTripDays);
+  const maximumTripDays = Math.max(request.maximumTripDays ?? 14, minimumTripDays);
+
+  if (request.tripType !== "round_trip") {
+    return {
+      ...request,
+      minimumTripDays,
+      maximumTripDays
+    };
+  }
+
+  const syncedReturnDates = syncReturnWindowToMinimumTrip(
+    request,
+    request.departureDateFrom,
+    minimumTripDays
+  );
+
+  return {
+    ...request,
+    minimumTripDays,
+    maximumTripDays,
+    ...syncedReturnDates
   };
 }

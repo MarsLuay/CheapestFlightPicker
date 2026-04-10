@@ -719,6 +719,12 @@ select {
   justify-content: space-between;
 }
 
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .primary-action {
   background: linear-gradient(135deg, #f1be84, #d76035);
   border-radius: 18px;
@@ -770,6 +776,18 @@ select {
   min-height: 42px;
   padding: 0 16px;
   white-space: nowrap;
+}
+
+.secondary-action--danger {
+  background: rgba(215, 96, 53, 0.12);
+  border-color: rgba(215, 96, 53, 0.28);
+  color: #ffe4d6;
+}
+
+.secondary-action--danger:hover,
+.secondary-action--danger:focus-visible {
+  background: rgba(215, 96, 53, 0.18);
+  border-color: rgba(241, 190, 132, 0.32);
 }
 
 .primary-action:disabled {
@@ -1313,6 +1331,10 @@ select {
   .action-row,
   .leg-row {
     flex-direction: column;
+  }
+
+  .action-buttons {
+    width: 100%;
   }
 
   .leg-times {

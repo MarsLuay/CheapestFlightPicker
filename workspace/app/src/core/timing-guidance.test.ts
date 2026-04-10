@@ -14,6 +14,7 @@ function buildSummary(): SearchSummary {
   return {
     request: {
       tripType: "round_trip",
+      useExactDates: false,
       origin: "SEA",
       destination: "JFK",
       departureDateFrom: "2026-04-20",
@@ -93,6 +94,9 @@ function createMemoryCache<T>() {
     },
     set(key: unknown, value: T) {
       entries.set(stableSerialize(key), value);
+    },
+    size() {
+      return entries.size;
     }
   };
 }
@@ -137,6 +141,51 @@ describe("buildTimingGuidance", () => {
     );
 
     expect(guidance?.recommendation).toBe("wait");
+  });
+
+  it("uses the winning fare date instead of the window start for lead time", () => {
+    const summary = buildSummary();
+    summary.request.departureDateFrom = "2026-04-20";
+    summary.request.departureDateTo = "2026-04-24";
+    if (summary.cheapestOverall) {
+      summary.cheapestOverall.outboundDate = "2026-04-24";
+    }
+
+    const guidance = buildTimingGuidance(
+      summary,
+      [],
+      new Date("2026-03-25T12:00:00.000Z")
+    );
+
+    expect(guidance?.daysUntilDeparture).toBe(30);
+  });
+
+  it("lets broader market context outrank a friendly exact-trip watch", () => {
+    const summary = buildSummary();
+
+    const guidance = buildTimingGuidance(
+      summary,
+      [
+        buildObservation(300, "2026-03-18T12:00:00.000Z", 33),
+        buildObservation(302, "2026-03-20T12:00:00.000Z", 31),
+        buildObservation(304, "2026-03-22T12:00:00.000Z", 29),
+        buildObservation(305, "2026-03-25T12:00:00.000Z", 26)
+      ],
+      new Date("2026-03-25T12:00:00.000Z"),
+      {
+        currency: "USD",
+        firstQuartile: 240,
+        maximum: 320,
+        median: 260,
+        minimum: 220,
+        scope: "route_level",
+        source: "amadeus",
+        thirdQuartile: 280
+      }
+    );
+
+    expect(guidance?.recommendation).toBe("wait");
+    expect(guidance?.reasons[0]).toContain("upper end of the current market range");
   });
 
   it("uses airline baseline pricing from similar searches as a booking signal", () => {
@@ -259,6 +308,17 @@ describe("buildWatchKey", () => {
 
     expect(withCarryOnKey).not.toEqual(withoutCarryOnKey);
   });
+
+  it("keeps exact-date searches separate from flexible searches", () => {
+    const summary = buildSummary();
+    const flexibleKey = buildWatchKey(summary.request);
+    const exactDateKey = buildWatchKey({
+      ...summary.request,
+      useExactDates: true
+    });
+
+    expect(flexibleKey).not.toEqual(exactDateKey);
+  });
 });
 
 describe("TimingGuidanceService", () => {
@@ -270,6 +330,10 @@ describe("TimingGuidanceService", () => {
       routeHistoryCache: createMemoryCache<unknown[]>() as never
     });
     const summary = buildSummary();
+    summary.cheapestOverall = {
+      ...summary.cheapestOverall!,
+      outboundDate: "2026-04-24"
+    };
     summary.cheapestNonstop = {
       ...summary.cheapestOverall!,
       totalPrice: 340,
@@ -365,12 +429,49 @@ describe("TimingGuidanceService", () => {
     const latestObservation = history[0];
 
     expect(history).toHaveLength(1);
+    expect(latestObservation?.daysUntilDeparture).toBe(30);
     expect(latestObservation?.cheapestNonstopPrice).toBe(340);
     expect(latestObservation?.airlineMix).toEqual(["AS", "DL", "UA"]);
     expect(latestObservation?.directAirlineCount).toBe(2);
     expect(latestObservation?.otaCount).toBe(1);
     expect(latestObservation?.topFares).toHaveLength(3);
     expect(latestObservation?.volatility).toBeGreaterThan(0);
+  });
+
+  it("stores exact-date and flexible searches in separate history buckets", async () => {
+    const historyCache = createMemoryCache<unknown[]>();
+    const routeHistoryCache = createMemoryCache<unknown[]>();
+    const service = new TimingGuidanceService({
+      historyCache: historyCache as never,
+      marketPriceCache: createMemoryCache<unknown>() as never,
+      routeHistoryCache: routeHistoryCache as never
+    });
+    const flexibleSummary = buildSummary();
+    flexibleSummary.cheapestOverall = {
+      ...flexibleSummary.cheapestOverall!,
+      outboundDate: "2026-04-24"
+    };
+    const exactDateSummary = buildSummary();
+    exactDateSummary.request.useExactDates = true;
+    exactDateSummary.cheapestOverall = {
+      ...exactDateSummary.cheapestOverall!,
+      outboundDate: "2026-04-24"
+    };
+    const options = [flexibleSummary.cheapestOverall!];
+
+    await service.annotateSummary(
+      flexibleSummary,
+      options,
+      new Date("2026-03-25T12:00:00.000Z")
+    );
+    await service.annotateSummary(
+      exactDateSummary,
+      options,
+      new Date("2026-03-26T12:00:00.000Z")
+    );
+
+    expect(historyCache.size()).toBe(2);
+    expect(routeHistoryCache.size()).toBe(2);
   });
 
   it("uses cached Amadeus price analysis once per route snapshot and falls back cleanly", async () => {

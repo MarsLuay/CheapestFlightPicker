@@ -26,6 +26,7 @@ const calendarUrl =
   "https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetCalendarGraph";
 const shoppingUrl =
   "https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetShoppingResults";
+const roundTripFollowUpConcurrency = 2;
 
 type ExactSearchRuntimeOptions = {
   bypassCache?: boolean;
@@ -47,7 +48,7 @@ export class GoogleFlightsProvider {
     ttlMs: 1000 * 60 * 20,
     maxEntries: 800,
     sweepIntervalMs: 1000 * 60 * 2,
-    version: 6
+    version: 8
   });
 
   constructor() {
@@ -114,16 +115,14 @@ export class GoogleFlightsProvider {
       return filteredOptions;
     }
 
-    const outboundCandidates = results
-      .filter(
-        (result) =>
-          result.legs[0]?.departureAirportCode === normalizedParams.origin
-      )
-      .slice(0, 3);
+    const outboundCandidates = this.getRoundTripOutboundCandidates(
+      results,
+      normalizedParams.origin
+    );
 
     const followUps = await mapWithConcurrency(
       outboundCandidates,
-      2,
+      roundTripFollowUpConcurrency,
       async (selectedFlight) => {
         const followUpPayload = encodeExactSearch({
           ...normalizedParams,
@@ -162,6 +161,38 @@ export class GoogleFlightsProvider {
     );
     this.exactSearchCache.set(cacheKey, filteredOptions);
     return filteredOptions;
+  }
+
+  private getRoundTripOutboundCandidates(
+    results: GoogleFlightResult[],
+    origin: string
+  ): GoogleFlightResult[] {
+    const seen = new Set<string>();
+
+    return [...results]
+      .filter((result) => result.legs[0]?.departureAirportCode === origin)
+      .sort((left, right) => left.price - right.price)
+      .filter((result) => {
+        const key = result.legs
+          .map((leg) =>
+            [
+              leg.departureAirportCode,
+              leg.arrivalAirportCode,
+              leg.airlineCode,
+              leg.flightNumber,
+              leg.departureDateTime,
+              leg.arrivalDateTime
+            ].join(":")
+          )
+          .join("|");
+
+        if (seen.has(key)) {
+          return false;
+        }
+
+        seen.add(key);
+        return true;
+      });
   }
 
   async searchOneWayWithinWindow(
@@ -268,10 +299,10 @@ export class GoogleFlightsProvider {
           departureAirportCode: leg.departureAirportCode,
           departureAirportName:
             departureAirport?.name ?? leg.departureAirportCode,
-          departureDateTime: leg.departureDateTime.toISOString(),
+          departureDateTime: leg.departureDateTime,
           arrivalAirportCode: leg.arrivalAirportCode,
           arrivalAirportName: arrivalAirport?.name ?? leg.arrivalAirportCode,
-          arrivalDateTime: leg.arrivalDateTime.toISOString(),
+          arrivalDateTime: leg.arrivalDateTime,
           durationMinutes: leg.durationMinutes
         };
       })

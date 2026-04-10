@@ -5,6 +5,13 @@ import {
 } from "../../core/utils";
 import type { CalendarSearchParams, ExactFlightSearchParams } from "./types";
 
+function getLocalDatePart(dateTime: string, fallbackDate: string): string {
+  const [datePart] = dateTime.split("T");
+  return datePart && /^\d{4}-\d{2}-\d{2}$/u.test(datePart)
+    ? datePart
+    : fallbackDate;
+}
+
 function encodeWrappedPayload(payload: unknown): string {
   const json = JSON.stringify(payload);
   const wrapped = [null, json];
@@ -43,7 +50,7 @@ function buildSegment(
   if (params.selectedFlight) {
     selectedFlights = params.selectedFlight.legs.map((leg) => [
       leg.departureAirportCode,
-      leg.departureDateTime.toISOString().split("T")[0] ?? travelDate,
+      getLocalDatePart(leg.departureDateTime, travelDate),
       leg.arrivalAirportCode,
       null,
       leg.airlineCode,

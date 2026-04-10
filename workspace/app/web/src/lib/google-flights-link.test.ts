@@ -59,10 +59,10 @@ function buildOption(overrides: Partial<FlightOption> = {}): FlightOption {
             flightNumber: "123",
             departureAirportCode: "SEA",
             departureAirportName: "Seattle-Tacoma International Airport",
-            departureDateTime: "2026-05-12T08:00:00.000Z",
+            departureDateTime: "2026-05-12T08:00:00",
             arrivalAirportCode: "PIT",
             arrivalAirportName: "Pittsburgh International Airport",
-            arrivalDateTime: "2026-05-12T13:00:00.000Z",
+            arrivalDateTime: "2026-05-12T13:00:00",
             durationMinutes: 300
           }
         ]
@@ -77,10 +77,10 @@ function buildOption(overrides: Partial<FlightOption> = {}): FlightOption {
             flightNumber: "456",
             departureAirportCode: "PIT",
             departureAirportName: "Pittsburgh International Airport",
-            departureDateTime: "2026-05-12T18:00:00.000Z",
+            departureDateTime: "2026-05-12T18:00:00",
             arrivalAirportCode: "SEA",
             arrivalAirportName: "Seattle-Tacoma International Airport",
-            arrivalDateTime: "2026-05-12T23:10:00.000Z",
+            arrivalDateTime: "2026-05-12T23:10:00",
             durationMinutes: 310
           }
         ]
@@ -115,10 +115,17 @@ function buildExactHourWindow(
   fallback: SearchRequest["departureTimeWindow"]
 ): { from: number; to: number } | undefined {
   const normalizedFallback = buildNormalizedWindow(fallback);
-  const parsedDate = new Date(dateTime);
+  const hourMatch = dateTime.match(/T(\d{2}):(\d{2})/u);
+  const parsedHour = hourMatch
+    ? Number.parseInt(hourMatch[1] ?? "", 10)
+    : Number.NaN;
+  if (!Number.isInteger(parsedHour) || parsedHour < 0 || parsedHour > 23) {
+    return normalizedFallback;
+  }
+
   const exactWindow = {
-    from: parsedDate.getHours(),
-    to: parsedDate.getHours()
+    from: parsedHour,
+    to: parsedHour
   };
 
   if (!normalizedFallback) {
@@ -283,12 +290,12 @@ describe("google flight link builder", () => {
       {
         airlines: ["UA"],
         arrivalTimeWindow: buildExactHourWindow(
-          "2026-05-12T13:00:00.000Z",
+          "2026-05-12T13:00:00",
           request.arrivalTimeWindow
         ),
         date: "2026-05-12",
         departureTimeWindow: buildExactHourWindow(
-          "2026-05-12T08:00:00.000Z",
+          "2026-05-12T08:00:00",
           request.departureTimeWindow
         ),
         fromAirport: { code: "SEA", type: 1 },
@@ -298,12 +305,12 @@ describe("google flight link builder", () => {
       {
         airlines: ["UA"],
         arrivalTimeWindow: buildExactHourWindow(
-          "2026-05-12T23:10:00.000Z",
+          "2026-05-12T23:10:00",
           request.arrivalTimeWindow
         ),
         date: "2026-05-12",
         departureTimeWindow: buildExactHourWindow(
-          "2026-05-12T18:00:00.000Z",
+          "2026-05-12T18:00:00",
           request.departureTimeWindow
         ),
         fromAirport: { code: "PIT", type: 1 },
@@ -332,10 +339,10 @@ describe("google flight link builder", () => {
               flightNumber: "123",
               departureAirportCode: "SEA",
               departureAirportName: "Seattle-Tacoma International Airport",
-              departureDateTime: "2026-05-12T05:00:00.000Z",
+              departureDateTime: "2026-05-12T05:00:00",
               arrivalAirportCode: "PIT",
               arrivalAirportName: "Pittsburgh International Airport",
-              arrivalDateTime: "2026-05-12T10:00:00.000Z",
+              arrivalDateTime: "2026-05-12T10:00:00",
               durationMinutes: 300
             }
           ]
@@ -350,10 +357,10 @@ describe("google flight link builder", () => {
               flightNumber: "456",
               departureAirportCode: "PIT",
               departureAirportName: "Pittsburgh International Airport",
-              departureDateTime: "2026-05-19T23:00:00.000Z",
+              departureDateTime: "2026-05-19T23:00:00",
               arrivalAirportCode: "SEA",
               arrivalAirportName: "Seattle-Tacoma International Airport",
-              arrivalDateTime: "2026-05-20T04:10:00.000Z",
+              arrivalDateTime: "2026-05-20T04:10:00",
               durationMinutes: 310
             }
           ]
@@ -370,21 +377,21 @@ describe("google flight link builder", () => {
     expect(segments).toEqual([
       expect.objectContaining({
         departureTimeWindow: buildExactHourWindow(
-          "2026-05-12T05:00:00.000Z",
+          "2026-05-12T05:00:00",
           request.departureTimeWindow
         ),
         arrivalTimeWindow: buildExactHourWindow(
-          "2026-05-12T10:00:00.000Z",
+          "2026-05-12T10:00:00",
           request.arrivalTimeWindow
         )
       }),
       expect.objectContaining({
         departureTimeWindow: buildExactHourWindow(
-          "2026-05-19T23:00:00.000Z",
+          "2026-05-19T23:00:00",
           request.departureTimeWindow
         ),
         arrivalTimeWindow: buildExactHourWindow(
-          "2026-05-20T04:10:00.000Z",
+          "2026-05-20T04:10:00",
           request.arrivalTimeWindow
         )
       })
@@ -410,10 +417,10 @@ describe("google flight link builder", () => {
               flightNumber: "123",
               departureAirportCode: "SEA",
               departureAirportName: "Seattle-Tacoma International Airport",
-              departureDateTime: "2026-05-12T05:00:00.000Z",
+              departureDateTime: "2026-05-12T05:00:00",
               arrivalAirportCode: "PIT",
               arrivalAirportName: "Pittsburgh International Airport",
-              arrivalDateTime: "2026-05-12T10:00:00.000Z",
+              arrivalDateTime: "2026-05-12T10:00:00",
               durationMinutes: 300
             }
           ]
@@ -428,10 +435,10 @@ describe("google flight link builder", () => {
               flightNumber: "456",
               departureAirportCode: "PIT",
               departureAirportName: "Pittsburgh International Airport",
-              departureDateTime: "2026-05-19T23:00:00.000Z",
+              departureDateTime: "2026-05-19T23:00:00",
               arrivalAirportCode: "SEA",
               arrivalAirportName: "Seattle-Tacoma International Airport",
-              arrivalDateTime: "2026-05-20T04:10:00.000Z",
+              arrivalDateTime: "2026-05-20T04:10:00",
               durationMinutes: 310
             }
           ]

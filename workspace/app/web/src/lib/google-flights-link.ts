@@ -42,6 +42,16 @@ const defaultSearchFlags = Uint8Array.from([
 const base64UrlAlphabet =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+function readLocalHour(dateTime: string): number | null {
+  const match = dateTime.match(/T(\d{2}):(\d{2})/u);
+  if (!match) {
+    return null;
+  }
+
+  const hour = Number.parseInt(match[1] ?? "", 10);
+  return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : null;
+}
+
 function getSliceEndpoints(option: FlightOption) {
   const outboundSlice = option.slices[0];
   const returnSlice = option.slices[1];
@@ -66,14 +76,14 @@ function buildExactHourWindow(
     return fallback;
   }
 
-  const parsedDate = new Date(dateTime);
-  if (Number.isNaN(parsedDate.getTime())) {
+  const hour = readLocalHour(dateTime);
+  if (hour === null) {
     return fallback;
   }
 
   const exactWindow = {
-    from: parsedDate.getHours(),
-    to: parsedDate.getHours()
+    from: hour,
+    to: hour
   };
 
   if (!fallback) {

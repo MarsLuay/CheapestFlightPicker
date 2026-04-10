@@ -39,6 +39,11 @@ function differenceInDays(startDate: string, endDate: string): number {
   );
 }
 
+function addDaysToIsoDate(date: string, days: number): string {
+  const shiftedDate = new Date(new Date(date).getTime() + days * dayMs);
+  return shiftedDate.toISOString().split("T")[0] ?? date;
+}
+
 type SearchProgressReporter = (progress: SearchProgress) => void;
 
 function toPreviewSummary(
@@ -66,6 +71,30 @@ function toPreviewSummary(
     evaluatedDatePairs: summary.evaluatedDatePairs,
     inspectedOptions: summary.inspectedOptions
   };
+}
+
+function sortDatePricesByPrice(datePrices: DatePrice[]): DatePrice[] {
+  return [...datePrices].sort((left, right) => {
+    if (left.price !== right.price) {
+      return left.price - right.price;
+    }
+
+    return left.date.localeCompare(right.date);
+  });
+}
+
+function sortFlightOptionsByPrice(options: FlightOption[]): FlightOption[] {
+  return [...options].sort((left, right) => {
+    if (left.totalPrice !== right.totalPrice) {
+      return left.totalPrice - right.totalPrice;
+    }
+
+    if ((left.outboundDate ?? "") !== (right.outboundDate ?? "")) {
+      return (left.outboundDate ?? "").localeCompare(right.outboundDate ?? "");
+    }
+
+    return (left.returnDate ?? "").localeCompare(right.returnDate ?? "");
+  });
 }
 
 function flightOptionsMatch(left: FlightOption, right: FlightOption): boolean {
@@ -418,12 +447,26 @@ export class FlightSearchService {
     target: FlightOption | null,
     replacement: FlightOption | null
   ): FlightOption[] {
-    if (!target || !replacement) {
+    if (!target) {
       return options;
     }
 
-    return options.map((option) =>
-      flightOptionsMatch(option, target) ? replacement : option
+    const matchingIndexByIdentity = options.findIndex((option) => option === target);
+    const matchingIndex =
+      matchingIndexByIdentity >= 0
+        ? matchingIndexByIdentity
+        : options.findIndex((option) => flightOptionsMatch(option, target));
+
+    if (matchingIndex < 0) {
+      return options;
+    }
+
+    if (!replacement) {
+      return options.filter((_, index) => index !== matchingIndex);
+    }
+
+    return options.map((option, index) =>
+      index === matchingIndex ? replacement : option
     );
   }
 
@@ -452,12 +495,14 @@ export class FlightSearchService {
       "Scanning departure date range",
       "Looking for the cheapest outbound dates"
     );
-    const departureDatePrices = await this.provider.searchOneWayWithinWindow(
-      request,
-      request.origin,
-      request.destination,
-      request.departureDateFrom,
-      request.departureDateTo
+    const departureDatePrices = sortDatePricesByPrice(
+      await this.provider.searchOneWayWithinWindow(
+        request,
+        request.origin,
+        request.destination,
+        request.departureDateFrom,
+        request.departureDateTo
+      )
     );
     tracker.completeStep(
       "Departure date range scanned",
@@ -541,8 +586,10 @@ export class FlightSearchService {
       }
     );
 
-    let options = optionsByDate.flat().slice(0, request.maxResults * 4);
+    let options = optionsByDate.flat();
     options = await this.refineOptionsForDirectBookingPreference(options, request);
+    const inspectedOptions = options.length;
+    options = sortFlightOptionsByPrice(options).slice(0, request.maxResults * 4);
     let cheapestOverall = findCheapest(options);
     if (cheapestOverall) {
       tracker.setStage(
@@ -573,14 +620,14 @@ export class FlightSearchService {
         evaluatedDatePairs: candidateDates.map((entry) => ({
           departureDate: entry.date
         })),
-        inspectedOptions: options.length
+        inspectedOptions
       }),
       false
     );
     tracker.setPreviewCheapestOverall(cheapestOverall, completedLookups, false);
     tracker.completeStep(
       "Ranking cheapest options",
-      `Compared ${options.length} exact flight options`
+      `Compared ${inspectedOptions} qualifying exact flight options`
     );
 
     const summary = {
@@ -595,7 +642,7 @@ export class FlightSearchService {
       evaluatedDatePairs: candidateDates.map((entry) => ({
         departureDate: entry.date
       })),
-      inspectedOptions: options.length,
+      inspectedOptions,
       timingGuidance: null,
       priceAlert: null,
       hackerFareInsight: null
@@ -636,12 +683,14 @@ export class FlightSearchService {
       "Scanning departure date range",
       "Looking for the cheapest outbound dates"
     );
-    const departureDatePrices = await this.provider.searchOneWayWithinWindow(
-      request,
-      request.origin,
-      request.destination,
-      request.departureDateFrom,
-      request.departureDateTo
+    const departureDatePrices = sortDatePricesByPrice(
+      await this.provider.searchOneWayWithinWindow(
+        request,
+        request.origin,
+        request.destination,
+        request.departureDateFrom,
+        request.departureDateTo
+      )
     );
     tracker.completeStep(
       "Departure date range scanned",
@@ -666,12 +715,14 @@ export class FlightSearchService {
       "Scanning return date range",
       "Looking for the cheapest inbound dates"
     );
-    const returnDatePrices = await this.provider.searchOneWayWithinWindow(
-      request,
-      request.destination,
-      request.origin,
-      request.returnDateFrom ?? request.departureDateFrom,
-      request.returnDateTo ?? request.departureDateTo
+    const returnDatePrices = sortDatePricesByPrice(
+      await this.provider.searchOneWayWithinWindow(
+        request,
+        request.destination,
+        request.origin,
+        request.returnDateFrom ?? request.departureDateFrom,
+        request.returnDateTo ?? request.departureDateTo
+      )
     );
     tracker.completeStep(
       "Return date range scanned",
@@ -693,6 +744,7 @@ export class FlightSearchService {
     );
 
     const candidatePairs = this.buildCandidatePairs(
+      request,
       departureDatePrices,
       returnDatePrices,
       request.maxResults,
@@ -709,6 +761,7 @@ export class FlightSearchService {
 
     let completedLookups = 0;
     let completedPairEvaluations = 0;
+    let previewInspectedOptions = 0;
     const previewRoundTripOptions: FlightOption[] = [];
     const previewTwoOneWayOptions: FlightOption[] = [];
     const previewNonstopOptions: FlightOption[] = [];
@@ -812,6 +865,10 @@ export class FlightSearchService {
               pair.returnDate ?? pair.departureDate
             )
           );
+        const inspectedOptionsForPair =
+          refinedRoundTripOptions.length +
+          refinedOutboundOptions.length +
+          refinedInboundOptions.length;
 
         const cheapestRoundTrip = findCheapest(refinedRoundTripOptions);
         const cheapestNonstopRoundTrip = findCheapestNonstop(
@@ -861,6 +918,7 @@ export class FlightSearchService {
           previewNonstopOptions.push(cheapestNonstop);
         }
         previewEvaluatedDatePairs.push(pair);
+        previewInspectedOptions += inspectedOptionsForPair;
         completedPairEvaluations += 1;
         const previewCheapestOverall = findCheapest([
           ...previewRoundTripOptions,
@@ -879,8 +937,7 @@ export class FlightSearchService {
               ...previewTwoOneWayOptions
             ]),
             evaluatedDatePairs: [...previewEvaluatedDatePairs],
-            inspectedOptions:
-              previewRoundTripOptions.length + previewTwoOneWayOptions.length
+            inspectedOptions: previewInspectedOptions
           }),
           false
         );
@@ -892,7 +949,8 @@ export class FlightSearchService {
         return {
           cheapestRoundTrip,
           cheapestTwoOneWays,
-          cheapestNonstop
+          cheapestNonstop,
+          inspectedOptions: inspectedOptionsForPair
         };
       }
     );
@@ -906,6 +964,10 @@ export class FlightSearchService {
     let nonstopOptions = evaluated
       .map((entry) => entry.cheapestNonstop)
       .filter((entry): entry is FlightOption => entry !== null);
+    const inspectedOptions = evaluated.reduce(
+      (total, entry) => total + entry.inspectedOptions,
+      0
+    );
     let cheapestRoundTrip = findCheapest(roundTripOptions);
     let cheapestTwoOneWays = findCheapest(twoOneWayOptions);
     let cheapestOverall = findCheapest(
@@ -971,14 +1033,14 @@ export class FlightSearchService {
           ...twoOneWayOptions
         ]),
         evaluatedDatePairs: candidatePairs,
-        inspectedOptions: roundTripOptions.length + twoOneWayOptions.length
+        inspectedOptions
       }),
       false
     );
     tracker.setPreviewCheapestOverall(cheapestOverall, completedPairEvaluations, false);
     tracker.completeStep(
       "Ranking cheapest options",
-      `Compared ${roundTripOptions.length + twoOneWayOptions.length} final option groups`
+      `Compared ${inspectedOptions} qualifying fares across ${candidatePairs.length} date combinations`
     );
 
     const summary = {
@@ -994,7 +1056,7 @@ export class FlightSearchService {
         ...twoOneWayOptions
       ]),
       evaluatedDatePairs: candidatePairs,
-      inspectedOptions: roundTripOptions.length + twoOneWayOptions.length,
+      inspectedOptions,
       timingGuidance: null,
       priceAlert: null,
       hackerFareInsight: null
@@ -1022,6 +1084,7 @@ export class FlightSearchService {
   }
 
   private buildCandidatePairs(
+    request: SearchRequest,
     departureDatePrices: DatePrice[],
     returnDatePrices: DatePrice[],
     maxResults: number,
@@ -1033,6 +1096,61 @@ export class FlightSearchService {
     const returns = returnDatePrices;
     const scoredPairs: ScoredCandidatePair[] = [];
     const seen = new Set<string>();
+
+    if (
+      request.useExactDates &&
+      request.tripType === "round_trip" &&
+      request.returnDateFrom
+    ) {
+      const returnPriceByDate = new Map(
+        returns.map((entry) => [entry.date, entry.price] as const)
+      );
+
+      for (const departure of departures) {
+        const departureOffset = differenceInDays(
+          request.departureDateFrom,
+          departure.date
+        );
+        const matchedReturnDate = addDaysToIsoDate(
+          request.returnDateFrom,
+          departureOffset
+        );
+        const matchedReturnPrice = returnPriceByDate.get(matchedReturnDate);
+
+        if (matchedReturnPrice === undefined) {
+          continue;
+        }
+
+        const key = `${departure.date}:${matchedReturnDate}`;
+        if (seen.has(key)) {
+          continue;
+        }
+
+        seen.add(key);
+        scoredPairs.push({
+          departureDate: departure.date,
+          returnDate: matchedReturnDate,
+          estimatedTotalPrice: departure.price + matchedReturnPrice
+        });
+      }
+
+      scoredPairs.sort((left, right) => {
+        if (left.estimatedTotalPrice !== right.estimatedTotalPrice) {
+          return left.estimatedTotalPrice - right.estimatedTotalPrice;
+        }
+
+        if (left.departureDate !== right.departureDate) {
+          return left.departureDate.localeCompare(right.departureDate);
+        }
+
+        return (left.returnDate ?? "").localeCompare(right.returnDate ?? "");
+      });
+
+      return scoredPairs.slice(0, targetPairCount).map((pair) => ({
+        departureDate: pair.departureDate,
+        returnDate: pair.returnDate
+      }));
+    }
 
     for (const departure of departures) {
       for (const inbound of returns) {

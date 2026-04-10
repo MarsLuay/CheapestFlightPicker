@@ -53,6 +53,7 @@ type TimingMarketPriceMetrics = {
   maximum: number;
   median: number;
   minimum: number;
+  scope: "exact_trip_history" | "route_history" | "route_level";
   source: "amadeus" | "local_emulation";
   thirdQuartile: number;
 };
@@ -135,7 +136,8 @@ export function buildWatchKey(request: SearchRequest): Record<string, unknown> {
     returnDateFrom: request.returnDateFrom ?? null,
     returnDateTo: request.returnDateTo ?? null,
     stopsFilter: request.stopsFilter,
-    tripType: request.tripType
+    tripType: request.tripType,
+    useExactDates: request.useExactDates ?? false
   };
 }
 
@@ -145,6 +147,15 @@ function getMonthBucket(date: string | undefined): string | null {
   }
 
   return date.slice(0, 7);
+}
+
+function getSummaryDepartureDate(summary: SearchSummary): string {
+  return (
+    summary.cheapestOverall?.outboundDate ??
+    summary.cheapestRoundTrip?.outboundDate ??
+    summary.cheapestTwoOneWays?.outboundDate ??
+    summary.request.departureDateFrom
+  );
 }
 
 function buildMarketWatchKey(request: SearchRequest): Record<string, unknown> {
@@ -163,16 +174,19 @@ function buildMarketWatchKey(request: SearchRequest): Record<string, unknown> {
     requireFreeCarryOnBag: request.requireFreeCarryOnBag ?? true,
     returnMonth: getMonthBucket(request.returnDateFrom),
     stopsFilter: request.stopsFilter,
-    tripType: request.tripType
+    tripType: request.tripType,
+    useExactDates: request.useExactDates ?? false
   };
 }
 
 function calculateDaysUntilDeparture(
-  request: SearchRequest,
+  summary: SearchSummary,
   now = new Date()
 ): number {
   const todayStart = startOfToday(now);
-  const departureStart = new Date(`${request.departureDateFrom}T00:00:00`).getTime();
+  const departureStart = new Date(
+    `${getSummaryDepartureDate(summary)}T00:00:00`
+  ).getTime();
 
   return Math.max(0, differenceInWholeDays(todayStart, departureStart));
 }
@@ -309,7 +323,7 @@ function formatRouteWindowReason(
   if (routeKind === "domestic") {
     if (daysUntilDeparture <= 21) {
       return {
-        score: 3,
+        score: 1.5,
         reason:
           "You are within three weeks of departure, which usually makes last-minute drops less likely."
       };
@@ -317,7 +331,7 @@ function formatRouteWindowReason(
 
     if (daysUntilDeparture >= 90) {
       return {
-        score: -2,
+        score: -1,
         reason:
           "You are still far from departure, so there is usually more room for prices to move."
       };
@@ -325,7 +339,7 @@ function formatRouteWindowReason(
 
     if (daysUntilDeparture <= 35) {
       return {
-        score: 1,
+        score: 0.75,
         reason:
           "You are moving into the tighter part of the typical domestic booking window."
       };
@@ -336,7 +350,7 @@ function formatRouteWindowReason(
 
   if (daysUntilDeparture <= 45) {
     return {
-      score: 3,
+      score: 1.5,
       reason:
         "You are fairly close to departure, so waiting for a later drop is riskier."
     };
@@ -344,7 +358,7 @@ function formatRouteWindowReason(
 
   if (daysUntilDeparture >= 180) {
     return {
-      score: -2,
+      score: -1,
       reason:
         "You are still far from departure, so waiting is usually safer than rushing."
     };
@@ -352,7 +366,7 @@ function formatRouteWindowReason(
 
   if (daysUntilDeparture <= 75) {
     return {
-      score: 1,
+      score: 0.75,
       reason:
         "You are entering the tighter part of the booking window for a longer-haul trip."
     };
@@ -560,7 +574,7 @@ function buildObservation(
     observedAt: now.toISOString(),
     bestPrice: currentBestPrice,
     currency,
-    daysUntilDeparture: calculateDaysUntilDeparture(summary.request, now),
+    daysUntilDeparture: calculateDaysUntilDeparture(summary, now),
     topFares,
     airlineMix: [...airlineMix].sort(),
     cheapestNonstopPrice: summary.cheapestNonstop?.totalPrice ?? null,
@@ -682,9 +696,9 @@ function sharesAirlineCode(left: string[], right: string[]): boolean {
   return left.some((code) => rightSet.has(code));
 }
 
-// Inspired by the reference project: average price per airline is a strong
-// feature, so we compare today's cheapest fare against a local airline baseline
-// from similar searches on the same route/month bucket.
+// Average price per airline is a strong signal, so we compare today's cheapest
+// fare against a local airline baseline from similar searches on the same
+// route/month bucket.
 function buildAirlineBaselineSignal(
   currentObservation: TimingObservation | undefined,
   comparisonObservations: TimingObservation[],
@@ -715,23 +729,23 @@ function buildAirlineBaselineSignal(
 
   if (currentBestFare.price <= baselinePrice * 0.92) {
     return {
-      priority: 2,
+      priority: 3,
       reason: `Similar ${currentBestFare.nonstop ? "nonstop" : `${currentBestFare.stopsCount}-stop`} fares on this airline pattern usually land around ${formatPrice(
         Math.round(baselinePrice),
         currency
       )}, so today's ${formatPrice(currentBestFare.price, currency)} fare is running below that baseline.`,
-      score: 1
+      score: 2
     };
   }
 
   if (currentBestFare.price >= baselinePrice * 1.08) {
     return {
-      priority: 2,
+      priority: 3,
       reason: `Similar ${currentBestFare.nonstop ? "nonstop" : `${currentBestFare.stopsCount}-stop`} fares on this airline pattern usually land around ${formatPrice(
         Math.round(baselinePrice),
         currency
       )}, so today's fare is running above that baseline.`,
-      score: -1
+      score: -2
     };
   }
 
@@ -740,7 +754,8 @@ function buildAirlineBaselineSignal(
 
 function buildLocalMarketPriceMetrics(
   observations: TimingObservation[],
-  currency: string
+  currency: string,
+  scope: Extract<TimingMarketPriceMetrics["scope"], "exact_trip_history" | "route_history">
 ): TimingMarketPriceMetrics | null {
   const prices = observations
     .map((observation) => observation.bestPrice)
@@ -757,6 +772,7 @@ function buildLocalMarketPriceMetrics(
     maximum: prices[prices.length - 1] ?? 0,
     median: percentile(prices, 0.5),
     minimum: prices[0] ?? 0,
+    scope,
     source: "local_emulation",
     thirdQuartile: percentile(prices, 0.75)
   };
@@ -826,6 +842,7 @@ function buildAmadeusMarketPriceMetrics(
     maximum,
     median,
     minimum,
+    scope: "route_level",
     source: "amadeus",
     thirdQuartile
   };
@@ -864,18 +881,20 @@ function buildMarketPriceReason(
   const marketLabel =
     metrics.source === "amadeus"
       ? "Amadeus route-level price analysis"
-      : "Your local fare-history price analysis";
+      : metrics.scope === "route_history"
+        ? "Your broader local fare-history price analysis"
+        : "Your exact-trip fare-history price analysis";
 
   if (marketPosition === "low") {
     return {
-      score: 1,
+      score: 3,
       reason: `${marketLabel} puts this fare near the lower end of the current market range.`
     };
   }
 
   if (marketPosition === "high") {
     return {
-      score: -1,
+      score: -3,
       reason: `${marketLabel} puts this fare near the upper end of the current market range.`
     };
   }
@@ -994,7 +1013,7 @@ export function buildTimingGuidance(
   observations: TimingObservation[],
   now = new Date(),
   marketPriceMetrics?: TimingMarketPriceMetrics | null,
-  marketObservations: TimingObservation[] = observations
+  marketObservations?: TimingObservation[]
 ): TimingGuidance | null {
   const currentBestPrice = summary.cheapestOverall?.totalPrice ?? Number.NaN;
   const currency = summary.cheapestOverall?.currency;
@@ -1003,13 +1022,15 @@ export function buildTimingGuidance(
     return null;
   }
 
-  const daysUntilDeparture = calculateDaysUntilDeparture(summary.request, now);
+  const daysUntilDeparture = calculateDaysUntilDeparture(summary, now);
   const allObservations = [...observations].sort((left, right) =>
     left.observedAt.localeCompare(right.observedAt)
   );
-  const comparableMarketObservations = [...marketObservations].sort((left, right) =>
-    left.observedAt.localeCompare(right.observedAt)
-  );
+  const comparableMarketObservations = marketObservations
+    ? [...marketObservations].sort((left, right) =>
+        left.observedAt.localeCompare(right.observedAt)
+      )
+    : [];
   const observedPrices = allObservations
     .map((observation) => observation.bestPrice)
     .filter((price) => Number.isFinite(price))
@@ -1038,8 +1059,14 @@ export function buildTimingGuidance(
   );
   const effectiveMarketMetrics =
     marketPriceMetrics ??
-    buildLocalMarketPriceMetrics(comparableMarketObservations, currency) ??
-    buildLocalMarketPriceMetrics(allObservations, currency);
+    (comparableMarketObservations.length > 0
+      ? buildLocalMarketPriceMetrics(
+          comparableMarketObservations,
+          currency,
+          "route_history"
+        )
+      : null) ??
+    buildLocalMarketPriceMetrics(allObservations, currency, "exact_trip_history");
   const marketPriceReason = buildMarketPriceReason(
     currentBestPrice,
     effectiveMarketMetrics
@@ -1058,9 +1085,10 @@ export function buildTimingGuidance(
     currency
   );
 
+  // Broader market context leads the call; exact-trip watch history backs it up.
   if (routeWindowSignal) {
     signals.push({
-      priority: 2.5,
+      priority: 1.5,
       reason: routeWindowSignal.reason,
       score: routeWindowSignal.score
     });
@@ -1068,40 +1096,40 @@ export function buildTimingGuidance(
 
   if (pricePosition === "near_low") {
     signals.push({
-      priority: 3,
+      priority: 2,
       reason:
       `The current fare is within 3% of the lowest price this app has seen across ${historySampleSize} check${
         historySampleSize === 1 ? "" : "s"
       } for this exact trip.`,
-      score: 2
+      score: 1
     });
   } else if (pricePosition === "high") {
     signals.push({
-      priority: 3,
+      priority: 2,
       reason:
         "The current fare is noticeably above the recent range for this exact trip watch.",
-      score: -2
+      score: -1
     });
   }
 
   if (trend === "rising") {
     signals.push({
-      priority: 2.5,
+      priority: 2,
       reason: "Recent checks for this trip have been trending upward.",
-      score: 2
+      score: 1
     });
   } else if (trend === "falling") {
     signals.push({
-      priority: 2.5,
+      priority: 2,
       reason: "Recent checks for this trip have been trending downward.",
-      score: -2
+      score: -1
     });
   } else if (trend === "flat" && historySampleSize >= 4) {
     signals.push({
       priority: 1.5,
       reason:
         "Recent checks have been fairly flat, so there may not be much downside left.",
-      score: 1
+      score: 0.5
     });
   }
 
@@ -1125,11 +1153,11 @@ export function buildTimingGuidance(
         score:
           daysUntilDeparture > 90
             ? projection.riskAmount >= materialMovementThreshold * 2
-              ? 1
+              ? 0.75
               : 0.5
             : projection.riskAmount >= materialMovementThreshold * 1.5
-              ? 3
-              : 1.5
+              ? 2
+              : 1
       });
     } else if (
       daysUntilDeparture > 14 &&
@@ -1145,17 +1173,18 @@ export function buildTimingGuidance(
           Math.round(projection.riskAmount),
           currency
         )}.`,
-        score: projection.savingsAmount >= materialMovementThreshold * 1.5 ? -3 : -1.5
+        score: projection.savingsAmount >= materialMovementThreshold * 1.5 ? -2 : -1
       });
     }
   }
 
   if (
     marketPriceReason &&
+    effectiveMarketMetrics?.scope !== "exact_trip_history" &&
     (marketPriceReason.score !== 0 || effectiveMarketMetrics?.source === "amadeus")
   ) {
     signals.push({
-      priority: 2,
+      priority: 3.5,
       reason: marketPriceReason.reason,
       score: marketPriceReason.score
     });
@@ -1283,7 +1312,7 @@ export class TimingGuidanceService {
         directorySegments: [".cache", "timing-guidance"],
         ttlMs: dayMs * 180,
         maxEntries: 1200,
-        version: 2
+        version: 3
       });
     this.routeHistoryCache =
       options.routeHistoryCache ??
@@ -1291,7 +1320,7 @@ export class TimingGuidanceService {
         directorySegments: [".cache", "timing-market-history"],
         ttlMs: dayMs * 180,
         maxEntries: 1800,
-        version: 1
+        version: 2
       });
     this.marketPriceCache =
       options.marketPriceCache ??
@@ -1299,7 +1328,7 @@ export class TimingGuidanceService {
         directorySegments: [".cache", "timing-price-analysis"],
         ttlMs: dayMs * 14,
         maxEntries: 1200,
-        version: 1
+        version: 2
       });
     this.amadeusClient =
       options.amadeusClient === undefined
@@ -1374,8 +1403,16 @@ export class TimingGuidanceService {
     }
 
     const localMetrics =
-      buildLocalMarketPriceMetrics(routeHistory, currentBest.currency) ??
-      buildLocalMarketPriceMetrics(history, currentBest.currency);
+      buildLocalMarketPriceMetrics(
+        routeHistory,
+        currentBest.currency,
+        "route_history"
+      ) ??
+      buildLocalMarketPriceMetrics(
+        history,
+        currentBest.currency,
+        "exact_trip_history"
+      );
     if (!this.amadeusClient || !currentBest.outboundDate) {
       return localMetrics;
     }

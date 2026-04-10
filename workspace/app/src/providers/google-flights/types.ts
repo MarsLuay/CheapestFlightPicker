@@ -42,8 +42,8 @@ export type GoogleFlightLeg = {
   flightNumber: string;
   departureAirportCode: string;
   arrivalAirportCode: string;
-  departureDateTime: Date;
-  arrivalDateTime: Date;
+  departureDateTime: string;
+  arrivalDateTime: string;
   durationMinutes: number;
 };
 

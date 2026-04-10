@@ -2,14 +2,20 @@ import { createUnknownBookingSource } from "../../core/utils";
 import type { BookingSource } from "../../shared/types";
 import type { GoogleFlightLeg, GoogleFlightResult } from "./types";
 
-function parseDateTime(dateParts: number[], timeParts: number[]): Date {
-  return new Date(
-    dateParts[0] ?? 0,
-    (dateParts[1] ?? 1) - 1,
-    dateParts[2] ?? 1,
-    timeParts[0] ?? 0,
-    timeParts[1] ?? 0
-  );
+function padDateTimePart(value: number): string {
+  return String(Math.max(0, value)).padStart(2, "0");
+}
+
+function parseDateTime(dateParts: number[], timeParts: number[]): string {
+  const year = dateParts[0] ?? 0;
+  const month = dateParts[1] ?? 1;
+  const day = dateParts[2] ?? 1;
+  const hour = timeParts[0] ?? 0;
+  const minute = timeParts[1] ?? 0;
+
+  return `${String(year).padStart(4, "0")}-${padDateTimePart(month)}-${padDateTimePart(
+    day
+  )}T${padDateTimePart(hour)}:${padDateTimePart(minute)}:00`;
 }
 
 const knownOtaPattern =

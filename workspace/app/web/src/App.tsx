@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type FocusEvent,
   type FormEvent
 } from "react";
 
@@ -13,8 +14,15 @@ import {
   getCabinLabel
 } from "./lib/cabin-upgrade";
 import {
+  addDaysToLocalDate,
+  differenceInCalendarDays,
+  formatDateForInput,
+  shiftDateInput
+} from "./lib/date-input";
+import {
   withDepartureDateFrom,
   withDepartureDateTo,
+  withMinimumTripDays,
   withReturnDateFrom,
   withReturnDateTo
 } from "./lib/request-dates";
@@ -22,6 +30,11 @@ import {
   loadSavedSearchPreferences,
   saveSavedSearchPreferences
 } from "./lib/saved-search-preferences";
+import {
+  loadSavedSearchDates,
+  saveSavedSearchDates,
+  type SavedSearchDates
+} from "./lib/saved-search-dates";
 import { loadSavedOrigin, saveSavedOrigin } from "./lib/saved-origin";
 import {
   getBrowserTimeZone,
@@ -39,11 +52,9 @@ import { AirportField } from "./components/AirportField";
 import { ResultsView } from "./components/ResultsView";
 import { TimeRangeSlider } from "./components/TimeRangeSlider";
 
-const today = new Date();
-const departureStartDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 44);
-const departureEndDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 51);
-const returnStartDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 51);
-const returnEndDate = new Date(today.getTime() + 1000 * 60 * 60 * 24 * 58);
+const defaultDepartureStartOffsetDays = 44;
+const defaultExactTripLengthDays = 7;
+const defaultDateRangeSpanDays = 14;
 const fallbackOriginAirport = "SEA";
 
 type OriginDetectionStatus =
@@ -73,24 +84,89 @@ type InitialFormState = {
   useExactDates: boolean;
 };
 
-function toIsoDate(value: Date) {
-  return value.toISOString().split("T")[0] ?? "";
+function createDefaultSearchDates(
+  referenceDate = new Date(),
+  options?: {
+    maximumTripDays?: number;
+    minimumTripDays?: number;
+    useExactDates?: boolean;
+  }
+): SavedSearchDates {
+  const minimumTripDays = options?.minimumTripDays ?? 14;
+  const maximumTripDays = options?.maximumTripDays ?? 14;
+  const useExactDates = options?.useExactDates ?? false;
+  const departureStartDate = addDaysToLocalDate(
+    referenceDate,
+    defaultDepartureStartOffsetDays
+  );
+  const departureEndDate = addDaysToLocalDate(
+    referenceDate,
+    defaultDepartureStartOffsetDays + defaultDateRangeSpanDays
+  );
+  const returnStartDate = addDaysToLocalDate(
+    departureStartDate,
+    useExactDates ? defaultExactTripLengthDays : minimumTripDays
+  );
+  const returnEndDate = addDaysToLocalDate(
+    departureEndDate,
+    useExactDates ? defaultExactTripLengthDays : maximumTripDays
+  );
+
+  return {
+    departureDateFrom: formatDateForInput(departureStartDate),
+    departureDateTo: formatDateForInput(departureEndDate),
+    returnDateFrom: formatDateForInput(returnStartDate),
+    returnDateTo: formatDateForInput(returnEndDate)
+  };
 }
 
 function createInitialRequest(
   origin: string,
-  savedPreferences?: ReturnType<typeof loadSavedSearchPreferences>
+  savedPreferences?: ReturnType<typeof loadSavedSearchPreferences>,
+  savedDates?: ReturnType<typeof loadSavedSearchDates>
 ): SearchRequest {
+  const minimumTripDays = savedPreferences?.minimumTripDays ?? 14;
+  const maximumTripDays = savedPreferences?.maximumTripDays ?? 14;
+  const useExactDates = savedPreferences?.useExactDates ?? false;
+  const rawInitialDates =
+    savedDates ??
+    createDefaultSearchDates(new Date(), {
+      minimumTripDays,
+      maximumTripDays,
+      useExactDates
+    });
+  const initialDates = useExactDates
+    ? rawInitialDates
+    : (() => {
+        const minimumReturnDateFrom = shiftDateInput(
+          rawInitialDates.departureDateFrom,
+          minimumTripDays
+        );
+        const returnDateFrom =
+          rawInitialDates.returnDateFrom < minimumReturnDateFrom
+            ? minimumReturnDateFrom
+            : rawInitialDates.returnDateFrom;
+
+        return {
+          ...rawInitialDates,
+          returnDateFrom,
+          returnDateTo:
+            rawInitialDates.returnDateTo < returnDateFrom
+              ? returnDateFrom
+              : rawInitialDates.returnDateTo
+        };
+      })();
+
   return {
     tripType: "round_trip",
     origin: savedPreferences?.origin ?? origin,
     destination: savedPreferences?.destination ?? "",
-    departureDateFrom: toIsoDate(departureStartDate),
-    departureDateTo: toIsoDate(departureEndDate),
-    returnDateFrom: toIsoDate(returnStartDate),
-    returnDateTo: toIsoDate(returnEndDate),
-    minimumTripDays: savedPreferences?.minimumTripDays ?? 7,
-    maximumTripDays: savedPreferences?.maximumTripDays ?? 14,
+    departureDateFrom: initialDates.departureDateFrom,
+    departureDateTo: initialDates.departureDateTo,
+    returnDateFrom: initialDates.returnDateFrom,
+    returnDateTo: initialDates.returnDateTo,
+    minimumTripDays,
+    maximumTripDays,
     departureTimeWindow: savedPreferences?.departureTimeWindow ?? {
       from: 6,
       to: 24
@@ -110,12 +186,13 @@ function createInitialRequest(
       infantsInSeat: 0,
       infantsOnLap: 0
     },
-    maxResults: 10
+    maxResults: 12
   };
 }
 
 function resolveInitialFormState(): InitialFormState {
   const savedSearchPreferences = loadSavedSearchPreferences();
+  const savedSearchDates = loadSavedSearchDates();
   const savedOrigin = savedSearchPreferences?.origin ?? loadSavedOrigin();
 
   if (savedOrigin) {
@@ -129,7 +206,11 @@ function resolveInitialFormState(): InitialFormState {
         matchedRegion: null,
         message: `Using your saved origin airport, ${savedOrigin}.`
       },
-      request: createInitialRequest(savedOrigin, savedSearchPreferences),
+      request: createInitialRequest(
+        savedOrigin,
+        savedSearchPreferences,
+        savedSearchDates
+      ),
       useExactDates: savedSearchPreferences?.useExactDates ?? false
     };
   }
@@ -149,7 +230,8 @@ function resolveInitialFormState(): InitialFormState {
       },
       request: createInitialRequest(
         inferredOrigin.origin,
-        savedSearchPreferences
+        savedSearchPreferences,
+        savedSearchDates
       ),
       useExactDates: savedSearchPreferences?.useExactDates ?? false
     };
@@ -165,7 +247,11 @@ function resolveInitialFormState(): InitialFormState {
       matchedRegion: null,
       message: `Using the default fallback airport, ${fallbackOriginAirport}.`
     },
-    request: createInitialRequest(fallbackOriginAirport, savedSearchPreferences),
+    request: createInitialRequest(
+      fallbackOriginAirport,
+      savedSearchPreferences,
+      savedSearchDates
+    ),
     useExactDates: savedSearchPreferences?.useExactDates ?? false
   };
 }
@@ -233,6 +319,31 @@ function createLivePreviewSummary(
   };
 }
 
+function hasMeaningfulSummary(summary: SearchSummary | null): boolean {
+  if (!summary) {
+    return false;
+  }
+
+  return (
+    summary.inspectedOptions > 0 ||
+    summary.evaluatedDatePairs.length > 0 ||
+    summary.departureDatePrices.length > 0 ||
+    summary.returnDatePrices.length > 0 ||
+    summary.cheapestOverall !== null ||
+    summary.cheapestRoundTrip !== null ||
+    summary.cheapestTwoOneWays !== null ||
+    summary.cheapestNonstop !== null ||
+    summary.cheapestMultiStop !== null
+  );
+}
+
+function selectInputValueOnFocus(event: FocusEvent<HTMLInputElement>) {
+  const input = event.currentTarget;
+  window.requestAnimationFrame(() => {
+    input.select();
+  });
+}
+
 export default function App() {
   const [initialFormState] = useState(resolveInitialFormState);
   const [request, setRequest] = useState<SearchRequest>(initialFormState.request);
@@ -249,10 +360,18 @@ export default function App() {
   const [hasCompletedSearch, setHasCompletedSearch] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
   const [useExactDates, setUseExactDates] = useState(initialFormState.useExactDates);
+  const [minimumTripDaysInput, setMinimumTripDaysInput] = useState(
+    String(initialFormState.request.minimumTripDays ?? 0)
+  );
+  const [maximumTripDaysInput, setMaximumTripDaysInput] = useState(
+    String(initialFormState.request.maximumTripDays ?? 14)
+  );
   const [originDetection, setOriginDetection] = useState<OriginDetectionState>(
     () => initialFormState.originDetection
   );
   const requestRef = useRef<SearchRequest>(request);
+  const mainSearchAbortControllerRef = useRef<AbortController | null>(null);
+  const mainSearchRunIdRef = useRef(0);
   const upgradeSearchAbortControllerRef = useRef<AbortController | null>(null);
   const upgradeSearchRunIdRef = useRef(0);
 
@@ -279,10 +398,23 @@ export default function App() {
     });
   }
 
+  function persistSavedSearchDates(nextRequest: SearchRequest) {
+    saveSavedSearchDates({
+      departureDateFrom: nextRequest.departureDateFrom,
+      departureDateTo: nextRequest.departureDateTo,
+      returnDateFrom: nextRequest.returnDateFrom ?? nextRequest.departureDateTo,
+      returnDateTo: nextRequest.returnDateTo ?? nextRequest.departureDateTo
+    });
+  }
+
   function updateRequest(
     updater: SearchRequest | ((currentRequest: SearchRequest) => SearchRequest),
-    nextUseExactDates = useExactDates
+    options?: {
+      nextUseExactDates?: boolean;
+      persistDates?: boolean;
+    }
   ) {
+    const nextUseExactDates = options?.nextUseExactDates ?? useExactDates;
     const nextRequest =
       typeof updater === "function"
         ? (updater as (currentRequest: SearchRequest) => SearchRequest)(
@@ -292,6 +424,9 @@ export default function App() {
 
     requestRef.current = nextRequest;
     persistSavedSearchPreferences(nextRequest, nextUseExactDates);
+    if (options?.persistDates) {
+      persistSavedSearchDates(nextRequest);
+    }
     setRequest(nextRequest);
   }
 
@@ -299,14 +434,8 @@ export default function App() {
     updateRequest((currentRequest) => ({
       ...currentRequest,
       tripType: nextTripType,
-      returnDateFrom:
-        useExactDates && nextTripType === "round_trip"
-          ? currentRequest.departureDateFrom
-          : currentRequest.returnDateFrom,
-      returnDateTo:
-        useExactDates && nextTripType === "round_trip"
-          ? currentRequest.departureDateTo
-          : currentRequest.returnDateTo
+      returnDateFrom: currentRequest.returnDateFrom,
+      returnDateTo: currentRequest.returnDateTo
     }));
   }
 
@@ -316,42 +445,37 @@ export default function App() {
         currentRequest,
         nextDepartureDateFrom,
         useExactDates
-      )
+      ),
+      { persistDates: true }
     );
   }
 
   function updateReturnDateFrom(nextReturnDateFrom: string) {
     updateRequest((currentRequest) =>
-      withReturnDateFrom(currentRequest, nextReturnDateFrom, useExactDates)
+      withReturnDateFrom(currentRequest, nextReturnDateFrom, useExactDates),
+      { persistDates: true }
     );
   }
 
   function updateDepartureDateTo(nextDepartureDateTo: string) {
     updateRequest((currentRequest) =>
-      withDepartureDateTo(currentRequest, nextDepartureDateTo, useExactDates)
+      withDepartureDateTo(currentRequest, nextDepartureDateTo, useExactDates),
+      { persistDates: true }
     );
   }
 
   function updateReturnDateTo(nextReturnDateTo: string) {
     updateRequest((currentRequest) =>
-      withReturnDateTo(currentRequest, nextReturnDateTo, useExactDates)
+      withReturnDateTo(currentRequest, nextReturnDateTo, useExactDates),
+      { persistDates: true }
     );
   }
 
   function updateMinimumTripDays(nextMinimumTripDays: number) {
-    updateRequest((currentRequest) => {
-      const safeMinimumTripDays = Math.max(0, nextMinimumTripDays);
-      const currentMaximumTripDays = currentRequest.maximumTripDays ?? 14;
-
-      return {
-        ...currentRequest,
-        minimumTripDays: safeMinimumTripDays,
-        maximumTripDays: Math.max(
-          currentMaximumTripDays,
-          safeMinimumTripDays
-        )
-      };
-    });
+    updateRequest(
+      (currentRequest) => withMinimumTripDays(currentRequest, nextMinimumTripDays),
+      { persistDates: true }
+    );
   }
 
   function updateMaximumTripDays(nextMaximumTripDays: number) {
@@ -370,27 +494,99 @@ export default function App() {
     });
   }
 
-  function toggleExactDates(nextUseExactDates: boolean) {
-    setUseExactDates(nextUseExactDates);
-    if (!nextUseExactDates) {
-      persistSavedSearchPreferences(requestRef.current, nextUseExactDates);
+  function handleMinimumTripDaysInputChange(nextValue: string) {
+    if (nextValue !== "" && !/^\d+$/u.test(nextValue)) {
       return;
     }
 
-    updateRequest(
-      (currentRequest) => ({
-        ...currentRequest,
-        returnDateFrom:
-          currentRequest.tripType === "round_trip"
-            ? currentRequest.departureDateFrom
-            : currentRequest.returnDateFrom,
-        returnDateTo:
-          currentRequest.tripType === "round_trip"
-            ? currentRequest.departureDateTo
-            : currentRequest.returnDateTo
-      }),
-      nextUseExactDates
+    setMinimumTripDaysInput(nextValue);
+  }
+
+  function commitMinimumTripDaysInput() {
+    if (minimumTripDaysInput === "") {
+      setMinimumTripDaysInput(String(requestRef.current.minimumTripDays ?? 0));
+      return;
+    }
+
+    const normalizedValue = String(
+      Math.max(0, Math.min(180, Number.parseInt(minimumTripDaysInput, 10) || 0))
     );
+    setMinimumTripDaysInput(normalizedValue);
+    updateMinimumTripDays(Number.parseInt(normalizedValue, 10));
+  }
+
+  function handleMaximumTripDaysInputChange(nextValue: string) {
+    if (nextValue !== "" && !/^\d+$/u.test(nextValue)) {
+      return;
+    }
+
+    setMaximumTripDaysInput(nextValue);
+  }
+
+  function commitMaximumTripDaysInput() {
+    if (maximumTripDaysInput === "") {
+      setMaximumTripDaysInput(String(requestRef.current.maximumTripDays ?? 14));
+      return;
+    }
+
+    const normalizedValue = String(
+      Math.max(0, Math.min(180, Number.parseInt(maximumTripDaysInput, 10) || 0))
+    );
+    setMaximumTripDaysInput(normalizedValue);
+    updateMaximumTripDays(Number.parseInt(normalizedValue, 10));
+  }
+
+  useEffect(() => {
+    setMinimumTripDaysInput(String(request.minimumTripDays ?? 0));
+  }, [request.minimumTripDays]);
+
+  useEffect(() => {
+    setMaximumTripDaysInput(String(request.maximumTripDays ?? 14));
+  }, [request.maximumTripDays]);
+
+  function toggleExactDates(nextUseExactDates: boolean) {
+    setUseExactDates(nextUseExactDates);
+    if (nextUseExactDates && requestRef.current.tripType === "round_trip") {
+      updateRequest(
+        (currentRequest) => {
+          const departureSpanDays = differenceInCalendarDays(
+            currentRequest.departureDateFrom,
+            currentRequest.departureDateTo
+          );
+
+          return {
+            ...currentRequest,
+            returnDateTo: currentRequest.returnDateFrom
+              ? shiftDateInput(currentRequest.returnDateFrom, departureSpanDays)
+              : currentRequest.returnDateTo
+          };
+        },
+        {
+          nextUseExactDates,
+          persistDates: true
+        }
+      );
+      return;
+    }
+
+    persistSavedSearchPreferences(requestRef.current, nextUseExactDates);
+  }
+
+  function handleCancelSearch() {
+    const shouldKeepPreview = hasMeaningfulSummary(livePreviewSummary);
+
+    mainSearchRunIdRef.current += 1;
+    mainSearchAbortControllerRef.current?.abort();
+    mainSearchAbortControllerRef.current = null;
+    setIsSearching(false);
+    setHasCompletedSearch(shouldKeepPreview);
+    setSearchProgress(null);
+    setError("");
+    setSummary(null);
+
+    if (!shouldKeepPreview) {
+      setLivePreviewSummary(null);
+    }
   }
 
   useEffect(() => {
@@ -523,7 +719,11 @@ export default function App() {
       ...requestRef.current,
       useExactDates
     };
+    const controller = new AbortController();
+    const runId = ++mainSearchRunIdRef.current;
 
+    mainSearchAbortControllerRef.current?.abort();
+    mainSearchAbortControllerRef.current = controller;
     upgradeSearchRunIdRef.current += 1;
     upgradeSearchAbortControllerRef.current?.abort();
     upgradeSearchAbortControllerRef.current = null;
@@ -545,14 +745,23 @@ export default function App() {
     try {
       const response = await runFlightSearch(submittedRequest, {
         onProgress(progress) {
+          if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
+            return;
+          }
+
           setSearchProgress(progress);
           startTransition(() => {
             setLivePreviewSummary(
               createLivePreviewSummary(submittedRequest, progress.previewSummary)
             );
           });
-        }
+        },
+        signal: controller.signal
       });
+      if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
+        return;
+      }
+
       if (!response.ok) {
         setError(response.error);
         setSummary(null);
@@ -569,6 +778,10 @@ export default function App() {
       });
       setUpgradeSearchRequest(buildAdjacentCabinSearchRequest(submittedRequest));
     } catch (caughtError) {
+      if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
+        return;
+      }
+
       setError(
         caughtError instanceof Error
           ? caughtError.message
@@ -577,6 +790,13 @@ export default function App() {
       setSummary(null);
       setLivePreviewSummary(null);
     } finally {
+      if (mainSearchRunIdRef.current !== runId) {
+        return;
+      }
+
+      if (mainSearchAbortControllerRef.current === controller) {
+        mainSearchAbortControllerRef.current = null;
+      }
       setIsSearching(false);
       setHasCompletedSearch(true);
       setSearchProgress(null);
@@ -584,6 +804,15 @@ export default function App() {
   }
 
   const displayedSummary = summary ?? livePreviewSummary;
+  const earliestAllowedReturnDate =
+    request.tripType === "round_trip"
+      ? useExactDates
+        ? request.departureDateFrom
+        : shiftDateInput(
+            request.departureDateFrom,
+            request.minimumTripDays ?? 0
+          )
+      : undefined;
 
   const adminUiSnapshot = {
     route: {
@@ -864,7 +1093,7 @@ export default function App() {
                   <input
                     type="number"
                     min="1"
-                    max="10"
+                    max="12"
                     value={request.maxResults}
                     onChange={(event) =>
                       updateRequest((currentRequest) => ({
@@ -874,7 +1103,7 @@ export default function App() {
                     }
                   />
                   <p className="field-help">
-                    Choose a value from 1 to 10. Higher values make the search
+                    Choose a value from 1 to 12. Higher values make the search
                     smarter, while lower values make it faster.
                   </p>
                 </label>
@@ -900,8 +1129,9 @@ export default function App() {
                   <div>
                     <span>Use exact dates</span>
                     <p className="field-help">
-                      Keeps the departure and return windows matched: earliest
-                      with earliest, latest with latest.
+                      Pairs each departure date with the return date in the
+                      same position inside the return window: earliest with
+                      earliest, latest with latest.
                     </p>
                   </div>
                 </label>
@@ -992,6 +1222,7 @@ export default function App() {
                         <input
                           type="date"
                           value={request.returnDateFrom ?? ""}
+                          min={earliestAllowedReturnDate}
                           onChange={(event) =>
                             updateReturnDateFrom(event.target.value)
                           }
@@ -1012,35 +1243,43 @@ export default function App() {
 
                       <label className="field">
                         <span>Minimum trip length</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="180"
-                          value={request.minimumTripDays ?? 0}
-                          onChange={(event) =>
-                            updateMinimumTripDays(
-                              Number.parseInt(event.target.value, 10) || 0
-                            )
-                          }
+                      <input
+                        type="number"
+                        min="0"
+                        max="180"
+                        value={minimumTripDaysInput}
+                        disabled={useExactDates}
+                        onFocus={selectInputValueOnFocus}
+                        onBlur={commitMinimumTripDaysInput}
+                        onChange={(event) =>
+                          handleMinimumTripDaysInputChange(event.target.value)
+                        }
                         />
                       </label>
 
                       <label className="field">
                         <span>Maximum trip length</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="180"
-                          value={request.maximumTripDays ?? 14}
-                          onChange={(event) =>
-                            updateMaximumTripDays(
-                              Number.parseInt(event.target.value, 10) || 14
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
-                  </section>
+                      <input
+                        type="number"
+                        min="0"
+                        max="180"
+                        value={maximumTripDaysInput}
+                        disabled={useExactDates}
+                        onFocus={selectInputValueOnFocus}
+                        onBlur={commitMaximumTripDaysInput}
+                        onChange={(event) =>
+                          handleMaximumTripDaysInputChange(event.target.value)
+                        }
+                      />
+                      {useExactDates ? (
+                        <p className="field-help">
+                          Exact-date mode uses the matched return date for each
+                          departure date, so trip-length filters are paused.
+                        </p>
+                      ) : null}
+                    </label>
+                  </div>
+                </section>
                 ) : null}
               </div>
             </section>
@@ -1102,15 +1341,26 @@ export default function App() {
             </section>
 
             <div className="action-row">
-              <button
-                className="primary-action"
-                type="submit"
-                disabled={isSearching}
-              >
-                {isSearching
-                  ? "Searching live fares..."
-                  : "Find cheapest flights"}
-              </button>
+              <div className="action-buttons">
+                <button
+                  className="primary-action"
+                  type="submit"
+                  disabled={isSearching}
+                >
+                  {isSearching
+                    ? "Searching live fares..."
+                    : "Find cheapest flights"}
+                </button>
+                {isSearching ? (
+                  <button
+                    className="secondary-action secondary-action--danger"
+                    type="button"
+                    onClick={handleCancelSearch}
+                  >
+                    Cancel live fare search
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             {isSearching ? (

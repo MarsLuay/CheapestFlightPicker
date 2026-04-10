@@ -520,4 +520,300 @@ describe("GoogleFlightsProvider direct booking preference", () => {
     expect(result[0]?.totalPrice).toBe(239);
     expect(result[0]?.bookingSource.sellerName).toBe("American");
   });
+
+  it("keeps searching outbound follow-ups beyond the first three candidates", async () => {
+    const outboundResponse = wrapShoppingResponse([
+      buildRawFlight({
+        price: 160,
+        sellerCode: "AA",
+        sellerName: "American",
+        durationMinutes: 320,
+        legs: [
+          buildRawLeg({
+            airlineCode: "AA",
+            airlineName: "American Airlines",
+            flightNumber: "101",
+            departureAirportCode: "SEA",
+            arrivalAirportCode: "PIT",
+            departureDateParts: [2026, 5, 12],
+            arrivalDateParts: [2026, 5, 12],
+            departureTimeParts: [7, 0],
+            arrivalTimeParts: [15, 20],
+            durationMinutes: 320
+          })
+        ]
+      }),
+      buildRawFlight({
+        price: 170,
+        sellerCode: "AA",
+        sellerName: "American",
+        durationMinutes: 330,
+        legs: [
+          buildRawLeg({
+            airlineCode: "AA",
+            airlineName: "American Airlines",
+            flightNumber: "102",
+            departureAirportCode: "SEA",
+            arrivalAirportCode: "PIT",
+            departureDateParts: [2026, 5, 12],
+            arrivalDateParts: [2026, 5, 12],
+            departureTimeParts: [8, 0],
+            arrivalTimeParts: [16, 30],
+            durationMinutes: 330
+          })
+        ]
+      }),
+      buildRawFlight({
+        price: 180,
+        sellerCode: "AA",
+        sellerName: "American",
+        durationMinutes: 340,
+        legs: [
+          buildRawLeg({
+            airlineCode: "AA",
+            airlineName: "American Airlines",
+            flightNumber: "103",
+            departureAirportCode: "SEA",
+            arrivalAirportCode: "PIT",
+            departureDateParts: [2026, 5, 12],
+            arrivalDateParts: [2026, 5, 12],
+            departureTimeParts: [9, 0],
+            arrivalTimeParts: [17, 40],
+            durationMinutes: 340
+          })
+        ]
+      }),
+      buildRawFlight({
+        price: 190,
+        sellerCode: "AA",
+        sellerName: "American",
+        durationMinutes: 350,
+        legs: [
+          buildRawLeg({
+            airlineCode: "AA",
+            airlineName: "American Airlines",
+            flightNumber: "104",
+            departureAirportCode: "SEA",
+            arrivalAirportCode: "PIT",
+            departureDateParts: [2026, 5, 12],
+            arrivalDateParts: [2026, 5, 12],
+            departureTimeParts: [10, 0],
+            arrivalTimeParts: [18, 50],
+            durationMinutes: 350
+          })
+        ]
+      })
+    ]);
+    const followUpResponses = [
+      wrapShoppingResponse([
+        buildRawFlight({
+          price: 420,
+          sellerCode: "AA",
+          sellerName: "American",
+          durationMinutes: 325,
+          legs: [
+            buildRawLeg({
+              airlineCode: "AA",
+              airlineName: "American Airlines",
+              flightNumber: "201",
+              departureAirportCode: "PIT",
+              arrivalAirportCode: "SEA",
+              departureDateParts: [2026, 5, 23],
+              arrivalDateParts: [2026, 5, 23],
+              departureTimeParts: [12, 0],
+              arrivalTimeParts: [18, 0],
+              durationMinutes: 325
+            })
+          ]
+        })
+      ]),
+      wrapShoppingResponse([
+        buildRawFlight({
+          price: 400,
+          sellerCode: "AA",
+          sellerName: "American",
+          durationMinutes: 326,
+          legs: [
+            buildRawLeg({
+              airlineCode: "AA",
+              airlineName: "American Airlines",
+              flightNumber: "202",
+              departureAirportCode: "PIT",
+              arrivalAirportCode: "SEA",
+              departureDateParts: [2026, 5, 23],
+              arrivalDateParts: [2026, 5, 23],
+              departureTimeParts: [13, 0],
+              arrivalTimeParts: [19, 0],
+              durationMinutes: 326
+            })
+          ]
+        })
+      ]),
+      wrapShoppingResponse([
+        buildRawFlight({
+          price: 380,
+          sellerCode: "AA",
+          sellerName: "American",
+          durationMinutes: 327,
+          legs: [
+            buildRawLeg({
+              airlineCode: "AA",
+              airlineName: "American Airlines",
+              flightNumber: "203",
+              departureAirportCode: "PIT",
+              arrivalAirportCode: "SEA",
+              departureDateParts: [2026, 5, 23],
+              arrivalDateParts: [2026, 5, 23],
+              departureTimeParts: [14, 0],
+              arrivalTimeParts: [20, 0],
+              durationMinutes: 327
+            })
+          ]
+        })
+      ]),
+      wrapShoppingResponse([
+        buildRawFlight({
+          price: 240,
+          sellerCode: "AA",
+          sellerName: "American",
+          durationMinutes: 328,
+          legs: [
+            buildRawLeg({
+              airlineCode: "AA",
+              airlineName: "American Airlines",
+              flightNumber: "204",
+              departureAirportCode: "PIT",
+              arrivalAirportCode: "SEA",
+              departureDateParts: [2026, 5, 23],
+              arrivalDateParts: [2026, 5, 23],
+              departureTimeParts: [15, 0],
+              arrivalTimeParts: [21, 0],
+              durationMinutes: 328
+            })
+          ]
+        })
+      ])
+    ];
+    let callIndex = 0;
+    const provider = new GoogleFlightsProvider() as unknown as {
+      client: {
+        post: ReturnType<typeof vi.fn>;
+      };
+      exactSearchCache: {
+        get: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+      };
+      searchExactFlights: (
+        params: Record<string, unknown>
+      ) => Promise<FlightOption[]>;
+    };
+
+    provider.client = {
+      post: vi.fn(() => {
+        const response =
+          callIndex === 0
+            ? outboundResponse
+            : followUpResponses[callIndex - 1];
+        callIndex += 1;
+        return Promise.resolve(response);
+      })
+    };
+    provider.exactSearchCache = {
+      get: vi.fn(() => null),
+      set: vi.fn()
+    };
+
+    const result = await provider.searchExactFlights({
+      tripType: "round_trip",
+      origin: "SEA",
+      destination: "PIT",
+      departureDate: "2026-05-12",
+      returnDate: "2026-05-23",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      preferDirectBookingOnly: false,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      }
+    });
+
+    expect(result).toHaveLength(4);
+    expect(result[0]?.totalPrice).toBe(420);
+    expect(result[3]?.totalPrice).toBe(240);
+    expect(Math.min(...result.map((option) => option.totalPrice))).toBe(240);
+    expect(provider.client.post).toHaveBeenCalledTimes(5);
+  });
+
+  it("preserves itinerary-local leg times instead of converting them through UTC", async () => {
+    const response = wrapShoppingResponse([
+      buildRawFlight({
+        price: 200,
+        sellerCode: "AA",
+        sellerName: "American",
+        durationMinutes: 501,
+        legs: [
+          buildRawLeg({
+            airlineCode: "AA",
+            airlineName: "American Airlines",
+            flightNumber: "885",
+            departureAirportCode: "SEA",
+            arrivalAirportCode: "ORD",
+            departureDateParts: [2026, 5, 12],
+            arrivalDateParts: [2026, 5, 12],
+            departureTimeParts: [7, 10],
+            arrivalTimeParts: [13, 27],
+            durationMinutes: 257
+          })
+        ]
+      })
+    ]);
+    const provider = new GoogleFlightsProvider() as unknown as {
+      client: {
+        post: ReturnType<typeof vi.fn>;
+      };
+      exactSearchCache: {
+        get: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+      };
+      searchExactFlights: (
+        params: Record<string, unknown>
+      ) => Promise<FlightOption[]>;
+    };
+
+    provider.client = {
+      post: vi.fn().mockResolvedValueOnce(response)
+    };
+    provider.exactSearchCache = {
+      get: vi.fn(() => null),
+      set: vi.fn()
+    };
+
+    const result = await provider.searchExactFlights({
+      tripType: "one_way",
+      origin: "SEA",
+      destination: "ORD",
+      departureDate: "2026-05-12",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      preferDirectBookingOnly: false,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      }
+    });
+
+    expect(result[0]?.slices[0]?.legs[0]?.departureDateTime).toBe(
+      "2026-05-12T07:10:00"
+    );
+    expect(result[0]?.slices[0]?.legs[0]?.arrivalDateTime).toBe(
+      "2026-05-12T13:27:00"
+    );
+  });
 });
