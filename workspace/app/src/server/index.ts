@@ -2,6 +2,7 @@ import path from "node:path";
 
 import cors from "cors";
 import express from "express";
+import rateLimit from "express-rate-limit";
 
 import {
   findClosestAirport,
@@ -24,21 +25,20 @@ import {
   getSearchJob,
   updateSearchJobProgress
 } from "./search-jobs";
-import { createRateLimitMiddleware } from "./rate-limit";
 import type { SearchRequest, SearchSummary } from "../shared/types";
 
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const searchService = new FlightSearchService();
-const staticAssetRateLimit = createRateLimitMiddleware({
-  maxRequests: 240,
-  message: "Too many static asset requests. Please slow down and try again shortly.",
-  windowMs: 60_000
-});
-const spaShellRateLimit = createRateLimitMiddleware({
-  maxRequests: 120,
-  message: "Too many page requests. Please slow down and try again shortly.",
-  windowMs: 60_000
+const frontendRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 240,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Too many page requests. Please slow down and try again shortly.",
+    ok: false
+  }
 });
 
 function serializeThrownValue(
@@ -384,9 +384,10 @@ app.get("/api/search/jobs/:id", (request, response) => {
 });
 
 const builtWebPath = resolveAppPath("dist", "web");
-app.use(staticAssetRateLimit, express.static(builtWebPath));
+app.use(frontendRateLimit);
+app.use(express.static(builtWebPath));
 
-app.get("/{*path}", spaShellRateLimit, (_request, response) => {
+app.get("/{*path}", (_request, response) => {
   response.sendFile(path.join(builtWebPath, "index.html"));
 });
 
