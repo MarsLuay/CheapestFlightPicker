@@ -283,8 +283,17 @@ export async function fetchNearestAirport(
   longitude: number
 ): Promise<AirportRecord> {
   const data = await requestJson<{ airport: AirportRecord }>(
-    `/api/airports/nearest?latitude=${encodeURIComponent(String(latitude))}&longitude=${encodeURIComponent(String(longitude))}`,
-    undefined,
+    "/api/airports/nearest",
+    {
+      body: JSON.stringify({
+        latitude,
+        longitude
+      }),
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "POST"
+    },
     {
       timeoutMs: 10000
     }

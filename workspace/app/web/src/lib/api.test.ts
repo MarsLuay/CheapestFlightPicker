@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runFlightSearch } from "./api";
-import type { SearchJobStatus, SearchRequest, SearchSummary } from "./types";
+import { fetchNearestAirport, runFlightSearch } from "./api";
+import type {
+  AirportRecord,
+  SearchJobStatus,
+  SearchRequest,
+  SearchSummary
+} from "./types";
 
 function buildRequest(): SearchRequest {
   return {
@@ -157,5 +162,60 @@ describe("runFlightSearch", () => {
 
     await expect(responsePromise).rejects.toThrow("Search canceled.");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("fetchNearestAirport", () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalWindow) {
+      globalThis.window = originalWindow;
+    } else {
+      Reflect.deleteProperty(
+        globalThis as typeof globalThis & { window?: Window },
+        "window"
+      );
+    }
+    vi.restoreAllMocks();
+  });
+
+  it("sends coordinates in a POST body instead of the query string", async () => {
+    globalThis.window = globalThis as typeof globalThis & Window;
+
+    const airport: AirportRecord = {
+      id: "123",
+      name: "Seattle-Tacoma International Airport",
+      city: "Seattle",
+      country: "United States",
+      iata: "SEA",
+      icao: "KSEA",
+      latitude: 47.4502,
+      longitude: -122.3088
+    };
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ airport }, 200));
+
+    globalThis.fetch = fetchMock;
+
+    const response = await fetchNearestAirport(47.4502, -122.3088);
+
+    expect(response).toEqual(airport);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/airports/nearest");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      body: JSON.stringify({
+        latitude: 47.4502,
+        longitude: -122.3088
+      }),
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "POST"
+    });
   });
 });

@@ -24,11 +24,22 @@ import {
   getSearchJob,
   updateSearchJobProgress
 } from "./search-jobs";
+import { createRateLimitMiddleware } from "./rate-limit";
 import type { SearchRequest, SearchSummary } from "../shared/types";
 
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const searchService = new FlightSearchService();
+const staticAssetRateLimit = createRateLimitMiddleware({
+  maxRequests: 240,
+  message: "Too many static asset requests. Please slow down and try again shortly.",
+  windowMs: 60_000
+});
+const spaShellRateLimit = createRateLimitMiddleware({
+  maxRequests: 120,
+  message: "Too many page requests. Please slow down and try again shortly.",
+  windowMs: 60_000
+});
 
 function serializeThrownValue(
   value: unknown
@@ -256,14 +267,14 @@ app.get("/api/airports", (request, response) => {
   response.json({ airports: searchAirports(query) });
 });
 
-app.get("/api/airports/nearest", (request, response) => {
+app.post("/api/airports/nearest", (request, response) => {
   const latitude =
-    typeof request.query.latitude === "string"
-      ? Number.parseFloat(request.query.latitude)
+    typeof request.body?.latitude === "number"
+      ? request.body.latitude
       : Number.NaN;
   const longitude =
-    typeof request.query.longitude === "string"
-      ? Number.parseFloat(request.query.longitude)
+    typeof request.body?.longitude === "number"
+      ? request.body.longitude
       : Number.NaN;
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
@@ -373,9 +384,9 @@ app.get("/api/search/jobs/:id", (request, response) => {
 });
 
 const builtWebPath = resolveAppPath("dist", "web");
-app.use(express.static(builtWebPath));
+app.use(staticAssetRateLimit, express.static(builtWebPath));
 
-app.get("/{*path}", (_request, response) => {
+app.get("/{*path}", spaShellRateLimit, (_request, response) => {
   response.sendFile(path.join(builtWebPath, "index.html"));
 });
 
