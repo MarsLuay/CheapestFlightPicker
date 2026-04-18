@@ -18,6 +18,12 @@ export type AmadeusFlightOfferSearchParams = {
   includedAirlineCodes?: string;
 };
 
+export type AmadeusFlightOfferPrice = {
+  currency?: string;
+  total?: string;
+  grandTotal?: string;
+};
+
 export type AmadeusItineraryPriceMetricsParams = {
   originIataCode: string;
   destinationIataCode: string;
@@ -59,15 +65,18 @@ export type AmadeusFlightOfferSegment = {
   operating?: {
     carrierCode?: string;
   };
+  duration?: string;
 };
 
 export type AmadeusFlightOffer = {
   itineraries?: Array<{
+    duration?: string;
     segments?: AmadeusFlightOfferSegment[];
   }>;
   validatingAirlineCodes?: string[];
   lastTicketingDate?: string;
   numberOfBookableSeats?: number;
+  price?: AmadeusFlightOfferPrice;
 };
 
 export type AmadeusFlightOffersResponse = {

@@ -1,5 +1,9 @@
 import { BookingSourceSupplementService } from "./booking-source-supplement";
 import { findAirlineByCode, findAirportByCode } from "./catalog";
+import {
+  createFlightSearchProvider,
+  type FlightSearchProvider
+} from "./search-provider";
 import { TimingGuidanceService } from "./timing-guidance";
 import {
   combineTwoOneWays,
@@ -10,7 +14,6 @@ import {
   mapWithConcurrency
 } from "./utils";
 import { createAmadeusMissingInfoSupplementProviderFromEnv } from "../providers/amadeus/missing-info-supplement";
-import { GoogleFlightsProvider } from "../providers/google-flights/provider";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   DatePrice,
@@ -213,7 +216,7 @@ class ProgressTracker {
 }
 
 export class FlightSearchService {
-  private readonly provider = new GoogleFlightsProvider();
+  private readonly provider: FlightSearchProvider = createFlightSearchProvider();
 
   private readonly timingGuidanceService = new TimingGuidanceService();
 

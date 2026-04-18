@@ -2,7 +2,7 @@
 
 This is a flight search app that compares every single flight within the specifications you give it, and simply feeds you the cheapest options.
 
-It's built around Google Flights data, runs locally on your machine, and gives you both a browser UI and a CLI if you'd want one.
+It still uses Google Flights when you run it locally on your own machine, and it also gives you both a browser UI and a CLI if you'd want one.
 
 The root of this repo is intentionally pretty clean to let even your grandma run this tool, and the meat of the project lives in `workspace/app`.
 
@@ -75,9 +75,32 @@ What this setup does:
 - includes the airport and airline data files plus the built frontend in the
   function bundle
 
-Hosted Vercel searches now use the direct `/api/search` endpoint instead of the
-local-only background job polling flow, which makes the deployed API much more
-reliable on serverless infrastructure.
+Important:
+
+- local searches can still use Google Flights directly
+- hosted searches should not use Google Flights from Vercel because Google
+  rate-limits serverless/data-center traffic
+- hosted Vercel searches are meant to use Amadeus instead
+
+Add these Vercel project environment variables before expecting hosted search to
+work:
+
+- `AMADEUS_CLIENT_ID`
+- `AMADEUS_CLIENT_SECRET`
+- optional: `AMADEUS_BASE_URL`
+- optional: `SEARCH_PROVIDER=amadeus`
+
+Without those env vars, the hosted site will fail fast with a clear
+configuration error instead of repeatedly hitting Google Flights and getting
+rate-limited.
+
+Hosted-mode tradeoffs:
+
+- this is the reliable way to make Vercel-hosted search work
+- Amadeus results are not identical to Google Flights results
+- according to the Amadeus Flight Offers Search docs, low-cost carriers plus
+  American Airlines, Delta, and British Airways are unavailable in their
+  self-service results
 
 This repo also includes `.github/workflows/vercel.yml`, which deploys
 `workspace/app` to Vercel from GitHub pushes:
