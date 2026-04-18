@@ -18,6 +18,7 @@ import {
   getServerLogs
 } from "./admin-log";
 import { ensureIncidentLogDirectory } from "./incident-log";
+import { getSearchFailureResponse } from "./search-errors";
 import { FlightSearchService } from "../core/search";
 import {
   completeSearchJob,
@@ -323,16 +324,17 @@ app.post("/api/search", async (request, response) => {
       summary
     });
   } catch (error) {
+    const failure = getSearchFailureResponse(error);
     appendServerLog("error", "POST /api/search failed", {
       ...requestSummary,
-      error: error instanceof Error ? error.message : "Search failed",
+      error: failure.message,
       stack: error instanceof Error ? error.stack ?? null : null
     }, {
       persist: true
     });
-    response.status(400).json({
+    response.status(failure.statusCode).json({
       ok: false,
-      error: error instanceof Error ? error.message : "Search failed"
+      error: failure.message
     });
   }
 });
@@ -358,13 +360,12 @@ app.post("/api/search/jobs", (request, response) => {
         ...summarizeSearchSummary(summary)
       });
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Search failed";
-      failSearchJob(job.id, message);
+      const failure = getSearchFailureResponse(error);
+      failSearchJob(job.id, failure.message);
       appendServerLog("error", "POST /api/search/jobs failed", {
         jobId: job.id,
         ...requestSummary,
-        error: message,
+        error: failure.message,
         stack: error instanceof Error ? error.stack ?? null : null
       }, {
         persist: true
