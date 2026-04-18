@@ -40,11 +40,7 @@ import {
   getBrowserTimeZone,
   inferOriginFromTimeZone
 } from "./lib/timezone-origin";
-import {
-  buildGoogleFlightsSearchLinksForRequest,
-  type GoogleFlightsSearchLink
-} from "./lib/google-flights-link";
-import { isStaticSiteModeEnabled } from "./lib/runtime-mode";
+import { isHostedApiModeEnabled } from "./lib/runtime-mode";
 import type {
   SearchProgress,
   SearchRequest,
@@ -55,7 +51,6 @@ import { AdminPanel } from "./components/AdminPanel";
 import { AirlinePicker } from "./components/AirlinePicker";
 import { AirportField } from "./components/AirportField";
 import { ResultsView } from "./components/ResultsView";
-import { StaticResultsView } from "./components/StaticResultsView";
 import { TimeRangeSlider } from "./components/TimeRangeSlider";
 
 const defaultDepartureStartOffsetDays = 44;
@@ -389,7 +384,7 @@ function getSearchValidationError(request: SearchRequest): string | null {
 }
 
 export default function App() {
-  const staticSiteMode = isStaticSiteModeEnabled();
+  const hostedApiMode = isHostedApiModeEnabled();
   const [initialFormState] = useState(resolveInitialFormState);
   const [request, setRequest] = useState<SearchRequest>(initialFormState.request);
   const [summary, setSummary] = useState<SearchSummary | null>(null);
@@ -404,11 +399,6 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasCompletedSearch, setHasCompletedSearch] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
-  const [staticSearchRequest, setStaticSearchRequest] =
-    useState<SearchRequest | null>(null);
-  const [staticSearchLinks, setStaticSearchLinks] = useState<
-    GoogleFlightsSearchLink[]
-  >([]);
   const [useExactDates, setUseExactDates] = useState(initialFormState.useExactDates);
   const [minimumTripDaysInput, setMinimumTripDaysInput] = useState(
     String(initialFormState.request.minimumTripDays ?? 0)
@@ -787,26 +777,6 @@ export default function App() {
     setSummary(null);
     setLivePreviewSummary(null);
     setSearchProgress(null);
-    setStaticSearchRequest(null);
-    setStaticSearchLinks([]);
-
-    if (staticSiteMode) {
-      const links = buildGoogleFlightsSearchLinksForRequest(submittedRequest);
-
-      if (links.length === 0) {
-        setHasCompletedSearch(false);
-        setError(
-          "Could not build a Google Flights handoff for the selected dates. Try tightening the date window or checking the route."
-        );
-        return;
-      }
-
-      setIsSearching(false);
-      setHasCompletedSearch(true);
-      setStaticSearchRequest(submittedRequest);
-      setStaticSearchLinks(links);
-      return;
-    }
 
     const controller = new AbortController();
     const runId = ++mainSearchRunIdRef.current;
@@ -854,10 +824,16 @@ export default function App() {
         setSummary(response.summary);
         setLivePreviewSummary(null);
         setUpgradeFareBox(
-          createInitialUpgradeFareCardState(response.summary, submittedRequest)
+          hostedApiMode
+            ? null
+            : createInitialUpgradeFareCardState(response.summary, submittedRequest)
         );
       });
-      setUpgradeSearchRequest(buildAdjacentCabinSearchRequest(submittedRequest));
+      setUpgradeSearchRequest(
+        hostedApiMode
+          ? null
+          : buildAdjacentCabinSearchRequest(submittedRequest)
+      );
     } catch (caughtError) {
       if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
         return;
@@ -936,7 +912,9 @@ export default function App() {
       fallbackOrigin: fallbackOriginAirport
     },
     environment: {
-      deploymentMode: staticSiteMode ? "github_pages" : "local_live_search"
+      deploymentMode: hostedApiMode
+        ? "hosted_direct_search"
+        : "local_live_search"
     },
     searchState: {
       isSearching,
@@ -1030,19 +1008,6 @@ export default function App() {
             specifications. Happy traveling!
           </p>
         </section>
-
-        {staticSiteMode ? (
-          <section className="placeholder-card mode-banner">
-            <p className="section-kicker">GitHub Pages mode</p>
-            <h2>Client-side planner with Google Flights handoff</h2>
-            <p className="muted-copy">
-              GitHub Pages can host the React app, but not the repo's local
-              Express search engine. This hosted build keeps autocomplete working
-              in the browser and turns your selected filters into ready-to-open
-              Google Flights searches.
-            </p>
-          </section>
-        ) : null}
 
         <section className="form-card">
           <form className="search-form" onSubmit={handleSearch}>
@@ -1188,7 +1153,6 @@ export default function App() {
                 <label className="field filter-field">
                   <span>Search Intelligence</span>
                   <input
-                    disabled={staticSiteMode}
                     type="number"
                     min="1"
                     max="12"
@@ -1201,9 +1165,8 @@ export default function App() {
                     }
                   />
                   <p className="field-help">
-                    {staticSiteMode
-                      ? "GitHub Pages mode skips the local comparison engine, so this only applies when you run the repo locally."
-                      : "Choose a value from 1 to 12. Higher values make the search smarter, while lower values make it faster."}
+                    Choose a value from 1 to 12. Higher values make the search
+                    smarter, while lower values make it faster.
                   </p>
                 </label>
                 </div>
@@ -1448,9 +1411,7 @@ export default function App() {
                 >
                   {isSearching
                     ? "Searching live fares..."
-                    : staticSiteMode
-                      ? "Build Google Flights links"
-                      : "Find cheapest flights"}
+                    : "Find cheapest flights"}
                 </button>
                 {isSearching ? (
                   <button
@@ -1500,20 +1461,13 @@ export default function App() {
           </form>
         </section>
 
-        {staticSiteMode ? (
-          <StaticResultsView
-            links={staticSearchLinks}
-            request={staticSearchRequest}
-          />
-        ) : (
-          <ResultsView
-            showResults={hasCompletedSearch || isSearching}
-            isSearching={isSearching}
-            mainSearchProgress={searchProgress}
-            summary={displayedSummary}
-            upgradeFareBox={upgradeFareBox}
-          />
-        )}
+        <ResultsView
+          showResults={hasCompletedSearch || isSearching}
+          isSearching={isSearching}
+          mainSearchProgress={searchProgress}
+          summary={displayedSummary}
+          upgradeFareBox={upgradeFareBox}
+        />
 
         <footer className="app-footer">
           <p className="app-footer__copy">

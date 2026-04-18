@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { resolveAppPath } from "../core/project-paths";
+import { resolveRuntimeDataPath } from "../core/project-paths";
 
 export type IncidentLogSource = "server" | "client" | "process";
 
@@ -36,7 +36,7 @@ function sanitizeFileSegment(value: string): string {
 }
 
 function getIncidentLogDirectory(directoryPath?: string): string {
-  const resolvedDirectory = directoryPath ?? resolveAppPath("logs");
+  const resolvedDirectory = directoryPath ?? resolveRuntimeDataPath("logs");
   fs.mkdirSync(resolvedDirectory, { recursive: true });
   return resolvedDirectory;
 }

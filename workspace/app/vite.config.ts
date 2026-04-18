@@ -1,18 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const repositoryName = process.env.GITHUB_REPOSITORY?.split("/")[1];
-const basePath =
-  process.env.GITHUB_ACTIONS && repositoryName
-    ? `/${repositoryName}/`
-    : "/";
-
 export default defineConfig({
-  base: basePath,
+  base: "/",
   plugins: [react()],
   root: "web",
   build: {
-    outDir: "../dist/web",
+    outDir: "../public",
     emptyOutDir: true
   },
   server: {

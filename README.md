@@ -52,21 +52,39 @@ chmod +x setup-and-launch.sh
 ./setup-and-launch.sh
 ```
 
-## GitHub Pages
+## Vercel
 
-This repo can now deploy a GitHub Pages build automatically from `main` through
-`.github/workflows/github-pages.yml`.
+This repo is also set up for a hosted deployment where both the clickable site
+and the API run together.
 
-The hosted Pages version works a little differently from the local app:
+Live deployment:
 
-- airport and airline autocomplete runs fully in the browser
-- the hosted UI turns your selected filters into Google Flights search links
-- the full live fare comparison engine still requires running the repo locally,
-  because GitHub Pages cannot host the Express API used by the local app
+`https://cheapest-flight-picker.vercel.app`
 
-Expected GitHub Pages URL after deployment:
+Use these settings when you import the repo into Vercel:
 
-`https://marsluay.github.io/CheapestFlightPicker/`
+- Root Directory: `workspace/app`
+- Framework Preset: `Express`
+- Build Command: picked up from `workspace/app/vercel.json`
+
+What this setup does:
+
+- builds the React app into `workspace/app/public`
+- deploys the Express backend through `workspace/app/server.js`, which loads the
+  bundled server output from `dist/server/index.js`
+- includes the airport and airline data files plus the built frontend in the
+  function bundle
+
+Hosted Vercel searches now use the direct `/api/search` endpoint instead of the
+local-only background job polling flow, which makes the deployed API much more
+reliable on serverless infrastructure.
+
+This repo also includes `.github/workflows/vercel.yml`, which deploys
+`workspace/app` to Vercel from GitHub pushes:
+
+- pushes to `main` create a production deployment
+- pushes to any other branch create a preview deployment
+
 
 ## Background
 

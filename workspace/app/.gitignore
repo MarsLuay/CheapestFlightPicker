@@ -1,6 +1,9 @@
 node_modules
 dist
+public
 .cache
 logs
 coverage
 npm-debug.log*
+
+.vercel

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import cors from "cors";
@@ -201,6 +202,10 @@ function summarizeSearchSummary(summary: SearchSummary): Record<string, unknown>
   };
 }
 
+function isVercelRuntime(): boolean {
+  return process.env.VERCEL === "1" || process.env.VERCEL === "true";
+}
+
 app.use(cors());
 app.use(express.json());
 app.use((request, response, next) => {
@@ -383,20 +388,33 @@ app.get("/api/search/jobs/:id", (request, response) => {
   response.json(job);
 });
 
-const builtWebPath = resolveAppPath("dist", "web");
+const builtWebPath = resolveAppPath("public");
+const builtWebIndexPath = path.join(builtWebPath, "index.html");
 app.use(frontendRateLimit);
 app.use(express.static(builtWebPath));
 
 app.get("/{*path}", (_request, response) => {
-  response.sendFile(path.join(builtWebPath, "index.html"));
+  if (!fs.existsSync(builtWebIndexPath)) {
+    response.status(503).json({
+      error: "The web app has not been built yet.",
+      ok: false
+    });
+    return;
+  }
+
+  response.sendFile(builtWebIndexPath);
 });
 
 ensureIncidentLogDirectory();
 registerProcessIncidentHandlers();
 
-app.listen(port, () => {
-  appendServerLog("info", "Server started", { port });
-  console.log(
-    `Cheapest Flight Picker server listening on http://localhost:${port}`
-  );
-});
+if (!isVercelRuntime()) {
+  app.listen(port, () => {
+    appendServerLog("info", "Server started", { port });
+    console.log(
+      `Cheapest Flight Picker server listening on http://localhost:${port}`
+    );
+  });
+}
+
+export default app;

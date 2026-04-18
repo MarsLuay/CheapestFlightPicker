@@ -9,7 +9,7 @@ import type {
 } from "./types";
 import { addClientLog } from "./admin-log";
 import { searchCatalogAirlines, searchCatalogAirports } from "./catalog";
-import { isStaticSiteModeEnabled } from "./runtime-mode";
+import { isHostedApiModeEnabled } from "./runtime-mode";
 
 type RequestJsonOptions<T> = {
   logStart?: boolean;
@@ -26,6 +26,7 @@ type RunFlightSearchOptions = {
 };
 
 const searchJobTimeoutMs = 1000 * 60 * 20;
+const hostedSearchTimeoutMs = 1000 * 60 * 4 + 30_000;
 const maxSearchJobRecoveryAttempts = 1;
 
 function isAbortError(error: unknown): error is DOMException {
@@ -46,7 +47,7 @@ function toErrorMessage(
   }
 
   if (error instanceof TypeError) {
-    return `Could not reach the local API for ${url}. If you're in dev mode, make sure the server is running.`;
+    return `Could not reach the API for ${url}. If you're in local dev, make sure the server is running.`;
   }
 
   if (error instanceof Error) {
@@ -272,11 +273,7 @@ export async function searchAirports(query: string): Promise<AirportRecord[]> {
 
   try {
     return await searchCatalogAirports(query);
-  } catch {
-    if (isStaticSiteModeEnabled()) {
-      return [];
-    }
-  }
+  } catch {}
 
   try {
     const data = await requestJson<{ airports: AirportRecord[] }>(
@@ -315,11 +312,7 @@ export async function fetchNearestAirport(
 export async function searchAirlines(query: string): Promise<AirlineRecord[]> {
   try {
     return await searchCatalogAirlines(query);
-  } catch {
-    if (isStaticSiteModeEnabled()) {
-      return [];
-    }
-  }
+  } catch {}
 
   try {
     const data = await requestJson<{ airlines: AirlineRecord[] }>(
@@ -340,6 +333,36 @@ export async function runFlightSearch(
       ? { onProgress: optionsOrProgress }
       : optionsOrProgress ?? {};
   const requestDetails = buildSearchRequestDetails(request);
+
+  if (isHostedApiModeEnabled()) {
+    options.onProgress?.({
+      stage: "Running hosted search",
+      detail: "Waiting for the server to finish comparing fares.",
+      completedSteps: 0,
+      totalSteps: 1,
+      percent: 15
+    });
+
+    return requestJson<SearchResponse>(
+      "/api/search",
+      {
+        body: JSON.stringify(request),
+        headers: {
+          "content-type": "application/json"
+        },
+        method: "POST"
+      },
+      {
+        logStart: true,
+        logSuccess: true,
+        requestDetails,
+        signal: options.signal,
+        successDetails: buildSearchSuccessDetails,
+        timeoutMs: hostedSearchTimeoutMs
+      }
+    );
+  }
+
   addClientLog("info", "POST /api/search started", requestDetails);
   const searchStartedAt = performance.now();
   let jobRecoveryAttempts = 0;

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { resolveAppPath } from "./project-paths";
+import { resolveRuntimeDataPath } from "./project-paths";
 
 type CacheEnvelope<T> = {
   createdAt: number;
@@ -73,7 +73,7 @@ export class JsonFileCache<T> {
 
     this.directoryPath =
       options.directoryPath ??
-      resolveAppPath(...(options.directorySegments ?? [".cache"]));
+      resolveRuntimeDataPath(...(options.directorySegments ?? [".cache"]));
     this.ttlMs = options.ttlMs;
     this.maxEntries = options.maxEntries ?? 500;
     this.sweepIntervalMs = options.sweepIntervalMs ?? 1000 * 60 * 5;

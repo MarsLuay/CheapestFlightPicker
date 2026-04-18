@@ -1,0 +1,124 @@
+name: Vercel Deploy
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workspace/app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Resolve deployment target
+        run: |
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "VERCEL_ENVIRONMENT=production" >> "$GITHUB_ENV"
+          else
+            echo "VERCEL_ENVIRONMENT=preview" >> "$GITHUB_ENV"
+          fi
+
+      - name: Refresh Vercel access token
+        env:
+          VERCEL_REFRESH_TOKEN: ${{ secrets.VERCEL_REFRESH_TOKEN }}
+        run: |
+          node <<'EOF'
+          const fs = require("node:fs");
+
+          async function main() {
+            const discoveryResponse = await fetch(
+              "https://vercel.com/.well-known/openid-configuration"
+            );
+            if (!discoveryResponse.ok) {
+              throw new Error(
+                `Failed to load Vercel OAuth discovery: ${discoveryResponse.status}`
+              );
+            }
+
+            const discovery = await discoveryResponse.json();
+            const body = new URLSearchParams({
+              client_id: "cl_HYyOPBNtFMfHhaUn9L4QPfTZz6TP47bp",
+              grant_type: "refresh_token",
+              refresh_token: process.env.VERCEL_REFRESH_TOKEN ?? ""
+            });
+
+            const tokenResponse = await fetch(discovery.token_endpoint, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+              },
+              body
+            });
+
+            if (!tokenResponse.ok) {
+              throw new Error(await tokenResponse.text());
+            }
+
+            const tokens = await tokenResponse.json();
+            if (!tokens.access_token) {
+              throw new Error("Missing access token in Vercel OAuth response.");
+            }
+
+            console.log(`::add-mask::${tokens.access_token}`);
+            fs.appendFileSync(
+              process.env.GITHUB_ENV,
+              `VERCEL_TOKEN=${tokens.access_token}\n`
+            );
+
+            if (tokens.refresh_token) {
+              console.log(`::add-mask::${tokens.refresh_token}`);
+              fs.appendFileSync(
+                process.env.GITHUB_ENV,
+                `VERCEL_REFRESH_TOKEN_NEXT=${tokens.refresh_token}\n`
+              );
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          EOF
+
+      - name: Rotate stored Vercel refresh token
+        if: env.VERCEL_REFRESH_TOKEN_NEXT != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+        run: gh secret set VERCEL_REFRESH_TOKEN --repo MarsLuay/CheapestFlightPicker --body "$VERCEL_REFRESH_TOKEN_NEXT"
+
+      - name: Build Project Artifacts
+        run: |
+          if [ "$VERCEL_ENVIRONMENT" = "production" ]; then
+            vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+            vercel build --prod --token="$VERCEL_TOKEN"
+          else
+            vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+            vercel build --token="$VERCEL_TOKEN"
+          fi
+
+      - name: Deploy Project Artifacts to Vercel
+        run: |
+          if [ "$VERCEL_ENVIRONMENT" = "production" ]; then
+            vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          else
+            vercel deploy --prebuilt --token="$VERCEL_TOKEN"
+          fi
