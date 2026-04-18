@@ -8,6 +8,8 @@ import type {
   ServerLogEntry
 } from "./types";
 import { addClientLog } from "./admin-log";
+import { searchCatalogAirlines, searchCatalogAirports } from "./catalog";
+import { isStaticSiteModeEnabled } from "./runtime-mode";
 
 type RequestJsonOptions<T> = {
   logStart?: boolean;
@@ -269,6 +271,14 @@ export async function searchAirports(query: string): Promise<AirportRecord[]> {
   }
 
   try {
+    return await searchCatalogAirports(query);
+  } catch {
+    if (isStaticSiteModeEnabled()) {
+      return [];
+    }
+  }
+
+  try {
     const data = await requestJson<{ airports: AirportRecord[] }>(
       `/api/airports?query=${encodeURIComponent(query)}`
     );
@@ -303,6 +313,14 @@ export async function fetchNearestAirport(
 }
 
 export async function searchAirlines(query: string): Promise<AirlineRecord[]> {
+  try {
+    return await searchCatalogAirlines(query);
+  } catch {
+    if (isStaticSiteModeEnabled()) {
+      return [];
+    }
+  }
+
   try {
     const data = await requestJson<{ airlines: AirlineRecord[] }>(
       `/api/airlines?query=${encodeURIComponent(query)}`

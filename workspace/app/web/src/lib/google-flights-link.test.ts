@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildGoogleFlightsSearchLinksForRequest,
   buildGoogleFlightsSearchLinks,
   buildGoogleFlightsSearchUrl,
   buildGoogleFlightsTfsParam
@@ -545,5 +546,62 @@ describe("google flight link builder", () => {
     expect(returnSegments[0]?.date).toBe("2026-05-19");
     expect(returnSegments[0]?.fromAirport).toEqual({ code: "PIT", type: 1 });
     expect(returnSegments[0]?.toAirport).toEqual({ code: "SEA", type: 1 });
+  });
+
+  it("builds request-level GitHub Pages links for flexible round-trip searches", () => {
+    const request = buildRequest({
+      departureDateFrom: "2026-05-12",
+      departureDateTo: "2026-05-20",
+      returnDateFrom: "2026-05-16",
+      returnDateTo: "2026-05-30",
+      minimumTripDays: 4,
+      maximumTripDays: 10
+    });
+
+    const links = buildGoogleFlightsSearchLinksForRequest(request);
+
+    expect(links.map((link) => link.label)).toEqual([
+      "Open earliest workable pair",
+      "Open latest workable pair"
+    ]);
+
+    const firstUrl = new URL(links[0]?.href ?? "");
+    const secondUrl = new URL(links[1]?.href ?? "");
+    const firstFields = decodeMessage(
+      decodeBase64Url(firstUrl.searchParams.get("tfs") ?? "")
+    );
+    const secondFields = decodeMessage(
+      decodeBase64Url(secondUrl.searchParams.get("tfs") ?? "")
+    );
+    const firstSegments = firstFields
+      .filter((field) => field.field === 3)
+      .map((field) => decodeSegment(field.value as Uint8Array));
+    const secondSegments = secondFields
+      .filter((field) => field.field === 3)
+      .map((field) => decodeSegment(field.value as Uint8Array));
+
+    expect(firstSegments.map((segment) => segment.date)).toEqual([
+      "2026-05-12",
+      "2026-05-16"
+    ]);
+    expect(secondSegments.map((segment) => segment.date)).toEqual([
+      "2026-05-20",
+      "2026-05-30"
+    ]);
+  });
+
+  it("deduplicates request-level links when the user has only one exact date pair", () => {
+    const request = buildRequest({
+      useExactDates: true,
+      departureDateFrom: "2026-05-12",
+      departureDateTo: "2026-05-12",
+      returnDateFrom: "2026-05-19",
+      returnDateTo: "2026-05-19"
+    });
+
+    const links = buildGoogleFlightsSearchLinksForRequest(request);
+
+    expect(links).toHaveLength(1);
+    expect(links[0]?.label).toBe("Open on Google Flights");
   });
 });

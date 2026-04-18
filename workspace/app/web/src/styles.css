@@ -846,6 +846,49 @@ select {
   padding: 14px 16px;
 }
 
+.mode-banner,
+.static-results-intro {
+  display: grid;
+  gap: 12px;
+}
+
+.mode-banner {
+  background:
+    radial-gradient(circle at top right, rgba(120, 201, 155, 0.12), transparent 32%),
+    rgba(8, 20, 30, 0.78);
+  margin-bottom: 24px;
+  padding: 24px 28px;
+}
+
+.mode-banner h2,
+.static-results-intro h2 {
+  margin: 0;
+}
+
+.static-results-intro {
+  padding: 28px;
+}
+
+.static-results-card {
+  display: grid;
+  gap: 18px;
+}
+
+.static-link-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.static-link-card {
+  background: rgba(246, 221, 187, 0.06);
+  border: 1px solid rgba(246, 221, 187, 0.08);
+  border-radius: 18px;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
 .results-shell {
   display: grid;
   gap: 18px;

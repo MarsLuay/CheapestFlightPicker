@@ -1,8 +1,10 @@
+import { shiftDateInput } from "./date-input";
 import type { FlightOption, FlightSlice, SearchRequest, TimeWindow } from "./types";
 
 export type GoogleFlightsSearchLink = {
   href: string;
   label: string;
+  description?: string;
 };
 
 type EncodedSegment = {
@@ -13,6 +15,13 @@ type EncodedSegment = {
   fromAirport: string;
   maxStops?: number;
   toAirport: string;
+};
+
+type RequestSearchPreset = {
+  departureDate: string;
+  description: string;
+  label: string;
+  returnDate?: string;
 };
 
 const googleFlightsSearchPath = "https://www.google.com/travel/flights/search";
@@ -406,6 +415,123 @@ function encodeBase64Url(bytes: Uint8Array): string {
   return encoded;
 }
 
+function maxDate(left: string, right: string): string {
+  return left >= right ? left : right;
+}
+
+function minDate(left: string, right: string): string {
+  return left <= right ? left : right;
+}
+
+function buildRequestSearchOption(
+  request: SearchRequest,
+  dates: {
+    departureDate: string;
+    returnDate?: string;
+  }
+): FlightOption {
+  return {
+    source:
+      request.tripType === "round_trip" && dates.returnDate
+        ? "google_round_trip"
+        : "google_one_way",
+    totalPrice: 0,
+    currency: "USD",
+    slices: [],
+    bookingSource: {
+      type: "unknown",
+      label: "Google Flights",
+      detected: true
+    },
+    outboundDate: dates.departureDate,
+    returnDate: dates.returnDate
+  };
+}
+
+function buildRoundTripRequestDates(request: SearchRequest): RequestSearchPreset[] {
+  const returnDateFrom = request.returnDateFrom ?? request.departureDateFrom;
+  const returnDateTo = request.returnDateTo ?? returnDateFrom;
+
+  if (request.useExactDates) {
+    return [
+      {
+        departureDate: request.departureDateFrom,
+        returnDate: returnDateFrom,
+        label:
+          request.departureDateFrom === request.departureDateTo &&
+          returnDateFrom === returnDateTo
+            ? "Open on Google Flights"
+            : "Open earliest matched pair",
+        description:
+          request.departureDateFrom === request.departureDateTo &&
+          returnDateFrom === returnDateTo
+            ? "Uses the exact departure and return dates currently selected."
+            : "Uses the first matched departure and return dates from your exact-date window."
+      },
+      {
+        departureDate: request.departureDateTo,
+        returnDate: returnDateTo,
+        label: "Open latest matched pair",
+        description:
+          "Uses the last matched departure and return dates from your exact-date window."
+      }
+    ];
+  }
+
+  const minimumTripDays = request.minimumTripDays ?? 0;
+  const maximumTripDays = request.maximumTripDays ?? 14;
+  const earliestReturn = maxDate(
+    returnDateFrom,
+    shiftDateInput(request.departureDateFrom, minimumTripDays)
+  );
+  const latestReturn = minDate(
+    returnDateTo,
+    shiftDateInput(request.departureDateTo, maximumTripDays)
+  );
+
+  return [
+    {
+      departureDate: request.departureDateFrom,
+      returnDate: earliestReturn,
+      label:
+        request.departureDateFrom === request.departureDateTo &&
+        earliestReturn === latestReturn
+          ? "Open on Google Flights"
+          : "Open earliest workable pair",
+      description:
+        "Uses your earliest departure and the first return date that fits the trip-length rules."
+    },
+    {
+      departureDate: request.departureDateTo,
+      returnDate: latestReturn,
+      label: "Open latest workable pair",
+      description:
+        "Uses your latest departure and the last return date that still fits the trip-length rules."
+    }
+  ];
+}
+
+function buildOneWayRequestDates(request: SearchRequest): RequestSearchPreset[] {
+  return [
+    {
+      departureDate: request.departureDateFrom,
+      label:
+        request.departureDateFrom === request.departureDateTo
+          ? "Open on Google Flights"
+          : "Open earliest departure",
+      description:
+        request.departureDateFrom === request.departureDateTo
+          ? "Uses the exact departure date currently selected."
+          : "Uses the earliest departure date from your current window."
+    },
+    {
+      departureDate: request.departureDateTo,
+      label: "Open latest departure",
+      description: "Uses the latest departure date from your current window."
+    }
+  ];
+}
+
 export function buildGoogleFlightsTfsParam(
   option: FlightOption,
   request: SearchRequest
@@ -490,4 +616,46 @@ export function buildGoogleFlightsSearchLinks(
         }
       ]
     : [];
+}
+
+export function buildGoogleFlightsSearchLinksForRequest(
+  request: SearchRequest
+): GoogleFlightsSearchLink[] {
+  const presets =
+    request.tripType === "round_trip"
+      ? buildRoundTripRequestDates(request)
+      : buildOneWayRequestDates(request);
+  const links: GoogleFlightsSearchLink[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const preset of presets) {
+    if (request.tripType === "round_trip" && !preset.returnDate) {
+      continue;
+    }
+
+    if (preset.returnDate && preset.returnDate < preset.departureDate) {
+      continue;
+    }
+
+    const href = buildGoogleFlightsSearchUrl(
+      buildRequestSearchOption(request, {
+        departureDate: preset.departureDate,
+        returnDate: preset.returnDate
+      }),
+      request
+    );
+
+    if (!href || seenUrls.has(href)) {
+      continue;
+    }
+
+    seenUrls.add(href);
+    links.push({
+      href,
+      label: preset.label,
+      description: preset.description
+    });
+  }
+
+  return links;
 }

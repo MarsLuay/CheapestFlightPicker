@@ -52,6 +52,22 @@ chmod +x setup-and-launch.sh
 ./setup-and-launch.sh
 ```
 
+## GitHub Pages
+
+This repo can now deploy a GitHub Pages build automatically from `main` through
+`.github/workflows/github-pages.yml`.
+
+The hosted Pages version works a little differently from the local app:
+
+- airport and airline autocomplete runs fully in the browser
+- the hosted UI turns your selected filters into Google Flights search links
+- the full live fare comparison engine still requires running the repo locally,
+  because GitHub Pages cannot host the Express API used by the local app
+
+Expected GitHub Pages URL after deployment:
+
+`https://marsluay.github.io/CheapestFlightPicker/`
+
 ## Background
 
 I wanted to visit my girlfriend across the country as a broke college student, and google flights wasn't cutting it for me.
