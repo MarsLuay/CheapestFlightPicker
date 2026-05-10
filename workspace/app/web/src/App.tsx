@@ -15,8 +15,10 @@ import {
 } from "./lib/cabin-upgrade";
 import {
   addDaysToLocalDate,
+  clampDateInputToMinimum,
   differenceInCalendarDays,
   formatDateForInput,
+  getLaterDateInput,
   shiftDateInput
 } from "./lib/date-input";
 import {
@@ -57,6 +59,8 @@ const defaultDepartureStartOffsetDays = 44;
 const defaultExactTripLengthDays = 7;
 const defaultDateRangeSpanDays = 14;
 const fallbackOriginAirport = "SEA";
+const hostedSearchUnavailableMessage =
+  "Won't work on the website :) I'm too broke to buy an API key to fix that, but if you run setup-and-launch.bat anywhere on your computer it will work properly!";
 
 type OriginDetectionStatus =
   | "saved_preference_loaded"
@@ -350,6 +354,8 @@ function isIataCode(value: string): boolean {
 }
 
 function getSearchValidationError(request: SearchRequest): string | null {
+  const todayDateInput = getTodayDateInput();
+
   if (!isIataCode(request.origin)) {
     return "Choose an origin airport from the suggestions or enter a 3-letter airport code.";
   }
@@ -370,6 +376,13 @@ function getSearchValidationError(request: SearchRequest): string | null {
     return "The latest departure date has to be on or after the earliest departure date.";
   }
 
+  if (
+    request.departureDateFrom < todayDateInput ||
+    request.departureDateTo < todayDateInput
+  ) {
+    return "Dates can't be in the past.";
+  }
+
   if (request.tripType === "round_trip") {
     if (!request.returnDateFrom || !request.returnDateTo) {
       return "Choose a valid return date window for a round-trip search.";
@@ -378,9 +391,47 @@ function getSearchValidationError(request: SearchRequest): string | null {
     if (request.returnDateFrom > request.returnDateTo) {
       return "The latest return date has to be on or after the earliest return date.";
     }
+
+    if (
+      request.returnDateFrom < todayDateInput ||
+      request.returnDateTo < todayDateInput
+    ) {
+      return "Dates can't be in the past.";
+    }
   }
 
   return null;
+}
+
+function getTodayDateInput(): string {
+  return formatDateForInput(new Date());
+}
+
+function getMinimumReturnDateFrom(
+  request: SearchRequest,
+  useExactDates: boolean,
+  minimumDate = getTodayDateInput()
+): string | undefined {
+  if (request.tripType !== "round_trip") {
+    return undefined;
+  }
+
+  const tripReturnMinimum = useExactDates
+    ? request.departureDateFrom
+    : shiftDateInput(request.departureDateFrom, request.minimumTripDays ?? 0);
+
+  return getLaterDateInput(tripReturnMinimum, minimumDate);
+}
+
+function getMinimumReturnDateTo(
+  request: SearchRequest,
+  useExactDates: boolean,
+  minimumDate = getTodayDateInput()
+): string | undefined {
+  return getLaterDateInput(
+    request.returnDateFrom,
+    getMinimumReturnDateFrom(request, useExactDates, minimumDate)
+  );
 }
 
 export default function App() {
@@ -483,7 +534,7 @@ export default function App() {
     updateRequest((currentRequest) =>
       withDepartureDateFrom(
         currentRequest,
-        nextDepartureDateFrom,
+        clampDateInputToMinimum(nextDepartureDateFrom, getTodayDateInput()),
         useExactDates
       ),
       { persistDates: true }
@@ -491,22 +542,46 @@ export default function App() {
   }
 
   function updateReturnDateFrom(nextReturnDateFrom: string) {
-    updateRequest((currentRequest) =>
-      withReturnDateFrom(currentRequest, nextReturnDateFrom, useExactDates),
+    updateRequest(
+      (currentRequest) => {
+        const minimumReturnDate =
+          getMinimumReturnDateFrom(currentRequest, useExactDates) ??
+          getTodayDateInput();
+
+        return withReturnDateFrom(
+          currentRequest,
+          clampDateInputToMinimum(nextReturnDateFrom, minimumReturnDate),
+          useExactDates
+        );
+      },
       { persistDates: true }
     );
   }
 
   function updateDepartureDateTo(nextDepartureDateTo: string) {
     updateRequest((currentRequest) =>
-      withDepartureDateTo(currentRequest, nextDepartureDateTo, useExactDates),
+      withDepartureDateTo(
+        currentRequest,
+        clampDateInputToMinimum(nextDepartureDateTo, getTodayDateInput()),
+        useExactDates
+      ),
       { persistDates: true }
     );
   }
 
   function updateReturnDateTo(nextReturnDateTo: string) {
-    updateRequest((currentRequest) =>
-      withReturnDateTo(currentRequest, nextReturnDateTo, useExactDates),
+    updateRequest(
+      (currentRequest) => {
+        const minimumReturnDate =
+          getMinimumReturnDateTo(currentRequest, useExactDates) ??
+          getTodayDateInput();
+
+        return withReturnDateTo(
+          currentRequest,
+          clampDateInputToMinimum(nextReturnDateTo, minimumReturnDate),
+          useExactDates
+        );
+      },
       { persistDates: true }
     );
   }
@@ -759,7 +834,9 @@ export default function App() {
       ...requestRef.current,
       useExactDates
     };
-    const validationError = getSearchValidationError(submittedRequest);
+    const validationError = hostedApiMode
+      ? null
+      : getSearchValidationError(submittedRequest);
 
     if (validationError) {
       setError(validationError);
@@ -768,6 +845,7 @@ export default function App() {
 
     mainSearchRunIdRef.current += 1;
     mainSearchAbortControllerRef.current?.abort();
+    mainSearchAbortControllerRef.current = null;
     upgradeSearchRunIdRef.current += 1;
     upgradeSearchAbortControllerRef.current?.abort();
     upgradeSearchAbortControllerRef.current = null;
@@ -777,13 +855,19 @@ export default function App() {
     setSummary(null);
     setLivePreviewSummary(null);
     setSearchProgress(null);
+    setHasCompletedSearch(false);
+    setIsSearching(false);
+
+    if (hostedApiMode) {
+      setError(hostedSearchUnavailableMessage);
+      return;
+    }
 
     const controller = new AbortController();
     const runId = ++mainSearchRunIdRef.current;
 
     mainSearchAbortControllerRef.current = controller;
     setIsSearching(true);
-    setHasCompletedSearch(false);
     setLivePreviewSummary(createLivePreviewSummary(submittedRequest));
     setSearchProgress({
       stage: "Preparing search",
@@ -861,15 +945,20 @@ export default function App() {
   }
 
   const displayedSummary = summary ?? livePreviewSummary;
-  const earliestAllowedReturnDate =
-    request.tripType === "round_trip"
-      ? useExactDates
-        ? request.departureDateFrom
-        : shiftDateInput(
-            request.departureDateFrom,
-            request.minimumTripDays ?? 0
-          )
-      : undefined;
+  const todayDateInput = getTodayDateInput();
+  const minimumDepartureDateTo =
+    getLaterDateInput(request.departureDateFrom, todayDateInput) ??
+    todayDateInput;
+  const earliestAllowedReturnDate = getMinimumReturnDateFrom(
+    request,
+    useExactDates,
+    todayDateInput
+  );
+  const minimumReturnDateTo = getMinimumReturnDateTo(
+    request,
+    useExactDates,
+    todayDateInput
+  );
 
   const adminUiSnapshot = {
     route: {
@@ -1250,6 +1339,7 @@ export default function App() {
                       <span>Earliest departure</span>
                       <input
                         type="date"
+                        min={todayDateInput}
                         value={request.departureDateFrom}
                         onChange={(event) =>
                           updateDepartureDateFrom(event.target.value)
@@ -1262,7 +1352,7 @@ export default function App() {
                       <input
                         type="date"
                         value={request.departureDateTo}
-                        min={request.departureDateFrom}
+                        min={minimumDepartureDateTo}
                         onChange={(event) =>
                           updateDepartureDateTo(event.target.value)
                         }
@@ -1284,7 +1374,7 @@ export default function App() {
                         <input
                           type="date"
                           value={request.returnDateFrom ?? ""}
-                          min={earliestAllowedReturnDate}
+                          min={earliestAllowedReturnDate ?? todayDateInput}
                           onChange={(event) =>
                             updateReturnDateFrom(event.target.value)
                           }
@@ -1296,7 +1386,7 @@ export default function App() {
                         <input
                           type="date"
                           value={request.returnDateTo ?? ""}
-                          min={request.returnDateFrom ?? undefined}
+                          min={minimumReturnDateTo ?? todayDateInput}
                           onChange={(event) =>
                             updateReturnDateTo(event.target.value)
                           }
