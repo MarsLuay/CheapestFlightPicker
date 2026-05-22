@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 case "$SCRIPT_DIR" in
   */*.app/Contents/MacOS | */*.app/Contents/Resources)
-    LAUNCHER_DIR="$(cd -- "$SCRIPT_DIR/../../.." && pwd)"
+    LAUNCHER_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
     ;;
   *)
     LAUNCHER_DIR="$SCRIPT_DIR"
