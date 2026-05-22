@@ -36,11 +36,19 @@ setup-and-launch.bat
 
 ### Linux
 
-Open Terminal and run:
+For a desktop launcher, open Terminal and run:
 
 ```bash
-chmod +x setup-and-launch.sh
-./setup-and-launch.sh
+chmod +x setup-and-launch.desktop setup-and-launch.command
+```
+
+Then open or trust `setup-and-launch.desktop` from your file manager.
+
+Or run the command file directly from Terminal:
+
+```bash
+chmod +x setup-and-launch.command
+./setup-and-launch.command
 ```
 
 ### macOS
@@ -48,8 +56,8 @@ chmod +x setup-and-launch.sh
 Open Terminal and run:
 
 ```bash
-chmod +x setup-and-launch.sh
-./setup-and-launch.sh
+chmod +x setup-and-launch.command
+./setup-and-launch.command
 ```
 
 ## Vercel
