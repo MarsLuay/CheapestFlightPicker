@@ -39,25 +39,25 @@ setup-and-launch.bat
 For a desktop launcher, open Terminal and run:
 
 ```bash
-chmod +x setup-and-launch.desktop setup-and-launch.command
+chmod +x setup-and-launch.desktop setup-and-launch.app/Contents/MacOS/setup-and-launch
 ```
 
 Then open or trust `setup-and-launch.desktop` from your file manager.
 
-Or run the command file directly from Terminal:
+Or run the launcher script directly from Terminal:
 
 ```bash
-chmod +x setup-and-launch.command
-./setup-and-launch.command
+chmod +x setup-and-launch.app/Contents/MacOS/setup-and-launch
+./setup-and-launch.app/Contents/MacOS/setup-and-launch
 ```
 
 ### macOS
 
-Open Terminal and run:
+Open the app bundle from Finder, or run this from Terminal:
 
 ```bash
-chmod +x setup-and-launch.command
-./setup-and-launch.command
+chmod +x setup-and-launch.app/Contents/MacOS/setup-and-launch
+open setup-and-launch.app
 ```
 
 ## Vercel

@@ -250,7 +250,7 @@ This section is a map of the app by file.
 | `README.md` | Top-level project intro. |
 | `setup-and-launch.bat` | Windows setup and launch helper. |
 | `setup-and-launch.desktop` | Linux desktop setup and launch helper. |
-| `setup-and-launch.command` | Mac/Linux setup and launch helper. |
+| `setup-and-launch.app` | macOS app bundle that runs the setup and launch helper. |
 | `workspace/app/package.json` | Lists app dependencies and npm commands. |
 | `workspace/app/package-lock.json` | Exact dependency lockfile so installs stay consistent. |
 | `workspace/app/README.md` | Short app-specific README. |

@@ -3,7 +3,7 @@ Type=Application
 Name=Cheapest Flight Picker
 Comment=Set up and launch Cheapest Flight Picker
 Terminal=true
-Exec=sh -c "launcher_dir=\\$(CDPATH= cd -- \"\\$(dirname -- \"\\$1\")\" && pwd); cd \"\\$launcher_dir\" && chmod +x ./setup-and-launch.command && exec ./setup-and-launch.command" launcher %k
+Exec=sh -c "launcher_dir=\\$(CDPATH= cd -- \"\\$(dirname -- \"\\$1\")\" && pwd); launch_script=\"\\$launcher_dir/setup-and-launch.app/Contents/MacOS/setup-and-launch\"; chmod +x \"\\$launch_script\" && exec \"\\$launch_script\"" launcher %k
 Icon=utilities-terminal
 Categories=Network;Utility;
 StartupNotify=false

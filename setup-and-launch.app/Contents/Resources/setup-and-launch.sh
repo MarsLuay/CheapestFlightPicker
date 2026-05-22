@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LAUNCHER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+case "$SCRIPT_DIR" in
+  */*.app/Contents/MacOS | */*.app/Contents/Resources)
+    LAUNCHER_DIR="$(cd -- "$SCRIPT_DIR/../../.." && pwd)"
+    ;;
+  *)
+    LAUNCHER_DIR="$SCRIPT_DIR"
+    ;;
+esac
 REPO_URL="https://github.com/MarsLuay/CheapestFlightPicker.git"
 REPO_DIR="$LAUNCHER_DIR"
 STANDALONE_REPO_DIR="$LAUNCHER_DIR/CheapestFlightPicker"
