@@ -163,6 +163,74 @@ describe("runFlightSearch", () => {
     await expect(responsePromise).rejects.toThrow("Search canceled.");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("emits the last failed-job preview before returning a rate-limit failure", async () => {
+    globalThis.window = globalThis as typeof globalThis & Window;
+
+    const request = buildRequest();
+    const failedJob: SearchJobStatus = {
+      id: "failed-job",
+      status: "failed",
+      createdAt: "2026-03-25T07:59:13.100Z",
+      updatedAt: "2026-03-25T07:59:16.100Z",
+      error:
+        "Google Flights temporarily rate limited this search. Wait a minute and try again.",
+      progress: {
+        stage: "Failed",
+        detail:
+          "Google Flights temporarily rate limited this search. Wait a minute and try again.",
+        completedSteps: 3,
+        totalSteps: 9,
+        percent: 33,
+        previewSummary: {
+          departureDatePrices: [{ date: "2026-05-08", price: 220 }],
+          returnDatePrices: [{ date: "2026-05-15", price: 210 }],
+          cheapestOverall: null,
+          cheapestRoundTrip: null,
+          cheapestTwoOneWays: null,
+          cheapestNonstop: null,
+          cheapestMultiStop: null,
+          evaluatedDatePairs: [
+            {
+              departureDate: "2026-05-08",
+              returnDate: "2026-05-15"
+            }
+          ],
+          inspectedOptions: 4
+        }
+      }
+    };
+    const progressUpdates: SearchJobStatus["progress"][] = [];
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ jobId: "failed-job" }, 202))
+      .mockResolvedValueOnce(createJsonResponse(failedJob, 200));
+
+    globalThis.fetch = fetchMock;
+
+    const response = await runFlightSearch(request, {
+      onProgress(progress) {
+        progressUpdates.push(progress);
+      }
+    });
+
+    expect(response).toEqual({
+      ok: false,
+      error:
+        "Google Flights temporarily rate limited this search. Wait a minute and try again."
+    });
+    expect(progressUpdates).toHaveLength(1);
+    expect(progressUpdates[0]?.previewSummary?.departureDatePrices).toEqual([
+      { date: "2026-05-08", price: 220 }
+    ]);
+    expect(progressUpdates[0]?.previewSummary?.evaluatedDatePairs).toEqual([
+      {
+        departureDate: "2026-05-08",
+        returnDate: "2026-05-15"
+      }
+    ]);
+  });
 });
 
 describe("fetchNearestAirport", () => {

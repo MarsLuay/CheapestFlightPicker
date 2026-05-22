@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildGoogleFlightsSearchUrlForDatePrice,
   buildGoogleFlightsSearchLinksForRequest,
   buildGoogleFlightsSearchLinks,
   buildGoogleFlightsSearchUrl,
@@ -603,5 +604,61 @@ describe("google flight link builder", () => {
 
     expect(links).toHaveLength(1);
     expect(links[0]?.label).toBe("Open on Google Flights");
+  });
+
+  it("builds outbound links for individual departure date findings", () => {
+    const request = buildRequest({
+      departureDateFrom: "2026-05-12",
+      departureDateTo: "2026-05-20"
+    });
+
+    const href = buildGoogleFlightsSearchUrlForDatePrice(
+      request,
+      "2026-05-18",
+      "departure"
+    );
+    const url = new URL(href ?? "");
+    const fields = decodeMessage(
+      decodeBase64Url(url.searchParams.get("tfs") ?? "")
+    );
+    const segments = fields
+      .filter((field) => field.field === 3)
+      .map((field) => decodeSegment(field.value as Uint8Array));
+
+    expect(Number(fields.find((field) => field.field === 19)?.value ?? 0n)).toBe(2);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      date: "2026-05-18",
+      fromAirport: { code: "SEA", type: 1 },
+      toAirport: { code: "PIT", type: 1 }
+    });
+  });
+
+  it("builds inbound links for individual return date findings", () => {
+    const request = buildRequest({
+      returnDateFrom: "2026-05-19",
+      returnDateTo: "2026-05-27"
+    });
+
+    const href = buildGoogleFlightsSearchUrlForDatePrice(
+      request,
+      "2026-05-24",
+      "return"
+    );
+    const url = new URL(href ?? "");
+    const fields = decodeMessage(
+      decodeBase64Url(url.searchParams.get("tfs") ?? "")
+    );
+    const segments = fields
+      .filter((field) => field.field === 3)
+      .map((field) => decodeSegment(field.value as Uint8Array));
+
+    expect(Number(fields.find((field) => field.field === 19)?.value ?? 0n)).toBe(2);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      date: "2026-05-24",
+      fromAirport: { code: "PIT", type: 1 },
+      toAirport: { code: "SEA", type: 1 }
+    });
   });
 });

@@ -61,6 +61,7 @@ const defaultDateRangeSpanDays = 14;
 const fallbackOriginAirport = "SEA";
 const hostedSearchUnavailableMessage =
   "Won't work on the website :) I'm too broke to buy an API key to fix that, but if you run setup-and-launch.bat anywhere on your computer it will work properly!";
+const rateLimitResumeDelayMs = 1000 * 60;
 
 type OriginDetectionStatus =
   | "saved_preference_loaded"
@@ -87,6 +88,14 @@ type InitialFormState = {
   originDetection: OriginDetectionState;
   request: SearchRequest;
   useExactDates: boolean;
+};
+
+type ResumeSearchState = {
+  availableAt: number;
+  error: string;
+  previewSummary: SearchSummary | null;
+  progress: SearchProgress | null;
+  request: SearchRequest;
 };
 
 function createDefaultSearchDates(
@@ -342,6 +351,10 @@ function hasMeaningfulSummary(summary: SearchSummary | null): boolean {
   );
 }
 
+function isRateLimitSearchError(message: string): boolean {
+  return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);
+}
+
 function selectInputValueOnFocus(event: FocusEvent<HTMLInputElement>) {
   const input = event.currentTarget;
   window.requestAnimationFrame(() => {
@@ -450,6 +463,9 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasCompletedSearch, setHasCompletedSearch] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
+  const [resumeSearchState, setResumeSearchState] =
+    useState<ResumeSearchState | null>(null);
+  const [resumeNow, setResumeNow] = useState(() => Date.now());
   const [useExactDates, setUseExactDates] = useState(initialFormState.useExactDates);
   const [minimumTripDaysInput, setMinimumTripDaysInput] = useState(
     String(initialFormState.request.minimumTripDays ?? 0)
@@ -465,6 +481,21 @@ export default function App() {
   const mainSearchRunIdRef = useRef(0);
   const upgradeSearchAbortControllerRef = useRef<AbortController | null>(null);
   const upgradeSearchRunIdRef = useRef(0);
+
+  useEffect(() => {
+    if (!resumeSearchState || isSearching) {
+      return;
+    }
+
+    setResumeNow(Date.now());
+    const interval = window.setInterval(() => {
+      setResumeNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isSearching, resumeSearchState]);
 
   function persistSavedSearchPreferences(
     nextRequest: SearchRequest,
@@ -828,12 +859,15 @@ export default function App() {
     };
   }, [summary, upgradeSearchRequest]);
 
-  async function handleSearch(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    const submittedRequest = {
-      ...requestRef.current,
-      useExactDates
-    };
+  async function startMainSearch(
+    submittedRequest: SearchRequest,
+    options?: {
+      initialPreviewSummary?: SearchSummary | null;
+      initialProgress?: SearchProgress | null;
+      preservePreview?: boolean;
+      resume?: boolean;
+    }
+  ) {
     const validationError = hostedApiMode
       ? null
       : getSearchValidationError(submittedRequest);
@@ -853,29 +887,52 @@ export default function App() {
     setUpgradeSearchRequest(null);
     setError("");
     setSummary(null);
-    setLivePreviewSummary(null);
     setSearchProgress(null);
-    setHasCompletedSearch(false);
     setIsSearching(false);
 
     if (hostedApiMode) {
+      setLivePreviewSummary(null);
+      setHasCompletedSearch(false);
+      setResumeSearchState(null);
       setError(hostedSearchUnavailableMessage);
       return;
     }
 
     const controller = new AbortController();
     const runId = ++mainSearchRunIdRef.current;
+    const preservedPreviewSummary =
+      options?.preservePreview && options.initialPreviewSummary
+        ? options.initialPreviewSummary
+        : options?.preservePreview
+          ? livePreviewSummary
+          : null;
+    let latestPreviewSummary =
+      preservedPreviewSummary ?? createLivePreviewSummary(submittedRequest);
+    let latestProgress: SearchProgress | null = options?.initialProgress ?? null;
+    let shouldShowCompletedResults = hasMeaningfulSummary(latestPreviewSummary);
+    const initialSearchProgress: SearchProgress =
+      options?.resume && latestProgress
+        ? {
+            ...latestProgress,
+            stage: "Resuming search",
+            detail:
+              "Restarting the same search after the Google Flights cooldown while keeping the partial results below.",
+            percent: Math.min(latestProgress.percent, 99)
+          }
+        : {
+            stage: "Preparing search",
+            detail: "Submitting your search request",
+            completedSteps: 0,
+            totalSteps: 1,
+            percent: 0
+          };
 
     mainSearchAbortControllerRef.current = controller;
+    setResumeSearchState(null);
     setIsSearching(true);
-    setLivePreviewSummary(createLivePreviewSummary(submittedRequest));
-    setSearchProgress({
-      stage: "Preparing search",
-      detail: "Submitting your search request",
-      completedSteps: 0,
-      totalSteps: 1,
-      percent: 0
-    });
+    setLivePreviewSummary(latestPreviewSummary);
+    setHasCompletedSearch(shouldShowCompletedResults);
+    setSearchProgress(initialSearchProgress);
 
     try {
       const response = await runFlightSearch(submittedRequest, {
@@ -884,11 +941,15 @@ export default function App() {
             return;
           }
 
+          latestProgress = progress;
+          latestPreviewSummary = createLivePreviewSummary(
+            submittedRequest,
+            progress.previewSummary
+          );
+          shouldShowCompletedResults = hasMeaningfulSummary(latestPreviewSummary);
           setSearchProgress(progress);
           startTransition(() => {
-            setLivePreviewSummary(
-              createLivePreviewSummary(submittedRequest, progress.previewSummary)
-            );
+            setLivePreviewSummary(latestPreviewSummary);
           });
         },
         signal: controller.signal
@@ -898,15 +959,32 @@ export default function App() {
       }
 
       if (!response.ok) {
+        const shouldOfferResume = isRateLimitSearchError(response.error);
+        const shouldPreservePreview = hasMeaningfulSummary(latestPreviewSummary);
+
         setError(response.error);
         setSummary(null);
-        setLivePreviewSummary(null);
+        setLivePreviewSummary(shouldPreservePreview ? latestPreviewSummary : null);
+        setResumeSearchState(
+          shouldOfferResume
+            ? {
+                availableAt: Date.now() + rateLimitResumeDelayMs,
+                error: response.error,
+                previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
+                progress: latestProgress,
+                request: submittedRequest
+              }
+            : null
+        );
+        shouldShowCompletedResults = shouldPreservePreview;
         return;
       }
 
+      shouldShowCompletedResults = true;
       startTransition(() => {
         setSummary(response.summary);
         setLivePreviewSummary(null);
+        setResumeSearchState(null);
         setUpgradeFareBox(
           hostedApiMode
             ? null
@@ -923,13 +1001,28 @@ export default function App() {
         return;
       }
 
-      setError(
+      const message =
         caughtError instanceof Error
           ? caughtError.message
-          : "Search failed unexpectedly"
-      );
+          : "Search failed unexpectedly";
+      const shouldOfferResume = isRateLimitSearchError(message);
+      const shouldPreservePreview = hasMeaningfulSummary(latestPreviewSummary);
+
+      setError(message);
       setSummary(null);
-      setLivePreviewSummary(null);
+      setLivePreviewSummary(shouldPreservePreview ? latestPreviewSummary : null);
+      setResumeSearchState(
+        shouldOfferResume
+          ? {
+              availableAt: Date.now() + rateLimitResumeDelayMs,
+              error: message,
+              previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
+              progress: latestProgress,
+              request: submittedRequest
+            }
+          : null
+      );
+      shouldShowCompletedResults = shouldPreservePreview;
     } finally {
       if (mainSearchRunIdRef.current !== runId) {
         return;
@@ -939,12 +1032,39 @@ export default function App() {
         mainSearchAbortControllerRef.current = null;
       }
       setIsSearching(false);
-      setHasCompletedSearch(true);
+      setHasCompletedSearch(shouldShowCompletedResults);
       setSearchProgress(null);
     }
   }
 
+  async function handleSearch(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    await startMainSearch({
+      ...requestRef.current,
+      useExactDates
+    });
+  }
+
+  function handleResumeSearch() {
+    if (!resumeSearchState || Date.now() < resumeSearchState.availableAt) {
+      return;
+    }
+
+    void startMainSearch(resumeSearchState.request, {
+      initialPreviewSummary: resumeSearchState.previewSummary,
+      initialProgress: resumeSearchState.progress,
+      preservePreview: true,
+      resume: true
+    });
+  }
+
   const displayedSummary = summary ?? livePreviewSummary;
+  const resumeCooldownSeconds = resumeSearchState
+    ? Math.max(0, Math.ceil((resumeSearchState.availableAt - resumeNow) / 1000))
+    : 0;
+  const canResumeSearch = Boolean(
+    resumeSearchState && !isSearching && resumeCooldownSeconds === 0
+  );
   const todayDateInput = getTodayDateInput();
   const minimumDepartureDateTo =
     getLaterDateInput(request.departureDateFrom, todayDateInput) ??
@@ -1547,7 +1667,30 @@ export default function App() {
               </div>
             ) : null}
 
-            {error ? <p className="error-banner">{error}</p> : null}
+            {error ? (
+              <div className="error-banner">
+                <p>{error}</p>
+                {resumeSearchState ? (
+                  <div className="resume-search">
+                    <p>
+                      {hasMeaningfulSummary(resumeSearchState.previewSummary)
+                        ? "Partial results are still shown below. Resume this same search after the Google Flights cooldown."
+                        : "Resume this same search after the Google Flights cooldown."}
+                    </p>
+                    <button
+                      className="secondary-action secondary-action--compact"
+                      type="button"
+                      disabled={!canResumeSearch}
+                      onClick={handleResumeSearch}
+                    >
+                      {canResumeSearch
+                        ? "Resume search"
+                        : `Resume in ${resumeCooldownSeconds}s`}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </form>
         </section>
 

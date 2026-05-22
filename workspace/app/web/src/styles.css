@@ -842,8 +842,32 @@ select {
   border: 1px solid rgba(255, 142, 130, 0.3);
   border-radius: 16px;
   color: #ffd0c9;
+  display: grid;
+  gap: 12px;
   margin-top: 20px;
   padding: 14px 16px;
+}
+
+.error-banner p {
+  margin: 0;
+}
+
+.resume-search {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.resume-search p {
+  color: rgba(255, 246, 234, 0.76);
+}
+
+.secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
 }
 
 .results-shell {
@@ -1001,11 +1025,29 @@ select {
   background: rgba(246, 221, 187, 0.08);
   border: 1px solid rgba(246, 221, 187, 0.1);
   border-radius: 18px;
+  color: inherit;
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 160px;
   padding: 14px 16px;
+  text-decoration: none;
+}
+
+.price-pill--link {
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.price-pill--link:hover,
+.price-pill--link:focus-visible {
+  background: rgba(241, 190, 132, 0.12);
+  border-color: rgba(241, 190, 132, 0.3);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .result-grid {
