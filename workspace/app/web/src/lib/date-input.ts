@@ -10,6 +10,25 @@ export function formatDateForInput(date: Date): string {
   )}`;
 }
 
+export function clampDateInputToMinimum(value: string, minimumDate: string): string {
+  return value < minimumDate ? minimumDate : value;
+}
+
+export function getLaterDateInput(
+  firstDate: string | undefined,
+  secondDate: string | undefined
+): string | undefined {
+  if (!firstDate) {
+    return secondDate;
+  }
+
+  if (!secondDate) {
+    return firstDate;
+  }
+
+  return firstDate > secondDate ? firstDate : secondDate;
+}
+
 export function addDaysToLocalDate(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   addDaysToLocalDate,
+  clampDateInputToMinimum,
   differenceInCalendarDays,
   formatDateForInput,
+  getLaterDateInput,
   shiftDateInput
 } from "./date-input";
 
@@ -29,5 +31,24 @@ describe("date input helpers", () => {
   it("measures the difference between calendar-date input strings", () => {
     expect(differenceInCalendarDays("2026-05-08", "2026-05-15")).toBe(7);
     expect(differenceInCalendarDays("2026-05-15", "2026-05-08")).toBe(-7);
+  });
+
+  it("clamps date input strings to a minimum selectable date", () => {
+    expect(clampDateInputToMinimum("2026-05-09", "2026-05-10")).toBe(
+      "2026-05-10"
+    );
+    expect(clampDateInputToMinimum("2026-05-10", "2026-05-10")).toBe(
+      "2026-05-10"
+    );
+    expect(clampDateInputToMinimum("2026-05-11", "2026-05-10")).toBe(
+      "2026-05-11"
+    );
+  });
+
+  it("returns the later defined date input string", () => {
+    expect(getLaterDateInput("2026-05-09", "2026-05-10")).toBe("2026-05-10");
+    expect(getLaterDateInput("2026-05-11", "2026-05-10")).toBe("2026-05-11");
+    expect(getLaterDateInput(undefined, "2026-05-10")).toBe("2026-05-10");
+    expect(getLaterDateInput("2026-05-10", undefined)).toBe("2026-05-10");
   });
 });

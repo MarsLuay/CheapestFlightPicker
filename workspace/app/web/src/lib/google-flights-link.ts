@@ -7,6 +7,8 @@ export type GoogleFlightsSearchLink = {
   description?: string;
 };
 
+export type DatePriceSearchDirection = "departure" | "return";
+
 type EncodedSegment = {
   airlines: string[];
   arrivalTimeWindow?: TimeWindow;
@@ -616,6 +618,33 @@ export function buildGoogleFlightsSearchLinks(
         }
       ]
     : [];
+}
+
+export function buildGoogleFlightsSearchUrlForDatePrice(
+  request: SearchRequest,
+  date: string,
+  direction: DatePriceSearchDirection
+): string | null {
+  const dateRequest: SearchRequest = {
+    ...request,
+    tripType: "one_way",
+    origin: direction === "return" ? request.destination : request.origin,
+    destination: direction === "return" ? request.origin : request.destination,
+    departureDateFrom: date,
+    departureDateTo: date,
+    returnDateFrom: undefined,
+    returnDateTo: undefined,
+    useExactDates: undefined,
+    minimumTripDays: undefined,
+    maximumTripDays: undefined
+  };
+
+  return buildGoogleFlightsSearchUrl(
+    buildRequestSearchOption(dateRequest, {
+      departureDate: date
+    }),
+    dateRequest
+  );
 }
 
 export function buildGoogleFlightsSearchLinksForRequest(

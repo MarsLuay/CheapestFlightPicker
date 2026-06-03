@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
+RUNNER="$SCRIPT_DIR/../Resources/setup-and-launch.sh"
+
+case "$(uname -s)" in
+  Darwin*)
+    if command -v osascript >/dev/null 2>&1; then
+      osascript - "$RUNNER" <<'APPLESCRIPT'
+on run argv
+  set runnerPath to item 1 of argv
+  tell application "Terminal"
+    activate
+    do script "chmod +x " & quoted form of runnerPath & " && " & quoted form of runnerPath
+  end tell
+end run
+APPLESCRIPT
+      exit 0
+    fi
+    ;;
+esac
+
+chmod +x "$RUNNER"
+exec "$RUNNER"

@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 
-import { buildGoogleFlightsSearchLinks } from "../lib/google-flights-link";
+import {
+  buildGoogleFlightsSearchLinks,
+  buildGoogleFlightsSearchUrlForDatePrice,
+  type DatePriceSearchDirection
+} from "../lib/google-flights-link";
 import type {
   BookingSourceType,
   DatePrice,
@@ -174,12 +178,16 @@ function SearchProgressBlock({
 
 function PriceStrip({
   dates,
+  direction,
   label,
-  emptyMessage
+  emptyMessage,
+  request
 }: {
   dates: DatePrice[];
+  direction: DatePriceSearchDirection;
   label: string;
   emptyMessage: string;
+  request: SearchRequest;
 }) {
   if (dates.length === 0) {
     return <ResultPlaceholderCard message={emptyMessage} title={label} />;
@@ -191,12 +199,39 @@ function PriceStrip({
         <h3>{label}</h3>
       </header>
       <div className="pill-row">
-        {dates.slice(0, 12).map((entry) => (
-          <div className="price-pill" key={`${label}-${entry.date}`}>
-            <strong>{formatDate(entry.date)}</strong>
-            <span>{formatPrice(entry.price, "USD")}</span>
-          </div>
-        ))}
+        {dates.slice(0, 12).map((entry) => {
+          const href = buildGoogleFlightsSearchUrlForDatePrice(
+            request,
+            entry.date,
+            direction
+          );
+          const content = (
+            <>
+              <strong>{formatDate(entry.date)}</strong>
+              <span>{formatPrice(entry.price, "USD")}</span>
+            </>
+          );
+
+          return href ? (
+            <a
+              aria-label={`${label}: ${formatDate(entry.date)} for ${formatPrice(
+                entry.price,
+                "USD"
+              )}. Open on Google Flights.`}
+              className="price-pill price-pill--link"
+              href={href}
+              key={`${label}-${entry.date}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {content}
+            </a>
+          ) : (
+            <div className="price-pill" key={`${label}-${entry.date}`}>
+              {content}
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -583,15 +618,18 @@ export function ResultsView({
         <div className="results-disclosure__content">
           <PriceStrip
             dates={summary.departureDatePrices}
+            direction="departure"
             emptyMessage={
               isSearching
                 ? "Still ranking departure dates as live fares keep coming in."
                 : "No standout departure dates surfaced from this run."
             }
             label="Best departure dates"
+            request={summary.request}
           />
           <PriceStrip
             dates={summary.returnDatePrices}
+            direction="return"
             emptyMessage={
               summary.request.tripType === "round_trip" && isSearching
                 ? "Still ranking return dates while the tool compares date pairs."
@@ -600,6 +638,7 @@ export function ResultsView({
                 : "Return dates only apply when you're searching round-trip."
             }
             label="Best return dates"
+            request={summary.request}
           />
           <TimingGuidanceCard
             guidance={summary.timingGuidance}

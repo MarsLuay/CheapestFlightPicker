@@ -26,6 +26,8 @@ The root of this repo is intentionally pretty clean to let even your grandma run
 
 ## Easiest way to run it
 
+If you only download one launcher file, it will download the rest of the repo into a `CheapestFlightPicker` folder in the same directory before launching the app.
+
 ### Windows
 
 Run the file:
@@ -36,78 +38,29 @@ setup-and-launch.bat
 
 ### Linux
 
-Open Terminal and run:
+For a desktop launcher, open Terminal and run:
 
 ```bash
-chmod +x setup-and-launch.sh
-./setup-and-launch.sh
+chmod +x setup-and-launch.desktop
+```
+
+Then open or trust `setup-and-launch.desktop` from your file manager.
+
+Or run the launcher script directly from Terminal:
+
+```bash
+chmod +x setup-and-launch.app/Contents/MacOS/setup-and-launch
+./setup-and-launch.app/Contents/MacOS/setup-and-launch
 ```
 
 ### macOS
 
-Open Terminal and run:
+Open the app bundle from Finder, or run this from Terminal:
 
 ```bash
-chmod +x setup-and-launch.sh
-./setup-and-launch.sh
+chmod +x setup-and-launch.app/Contents/MacOS/setup-and-launch
+open setup-and-launch.app
 ```
-
-## Vercel
-
-This repo is also set up for a hosted deployment where both the clickable site
-and the API run together.
-
-Live deployment:
-
-`https://cheapest-flight-picker.vercel.app`
-
-Use these settings when you import the repo into Vercel:
-
-- Root Directory: `workspace/app`
-- Framework Preset: `Express`
-- Build Command: picked up from `workspace/app/vercel.json`
-
-What this setup does:
-
-- builds the React app into `workspace/app/public`
-- deploys the Express backend through `workspace/app/server.js`, which loads the
-  bundled server output from `dist/server/index.js`
-- includes the airport and airline data files plus the built frontend in the
-  function bundle
-
-Important:
-
-- local searches can still use Google Flights directly
-- hosted searches should not use Google Flights from Vercel because Google
-  rate-limits serverless/data-center traffic
-- hosted Vercel searches are meant to use Amadeus instead
-
-Add these Vercel project environment variables before expecting hosted search to
-work:
-
-- `AMADEUS_CLIENT_ID`
-- `AMADEUS_CLIENT_SECRET`
-- optional: `AMADEUS_BASE_URL`
-- optional: `SEARCH_PROVIDER=amadeus`
-
-Without those env vars, the hosted site will fail fast with a clear
-configuration error instead of repeatedly hitting Google Flights and getting
-rate-limited.
-
-Hosted-mode tradeoffs:
-
-- this is the reliable way to make Vercel-hosted search work
-- Amadeus results are not identical to Google Flights results
-- according to the Amadeus Flight Offers Search docs, low-cost carriers plus
-  American Airlines, Delta, and British Airways are unavailable in their
-  self-service results
-
-This repo also includes `.github/workflows/vercel.yml`, which deploys
-`workspace/app` to Vercel from GitHub pushes:
-
-- pushes to `main` create a production deployment
-- pushes to any other branch create a preview deployment
-
 
 ## Background
 

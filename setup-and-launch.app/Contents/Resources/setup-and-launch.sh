@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LAUNCHER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$SCRIPT_DIR" in
+  */*.app/Contents/MacOS | */*.app/Contents/Resources)
+    LAUNCHER_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+    ;;
+  *)
+    LAUNCHER_DIR="$SCRIPT_DIR"
+    ;;
+esac
 REPO_URL="https://github.com/MarsLuay/CheapestFlightPicker.git"
 REPO_DIR="$LAUNCHER_DIR"
 STANDALONE_REPO_DIR="$LAUNCHER_DIR/CheapestFlightPicker"
@@ -11,6 +19,53 @@ APP_START_MODE="existing"
 APP_LOG_DIR=""
 APP_LOG_FILE=""
 APP_PID_FILE=""
+
+add_common_tool_paths() {
+  local candidate
+
+  for candidate in \
+    /opt/homebrew/bin \
+    /opt/homebrew/sbin \
+    /usr/local/bin \
+    /usr/local/sbin; do
+    if [[ -d "$candidate" ]]; then
+      PATH="$candidate:$PATH"
+    fi
+  done
+}
+
+activate_homebrew() {
+  local brew_path
+
+  for brew_path in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [[ -x "$brew_path" ]]; then
+      eval "$("$brew_path" shellenv)"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+install_homebrew() {
+  case "$(uname -s)" in
+    Darwin*) ;;
+    *) return 1 ;;
+  esac
+
+  if command -v brew >/dev/null 2>&1 || activate_homebrew; then
+    return 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "Homebrew was not found, and curl is required to install it automatically."
+    return 1
+  fi
+
+  echo "Homebrew was not found. Installing Homebrew..."
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  activate_homebrew
+}
 
 run_with_optional_sudo() {
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
@@ -23,7 +78,9 @@ run_with_optional_sudo() {
 }
 
 install_toolchain() {
-  if command -v brew >/dev/null 2>&1; then
+  add_common_tool_paths
+
+  if command -v brew >/dev/null 2>&1 || activate_homebrew || install_homebrew; then
     echo "Installing missing packages with Homebrew..."
     brew install git node
     return
@@ -73,6 +130,8 @@ install_toolchain() {
 ensure_command() {
   local command_name="$1"
   local display_name="$2"
+
+  add_common_tool_paths
 
   if command -v "$command_name" >/dev/null 2>&1; then
     return
