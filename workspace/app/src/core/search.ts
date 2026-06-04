@@ -1,4 +1,5 @@
 import { BookingSourceSupplementService } from "./booking-source-supplement";
+import { stableSerialize } from "./cache";
 import { findAirlineByCode, findAirportByCode } from "./catalog";
 import {
   createFlightSearchProvider,
@@ -21,6 +22,9 @@ import type {
   SearchProgress,
   SearchProgressPreview,
   SearchRequest,
+  SearchResumeCheckpoint,
+  SearchResumeOneWayResult,
+  SearchResumeRoundTripResult,
   SearchSummary
 } from "../shared/types";
 
@@ -49,6 +53,11 @@ function addDaysToIsoDate(date: string, days: number): string {
 
 type SearchProgressReporter = (progress: SearchProgress) => void;
 
+type SearchRunOptions = {
+  checkpointReporter?: (checkpoint: SearchResumeCheckpoint) => void;
+  resumeCheckpoint?: SearchResumeCheckpoint | null;
+};
+
 function toPreviewSummary(
   summary: Pick<
     SearchSummary,
@@ -74,6 +83,104 @@ function toPreviewSummary(
     evaluatedDatePairs: summary.evaluatedDatePairs,
     inspectedOptions: summary.inspectedOptions
   };
+}
+
+function pairKey(pair: CandidatePair): string {
+  return `${pair.departureDate}:${pair.returnDate ?? ""}`;
+}
+
+function searchRequestsMatch(left: SearchRequest, right: SearchRequest): boolean {
+  return stableSerialize(left) === stableSerialize(right);
+}
+
+function getUsableResumeCheckpoint(
+  checkpoint: SearchResumeCheckpoint | null | undefined,
+  request: SearchRequest,
+  tripType: SearchRequest["tripType"]
+): SearchResumeCheckpoint | null {
+  if (
+    !checkpoint ||
+    checkpoint.version !== 1 ||
+    checkpoint.request.tripType !== tripType ||
+    !searchRequestsMatch(checkpoint.request, request)
+  ) {
+    return null;
+  }
+
+  return checkpoint;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural;
+}
+
+function buildOneWayCheckpointPreview(
+  checkpoint: SearchResumeCheckpoint
+): SearchProgressPreview | null {
+  const oneWayResults = checkpoint.oneWayResults ?? [];
+  if (checkpoint.departureDatePrices.length === 0 && oneWayResults.length === 0) {
+    return null;
+  }
+
+  const options = oneWayResults.flatMap((result) => result.options);
+
+  return toPreviewSummary({
+    departureDatePrices: checkpoint.departureDatePrices,
+    returnDatePrices: [],
+    cheapestOverall: findCheapest(options),
+    cheapestRoundTrip: null,
+    cheapestTwoOneWays: null,
+    cheapestNonstop: findCheapestNonstop(options),
+    cheapestMultiStop: findCheapestMultiStop(options),
+    evaluatedDatePairs: oneWayResults.map((result) => ({
+      departureDate: result.departureDate
+    })),
+    inspectedOptions: options.length
+  });
+}
+
+function buildRoundTripCheckpointPreview(
+  checkpoint: SearchResumeCheckpoint
+): SearchProgressPreview | null {
+  const roundTripResults = checkpoint.roundTripResults ?? [];
+  if (
+    checkpoint.departureDatePrices.length === 0 &&
+    checkpoint.returnDatePrices.length === 0 &&
+    roundTripResults.length === 0
+  ) {
+    return null;
+  }
+
+  const roundTripOptions = roundTripResults
+    .map((result) => result.cheapestRoundTrip)
+    .filter((entry): entry is FlightOption => entry !== null);
+  const twoOneWayOptions = roundTripResults
+    .map((result) => result.cheapestTwoOneWays)
+    .filter((entry): entry is FlightOption => entry !== null);
+  const nonstopOptions = roundTripResults
+    .map((result) => result.cheapestNonstop)
+    .filter((entry): entry is FlightOption => entry !== null);
+
+  return toPreviewSummary({
+    departureDatePrices: checkpoint.departureDatePrices,
+    returnDatePrices: checkpoint.returnDatePrices,
+    cheapestOverall: findCheapest([...roundTripOptions, ...twoOneWayOptions]),
+    cheapestRoundTrip: findCheapest(roundTripOptions),
+    cheapestTwoOneWays: findCheapest(twoOneWayOptions),
+    cheapestNonstop: findCheapest(nonstopOptions),
+    cheapestMultiStop: findCheapestMultiStop([
+      ...roundTripOptions,
+      ...twoOneWayOptions
+    ]),
+    evaluatedDatePairs: roundTripResults.map((result) => ({
+      departureDate: result.departureDate,
+      returnDate: result.returnDate
+    })),
+    inspectedOptions: roundTripResults.reduce(
+      (total, result) => total + result.inspectedOptions,
+      0
+    )
+  });
 }
 
 function sortDatePricesByPrice(datePrices: DatePrice[]): DatePrice[] {
@@ -145,9 +252,26 @@ class ProgressTracker {
 
   constructor(
     private totalSteps: number,
-    private readonly reporter?: SearchProgressReporter
+    private readonly reporter?: SearchProgressReporter,
+    initialState?: {
+      completedSteps?: number;
+      detail?: string;
+      previewCheapestOverall?: FlightOption | null;
+      previewInspectedOptions?: number;
+      previewSummary?: SearchProgressPreview | null;
+      stage?: string;
+    }
   ) {
     this.totalSteps = Math.max(1, totalSteps);
+    this.completedSteps = Math.max(
+      0,
+      Math.min(initialState?.completedSteps ?? 0, this.totalSteps)
+    );
+    this.currentStage = initialState?.stage ?? this.currentStage;
+    this.currentDetail = initialState?.detail;
+    this.previewCheapestOverall = initialState?.previewCheapestOverall;
+    this.previewInspectedOptions = initialState?.previewInspectedOptions;
+    this.previewSummary = initialState?.previewSummary;
     this.emit();
   }
 
@@ -167,6 +291,13 @@ class ProgressTracker {
 
   completeStep(stage: string, detail?: string): void {
     this.completedSteps = Math.min(this.completedSteps + 1, this.totalSteps);
+    this.currentStage = stage;
+    this.currentDetail = detail;
+    this.emit();
+  }
+
+  setCompletedSteps(completedSteps: number, stage: string, detail?: string): void {
+    this.completedSteps = Math.max(0, Math.min(completedSteps, this.totalSteps));
     this.currentStage = stage;
     this.currentDetail = detail;
     this.emit();
@@ -475,42 +606,113 @@ export class FlightSearchService {
 
   async search(
     input: unknown,
-    progressReporter?: SearchProgressReporter
+    progressReporter?: SearchProgressReporter,
+    options?: SearchRunOptions
   ): Promise<SearchSummary> {
     const request = searchRequestSchema.parse(input);
     this.ensureReferenceDataExists(request);
 
     if (request.tripType === "one_way") {
-      return this.searchOneWay(request, progressReporter);
+      return this.searchOneWay(request, progressReporter, options);
     }
 
-    return this.searchRoundTrip(request, progressReporter);
+    return this.searchRoundTrip(request, progressReporter, options);
   }
 
   private async searchOneWay(
     request: SearchRequest,
-    progressReporter?: SearchProgressReporter
+    progressReporter?: SearchProgressReporter,
+    options?: SearchRunOptions
   ): Promise<SearchSummary> {
     const candidateDepth = Math.max(request.maxResults, 5);
-    const tracker = new ProgressTracker(2 + candidateDepth, progressReporter);
+    const resumeCheckpoint = getUsableResumeCheckpoint(
+      options?.resumeCheckpoint,
+      request,
+      "one_way"
+    );
+    const resumedDepartureDatePrices =
+      resumeCheckpoint && resumeCheckpoint.departureDatePrices.length > 0
+        ? sortDatePricesByPrice(resumeCheckpoint.departureDatePrices)
+        : null;
+    const resumedResultByDate = new Map(
+      (resumeCheckpoint?.oneWayResults ?? []).map((result) => [
+        result.departureDate,
+        result
+      ] as const)
+    );
+    const resumedCandidateDates =
+      resumedDepartureDatePrices?.slice(0, candidateDepth) ?? [];
+    const initialCompletedLookups = resumedCandidateDates.filter((entry) =>
+      resumedResultByDate.has(entry.date)
+    ).length;
+    const resumePreview = resumeCheckpoint
+      ? buildOneWayCheckpointPreview(resumeCheckpoint)
+      : null;
+    const tracker = new ProgressTracker(
+      2 + (resumedDepartureDatePrices ? resumedCandidateDates.length : candidateDepth),
+      progressReporter,
+      resumeCheckpoint
+        ? {
+            completedSteps:
+              (resumedDepartureDatePrices ? 1 : 0) + initialCompletedLookups,
+            detail:
+              initialCompletedLookups > 0
+                ? `Skipping ${initialCompletedLookups} already checked ${pluralize(
+                    initialCompletedLookups,
+                    "date"
+                  )}`
+                : "Loading saved search progress",
+            previewCheapestOverall: resumePreview?.cheapestOverall ?? undefined,
+            previewInspectedOptions: resumePreview?.inspectedOptions,
+            previewSummary: resumePreview,
+            stage: "Resuming search"
+          }
+        : undefined
+    );
 
-    tracker.setStage(
-      "Scanning departure date range",
-      "Looking for the cheapest outbound dates"
-    );
-    const departureDatePrices = sortDatePricesByPrice(
-      await this.provider.searchOneWayWithinWindow(
+    let departureDatePrices: DatePrice[];
+    const completedResults: SearchResumeOneWayResult[] = [];
+
+    const reportCheckpoint = () => {
+      options?.checkpointReporter?.({
+        version: 1,
         request,
-        request.origin,
-        request.destination,
-        request.departureDateFrom,
-        request.departureDateTo
-      )
-    );
-    tracker.completeStep(
-      "Departure date range scanned",
-      `Found ${departureDatePrices.length} departure date candidates`
-    );
+        departureDatePrices,
+        returnDatePrices: [],
+        oneWayResults: [...completedResults]
+      });
+    };
+
+    if (resumedDepartureDatePrices) {
+      departureDatePrices = resumedDepartureDatePrices;
+      tracker.setStage(
+        "Resuming search",
+        `Reusing ${departureDatePrices.length} departure date ${pluralize(
+          departureDatePrices.length,
+          "candidate"
+        )} from the interrupted search`
+      );
+    } else {
+      tracker.setStage(
+        "Scanning departure date range",
+        "Looking for the cheapest outbound dates"
+      );
+      departureDatePrices = sortDatePricesByPrice(
+        await this.provider.searchOneWayWithinWindow(
+          request,
+          request.origin,
+          request.destination,
+          request.departureDateFrom,
+          request.departureDateTo
+        )
+      );
+      tracker.completeStep(
+        "Departure date range scanned",
+        `Found ${departureDatePrices.length} departure date candidates`
+      );
+      reportCheckpoint();
+    }
+
     tracker.setPreviewSummary(
       toPreviewSummary({
         departureDatePrices,
@@ -526,22 +728,70 @@ export class FlightSearchService {
       false
     );
 
-    const candidateDates = departureDatePrices.slice(
-      0,
-      candidateDepth
-    );
+    const candidateDates = departureDatePrices.slice(0, candidateDepth);
     tracker.setTotalSteps(
       2 + candidateDates.length,
       `Inspecting ${candidateDates.length} exact flight searches`
     );
 
-    let completedLookups = 0;
+    const optionsByDate: FlightOption[][] = new Array(candidateDates.length);
     const previewOptions: FlightOption[] = [];
     const previewEvaluatedDatePairs: CandidatePair[] = [];
-    const optionsByDate = await mapWithConcurrency(
-      candidateDates,
+    let completedLookups = 0;
+
+    for (const [index, entry] of candidateDates.entries()) {
+      const resumedResult = resumedResultByDate.get(entry.date);
+      if (!resumedResult) {
+        continue;
+      }
+
+      optionsByDate[index] = resumedResult.options;
+      completedResults.push({
+        departureDate: resumedResult.departureDate,
+        options: resumedResult.options
+      });
+      previewOptions.push(...resumedResult.options);
+      previewEvaluatedDatePairs.push({
+        departureDate: entry.date
+      });
+      completedLookups += 1;
+    }
+
+    if (completedLookups > 0) {
+      const previewCheapestOverall = findCheapest(previewOptions);
+      tracker.setPreviewSummary(
+        toPreviewSummary({
+          departureDatePrices,
+          returnDatePrices: [],
+          cheapestOverall: previewCheapestOverall,
+          cheapestRoundTrip: null,
+          cheapestTwoOneWays: null,
+          cheapestNonstop: findCheapestNonstop(previewOptions),
+          cheapestMultiStop: findCheapestMultiStop(previewOptions),
+          evaluatedDatePairs: [...previewEvaluatedDatePairs],
+          inspectedOptions: previewOptions.length
+        }),
+        false
+      );
+      tracker.setPreviewCheapestOverall(
+        previewCheapestOverall,
+        completedLookups,
+        false
+      );
+      tracker.setCompletedSteps(
+        1 + completedLookups,
+        "Checking exact flight options",
+        `Resumed ${completedLookups} of ${candidateDates.length} exact fare lookups`
+      );
+    }
+    reportCheckpoint();
+
+    await mapWithConcurrency(
+      candidateDates
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => !resumedResultByDate.has(entry.date)),
       2,
-      async (entry) => {
+      async ({ entry, index }) => {
         const options = await this.provider.searchExactFlights({
           tripType: "one_way",
           origin: request.origin,
@@ -556,6 +806,7 @@ export class FlightSearchService {
           departureTimeWindow: request.departureTimeWindow ?? undefined,
           arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
         });
+        optionsByDate[index] = options;
         previewOptions.push(...options);
         previewEvaluatedDatePairs.push({
           departureDate: entry.date
@@ -585,15 +836,26 @@ export class FlightSearchService {
           "Checking exact flight options",
           `${completedLookups} of ${candidateDates.length} exact fare lookups finished`
         );
+        completedResults.push({
+          departureDate: entry.date,
+          options
+        });
+        reportCheckpoint();
         return options;
       }
     );
 
-    let options = optionsByDate.flat();
-    options = await this.refineOptionsForDirectBookingPreference(options, request);
-    const inspectedOptions = options.length;
-    options = sortFlightOptionsByPrice(options).slice(0, request.maxResults * 4);
-    let cheapestOverall = findCheapest(options);
+    let searchOptions = optionsByDate.flat();
+    searchOptions = await this.refineOptionsForDirectBookingPreference(
+      searchOptions,
+      request
+    );
+    const inspectedOptions = searchOptions.length;
+    searchOptions = sortFlightOptionsByPrice(searchOptions).slice(
+      0,
+      request.maxResults * 4
+    );
+    let cheapestOverall = findCheapest(searchOptions);
     if (cheapestOverall) {
       tracker.setStage(
         "Refreshing best fare",
@@ -603,14 +865,14 @@ export class FlightSearchService {
         request,
         cheapestOverall
       );
-      options = this.replaceMatchingOption(
-        options,
+      searchOptions = this.replaceMatchingOption(
+        searchOptions,
         cheapestOverall,
         repricedCheapestOverall
       );
-      cheapestOverall = findCheapest(options);
+      cheapestOverall = findCheapest(searchOptions);
     }
-    const cheapestNonstop = findCheapestNonstop(options);
+    const cheapestNonstop = findCheapestNonstop(searchOptions);
     tracker.setPreviewSummary(
       toPreviewSummary({
         departureDatePrices,
@@ -619,7 +881,7 @@ export class FlightSearchService {
         cheapestRoundTrip: null,
         cheapestTwoOneWays: null,
         cheapestNonstop,
-        cheapestMultiStop: findCheapestMultiStop(options),
+        cheapestMultiStop: findCheapestMultiStop(searchOptions),
         evaluatedDatePairs: candidateDates.map((entry) => ({
           departureDate: entry.date
         })),
@@ -641,7 +903,7 @@ export class FlightSearchService {
       cheapestRoundTrip: null,
       cheapestTwoOneWays: null,
       cheapestNonstop,
-      cheapestMultiStop: findCheapestMultiStop(options),
+      cheapestMultiStop: findCheapestMultiStop(searchOptions),
       evaluatedDatePairs: candidateDates.map((entry) => ({
         departureDate: entry.date
       })),
@@ -652,7 +914,7 @@ export class FlightSearchService {
     };
     const annotatedSummary = await this.timingGuidanceService.annotateSummary(
       summary,
-      options
+      searchOptions
     );
     const supplementedSummary =
       await this.bookingSourceSupplementService.supplementSummary(
@@ -674,31 +936,116 @@ export class FlightSearchService {
 
   private async searchRoundTrip(
     request: SearchRequest,
-    progressReporter?: SearchProgressReporter
+    progressReporter?: SearchProgressReporter,
+    options?: SearchRunOptions
   ): Promise<SearchSummary> {
     const targetPairCount = Math.max(request.maxResults * 2, 8);
+    const resumeCheckpoint = getUsableResumeCheckpoint(
+      options?.resumeCheckpoint,
+      request,
+      "round_trip"
+    );
+    const resumedDepartureDatePrices =
+      resumeCheckpoint && resumeCheckpoint.departureDatePrices.length > 0
+        ? sortDatePricesByPrice(resumeCheckpoint.departureDatePrices)
+        : null;
+    const resumedReturnDatePrices =
+      resumeCheckpoint && resumeCheckpoint.returnDatePrices.length > 0
+        ? sortDatePricesByPrice(resumeCheckpoint.returnDatePrices)
+        : null;
+    const resumedResultByPair = new Map(
+      (resumeCheckpoint?.roundTripResults ?? []).map((result) => [
+        pairKey(result),
+        result
+      ] as const)
+    );
+    const resumedCandidatePairs =
+      resumedDepartureDatePrices && resumedReturnDatePrices
+        ? this.buildCandidatePairs(
+            request,
+            resumedDepartureDatePrices,
+            resumedReturnDatePrices,
+            request.maxResults,
+            request.minimumTripDays ?? 0,
+            request.maximumTripDays ?? 14
+          )
+        : [];
+    const initialCompletedPairs = resumedCandidatePairs.filter((pair) =>
+      resumedResultByPair.has(pairKey(pair))
+    ).length;
+    const resumePreview = resumeCheckpoint
+      ? buildRoundTripCheckpointPreview(resumeCheckpoint)
+      : null;
     const tracker = new ProgressTracker(
-      3 + targetPairCount * 3,
-      progressReporter
+      3 +
+        (resumedDepartureDatePrices && resumedReturnDatePrices
+          ? resumedCandidatePairs.length * 3
+          : targetPairCount * 3),
+      progressReporter,
+      resumeCheckpoint
+        ? {
+            completedSteps:
+              (resumedDepartureDatePrices ? 1 : 0) +
+              (resumedReturnDatePrices ? 1 : 0) +
+              initialCompletedPairs * 3,
+            detail:
+              initialCompletedPairs > 0
+                ? `Skipping ${initialCompletedPairs} already checked date ${pluralize(
+                    initialCompletedPairs,
+                    "combination"
+                  )}`
+                : "Loading saved search progress",
+            previewCheapestOverall: resumePreview?.cheapestOverall ?? undefined,
+            previewInspectedOptions: resumePreview?.inspectedOptions,
+            previewSummary: resumePreview,
+            stage: "Resuming search"
+          }
+        : undefined
     );
 
-    tracker.setStage(
-      "Scanning departure date range",
-      "Looking for the cheapest outbound dates"
-    );
-    const departureDatePrices = sortDatePricesByPrice(
-      await this.provider.searchOneWayWithinWindow(
+    let departureDatePrices: DatePrice[];
+    let returnDatePrices: DatePrice[] = [];
+    const completedRoundTripResults: SearchResumeRoundTripResult[] = [];
+
+    const reportCheckpoint = () => {
+      options?.checkpointReporter?.({
+        version: 1,
         request,
-        request.origin,
-        request.destination,
-        request.departureDateFrom,
-        request.departureDateTo
-      )
-    );
-    tracker.completeStep(
-      "Departure date range scanned",
-      `Found ${departureDatePrices.length} departure date candidates`
-    );
+        departureDatePrices,
+        returnDatePrices,
+        roundTripResults: [...completedRoundTripResults]
+      });
+    };
+
+    if (resumedDepartureDatePrices) {
+      departureDatePrices = resumedDepartureDatePrices;
+      tracker.setStage(
+        "Resuming search",
+        `Reusing ${departureDatePrices.length} departure date ${pluralize(
+          departureDatePrices.length,
+          "candidate"
+        )} from the interrupted search`
+      );
+    } else {
+      tracker.setStage(
+        "Scanning departure date range",
+        "Looking for the cheapest outbound dates"
+      );
+      departureDatePrices = sortDatePricesByPrice(
+        await this.provider.searchOneWayWithinWindow(
+          request,
+          request.origin,
+          request.destination,
+          request.departureDateFrom,
+          request.departureDateTo
+        )
+      );
+      tracker.completeStep(
+        "Departure date range scanned",
+        `Found ${departureDatePrices.length} departure date candidates`
+      );
+      reportCheckpoint();
+    }
     tracker.setPreviewSummary(
       toPreviewSummary({
         departureDatePrices,
@@ -714,23 +1061,35 @@ export class FlightSearchService {
       false
     );
 
-    tracker.setStage(
-      "Scanning return date range",
-      "Looking for the cheapest inbound dates"
-    );
-    const returnDatePrices = sortDatePricesByPrice(
-      await this.provider.searchOneWayWithinWindow(
-        request,
-        request.destination,
-        request.origin,
-        request.returnDateFrom ?? request.departureDateFrom,
-        request.returnDateTo ?? request.departureDateTo
-      )
-    );
-    tracker.completeStep(
-      "Return date range scanned",
-      `Found ${returnDatePrices.length} return date candidates`
-    );
+    if (resumedReturnDatePrices) {
+      returnDatePrices = resumedReturnDatePrices;
+      tracker.setStage(
+        "Resuming search",
+        `Reusing ${returnDatePrices.length} return date ${pluralize(
+          returnDatePrices.length,
+          "candidate"
+        )} from the interrupted search`
+      );
+    } else {
+      tracker.setStage(
+        "Scanning return date range",
+        "Looking for the cheapest inbound dates"
+      );
+      returnDatePrices = sortDatePricesByPrice(
+        await this.provider.searchOneWayWithinWindow(
+          request,
+          request.destination,
+          request.origin,
+          request.returnDateFrom ?? request.departureDateFrom,
+          request.returnDateTo ?? request.departureDateTo
+        )
+      );
+      tracker.completeStep(
+        "Return date range scanned",
+        `Found ${returnDatePrices.length} return date candidates`
+      );
+      reportCheckpoint();
+    }
     tracker.setPreviewSummary(
       toPreviewSummary({
         departureDatePrices,
@@ -769,6 +1128,73 @@ export class FlightSearchService {
     const previewTwoOneWayOptions: FlightOption[] = [];
     const previewNonstopOptions: FlightOption[] = [];
     const previewEvaluatedDatePairs: CandidatePair[] = [];
+    const evaluatedByPair = new Map<string, SearchResumeRoundTripResult>();
+
+    function applyRoundTripResult(result: SearchResumeRoundTripResult): void {
+      evaluatedByPair.set(pairKey(result), result);
+      completedRoundTripResults.push(result);
+      if (result.cheapestRoundTrip) {
+        previewRoundTripOptions.push(result.cheapestRoundTrip);
+      }
+      if (result.cheapestTwoOneWays) {
+        previewTwoOneWayOptions.push(result.cheapestTwoOneWays);
+      }
+      if (result.cheapestNonstop) {
+        previewNonstopOptions.push(result.cheapestNonstop);
+      }
+      previewEvaluatedDatePairs.push({
+        departureDate: result.departureDate,
+        returnDate: result.returnDate
+      });
+      previewInspectedOptions += result.inspectedOptions;
+      completedPairEvaluations += 1;
+    }
+
+    for (const pair of candidatePairs) {
+      const resumedResult = resumedResultByPair.get(pairKey(pair));
+      if (!resumedResult) {
+        continue;
+      }
+
+      completedLookups += 3;
+      applyRoundTripResult(resumedResult);
+    }
+
+    if (completedPairEvaluations > 0) {
+      const previewCheapestOverall = findCheapest([
+        ...previewRoundTripOptions,
+        ...previewTwoOneWayOptions
+      ]);
+      tracker.setPreviewSummary(
+        toPreviewSummary({
+          departureDatePrices,
+          returnDatePrices,
+          cheapestOverall: previewCheapestOverall,
+          cheapestRoundTrip: findCheapest(previewRoundTripOptions),
+          cheapestTwoOneWays: findCheapest(previewTwoOneWayOptions),
+          cheapestNonstop: findCheapest(previewNonstopOptions),
+          cheapestMultiStop: findCheapestMultiStop([
+            ...previewRoundTripOptions,
+            ...previewTwoOneWayOptions
+          ]),
+          evaluatedDatePairs: [...previewEvaluatedDatePairs],
+          inspectedOptions: previewInspectedOptions
+        }),
+        false
+      );
+      tracker.setPreviewCheapestOverall(
+        previewCheapestOverall,
+        completedPairEvaluations,
+        false
+      );
+      tracker.setCompletedSteps(
+        2 + completedLookups,
+        "Checking exact flight options",
+        `Resumed ${completedPairEvaluations} of ${candidatePairs.length} date combinations`
+      );
+    }
+    reportCheckpoint();
+
     function reportExactLookupComplete(): void {
       completedLookups += 1;
       tracker.completeStep(
@@ -777,14 +1203,14 @@ export class FlightSearchService {
       );
     }
 
-    const evaluated = await mapWithConcurrency(
-      candidatePairs,
-      2,
-      async (pair) => {
-        const [roundTripOptions, outboundOptions, inboundOptions] =
-          await Promise.all([
-            this.provider
-              .searchExactFlights({
+    async function evaluateCandidatePair(
+      pair: CandidatePair,
+      service: FlightSearchService
+    ): Promise<SearchResumeRoundTripResult> {
+      const [roundTripOptions, outboundOptions, inboundOptions] =
+        await Promise.all([
+          service.provider
+            .searchExactFlights({
               tripType: "round_trip",
               origin: request.origin,
               destination: request.destination,
@@ -798,13 +1224,13 @@ export class FlightSearchService {
               passengers: request.passengers,
               departureTimeWindow: request.departureTimeWindow ?? undefined,
               arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-              })
-              .then((result) => {
-                reportExactLookupComplete();
-                return result;
-              }),
-            this.provider
-              .searchExactFlights({
+            })
+            .then((result) => {
+              reportExactLookupComplete();
+              return result;
+            }),
+          service.provider
+            .searchExactFlights({
               tripType: "one_way",
               origin: request.origin,
               destination: request.destination,
@@ -817,13 +1243,13 @@ export class FlightSearchService {
               passengers: request.passengers,
               departureTimeWindow: request.departureTimeWindow ?? undefined,
               arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-              })
-              .then((result) => {
-                reportExactLookupComplete();
-                return result;
-              }),
-            this.provider
-              .searchExactFlights({
+            })
+            .then((result) => {
+              reportExactLookupComplete();
+              return result;
+            }),
+          service.provider
+            .searchExactFlights({
               tripType: "one_way",
               origin: request.destination,
               destination: request.origin,
@@ -836,93 +1262,93 @@ export class FlightSearchService {
               passengers: request.passengers,
               departureTimeWindow: request.departureTimeWindow ?? undefined,
               arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-              })
-              .then((result) => {
-                reportExactLookupComplete();
-                return result;
-              })
-          ]);
+            })
+            .then((result) => {
+              reportExactLookupComplete();
+              return result;
+            })
+        ]);
 
-        const refinedRoundTripOptions =
-          await this.refineOptionsForDirectBookingPreference(
-            roundTripOptions,
-            request
-          );
-        const refinedOutboundOptions =
-          await this.refineOptionsForDirectBookingPreference(
-            outboundOptions,
-            this.buildOneWaySupplementRequest(
-              request,
-              request.origin,
-              request.destination,
-              pair.departureDate
-            )
-          );
-        const refinedInboundOptions =
-          await this.refineOptionsForDirectBookingPreference(
-            inboundOptions,
-            this.buildOneWaySupplementRequest(
-              request,
-              request.destination,
-              request.origin,
-              pair.returnDate ?? pair.departureDate
-            )
-          );
-        const inspectedOptionsForPair =
-          refinedRoundTripOptions.length +
-          refinedOutboundOptions.length +
-          refinedInboundOptions.length;
-
-        const cheapestRoundTrip = findCheapest(refinedRoundTripOptions);
-        const cheapestNonstopRoundTrip = findCheapestNonstop(
-          refinedRoundTripOptions
+      const refinedRoundTripOptions =
+        await service.refineOptionsForDirectBookingPreference(
+          roundTripOptions,
+          request
         );
-        const cheapestOutbound = findCheapest(refinedOutboundOptions);
-        const cheapestInbound = findCheapest(refinedInboundOptions);
-        const cheapestTwoOneWays =
-          cheapestOutbound && cheapestInbound && pair.returnDate
-            ? combineTwoOneWays(
-                cheapestOutbound,
-                cheapestInbound,
-                pair.departureDate,
-                pair.returnDate
-              )
-            : null;
-        const cheapestNonstopOutbound = findCheapestNonstop(
-          refinedOutboundOptions
-        );
-        const cheapestNonstopInbound = findCheapestNonstop(refinedInboundOptions);
-        const cheapestNonstopTwoOneWays =
-          cheapestNonstopOutbound && cheapestNonstopInbound && pair.returnDate
-            ? combineTwoOneWays(
-                cheapestNonstopOutbound,
-                cheapestNonstopInbound,
-                pair.departureDate,
-                pair.returnDate
-              )
-            : null;
-        const cheapestOverallForPair = findCheapest(
-          [cheapestRoundTrip, cheapestTwoOneWays].filter(
-            (entry): entry is FlightOption => entry !== null
+      const refinedOutboundOptions =
+        await service.refineOptionsForDirectBookingPreference(
+          outboundOptions,
+          service.buildOneWaySupplementRequest(
+            request,
+            request.origin,
+            request.destination,
+            pair.departureDate
           )
         );
-        if (cheapestRoundTrip) {
-          previewRoundTripOptions.push(cheapestRoundTrip);
-        }
-        if (cheapestTwoOneWays) {
-          previewTwoOneWayOptions.push(cheapestTwoOneWays);
-        }
-        const cheapestNonstop = findCheapest(
-          [cheapestNonstopRoundTrip, cheapestNonstopTwoOneWays].filter(
-            (entry): entry is FlightOption => entry !== null
+      const refinedInboundOptions =
+        await service.refineOptionsForDirectBookingPreference(
+          inboundOptions,
+          service.buildOneWaySupplementRequest(
+            request,
+            request.destination,
+            request.origin,
+            pair.returnDate ?? pair.departureDate
           )
         );
-        if (cheapestNonstop) {
-          previewNonstopOptions.push(cheapestNonstop);
-        }
-        previewEvaluatedDatePairs.push(pair);
-        previewInspectedOptions += inspectedOptionsForPair;
-        completedPairEvaluations += 1;
+      const inspectedOptionsForPair =
+        refinedRoundTripOptions.length +
+        refinedOutboundOptions.length +
+        refinedInboundOptions.length;
+
+      const cheapestRoundTrip = findCheapest(refinedRoundTripOptions);
+      const cheapestNonstopRoundTrip = findCheapestNonstop(
+        refinedRoundTripOptions
+      );
+      const cheapestOutbound = findCheapest(refinedOutboundOptions);
+      const cheapestInbound = findCheapest(refinedInboundOptions);
+      const cheapestTwoOneWays =
+        cheapestOutbound && cheapestInbound && pair.returnDate
+          ? combineTwoOneWays(
+              cheapestOutbound,
+              cheapestInbound,
+              pair.departureDate,
+              pair.returnDate
+            )
+          : null;
+      const cheapestNonstopOutbound = findCheapestNonstop(
+        refinedOutboundOptions
+      );
+      const cheapestNonstopInbound = findCheapestNonstop(refinedInboundOptions);
+      const cheapestNonstopTwoOneWays =
+        cheapestNonstopOutbound && cheapestNonstopInbound && pair.returnDate
+          ? combineTwoOneWays(
+              cheapestNonstopOutbound,
+              cheapestNonstopInbound,
+              pair.departureDate,
+              pair.returnDate
+            )
+          : null;
+      const cheapestNonstop = findCheapest(
+        [cheapestNonstopRoundTrip, cheapestNonstopTwoOneWays].filter(
+          (entry): entry is FlightOption => entry !== null
+        )
+      );
+
+      return {
+        departureDate: pair.departureDate,
+        returnDate: pair.returnDate,
+        cheapestRoundTrip,
+        cheapestTwoOneWays,
+        cheapestNonstop,
+        inspectedOptions: inspectedOptionsForPair
+      };
+    }
+
+    await mapWithConcurrency(
+      candidatePairs.filter((pair) => !resumedResultByPair.has(pairKey(pair))),
+      2,
+      async (pair) => {
+        const result = await evaluateCandidatePair(pair, this);
+        applyRoundTripResult(result);
         const previewCheapestOverall = findCheapest([
           ...previewRoundTripOptions,
           ...previewTwoOneWayOptions
@@ -948,15 +1374,14 @@ export class FlightSearchService {
           previewCheapestOverall,
           completedPairEvaluations
         );
-
-        return {
-          cheapestRoundTrip,
-          cheapestTwoOneWays,
-          cheapestNonstop,
-          inspectedOptions: inspectedOptionsForPair
-        };
+        reportCheckpoint();
+        return result;
       }
     );
+
+    const evaluated = candidatePairs
+      .map((pair) => evaluatedByPair.get(pairKey(pair)))
+      .filter((entry): entry is SearchResumeRoundTripResult => Boolean(entry));
 
     let roundTripOptions = evaluated
       .map((entry) => entry.cheapestRoundTrip)

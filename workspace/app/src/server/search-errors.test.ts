@@ -27,6 +27,24 @@ function buildAxiosError(
   return error;
 }
 
+function buildAxiosNetworkError(
+  code: string,
+  message: string
+): Error & {
+  code: string;
+  isAxiosError: true;
+} {
+  const error = new Error(message) as Error & {
+    code: string;
+    isAxiosError: true;
+  };
+
+  error.code = code;
+  error.isAxiosError = true;
+
+  return error;
+}
+
 describe("getSearchFailureResponse", () => {
   it("preserves the friendly Google Flights rate-limit response", () => {
     expect(
@@ -43,6 +61,21 @@ describe("getSearchFailureResponse", () => {
       message:
         "The flight search provider temporarily rate limited this search. Wait a minute and try again.",
       statusCode: 429
+    });
+  });
+
+  it("maps DNS failures to a friendly provider connectivity error", () => {
+    expect(
+      getSearchFailureResponse(
+        buildAxiosNetworkError(
+          "ENOTFOUND",
+          "getaddrinfo ENOTFOUND www.google.com"
+        )
+      )
+    ).toEqual({
+      message:
+        "The flight search provider could not be reached. Check your internet connection, DNS settings, VPN, or proxy, then try again.",
+      statusCode: 503
     });
   });
 

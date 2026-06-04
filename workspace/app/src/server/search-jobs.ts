@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import type { SearchJobStatus, SearchProgress, SearchSummary } from "../shared/types";
+import type {
+  SearchJobStatus,
+  SearchProgress,
+  SearchResumeCheckpoint,
+  SearchSummary
+} from "../shared/types";
 
 const jobRetentionMs = 1000 * 60 * 30;
 const jobs = new Map<string, SearchJobStatus>();
@@ -61,6 +66,24 @@ export function updateSearchJobProgress(
     status: "running",
     updatedAt: nowIso(),
     progress
+  };
+  jobs.set(id, updatedJob);
+  return { ...updatedJob };
+}
+
+export function updateSearchJobResumeCheckpoint(
+  id: string,
+  resumeCheckpoint: SearchResumeCheckpoint
+): SearchJobStatus | null {
+  const job = jobs.get(id);
+  if (!job) {
+    return null;
+  }
+
+  const updatedJob: SearchJobStatus = {
+    ...job,
+    updatedAt: nowIso(),
+    resumeCheckpoint
   };
   jobs.set(id, updatedJob);
   return { ...updatedJob };

@@ -93,6 +93,7 @@ type InitialFormState = {
 type ResumeSearchState = {
   availableAt: number;
   error: string;
+  jobId?: string;
   previewSummary: SearchSummary | null;
   progress: SearchProgress | null;
   request: SearchRequest;
@@ -866,6 +867,7 @@ export default function App() {
       initialProgress?: SearchProgress | null;
       preservePreview?: boolean;
       resume?: boolean;
+      resumeFromJobId?: string;
     }
   ) {
     const validationError = hostedApiMode
@@ -909,6 +911,7 @@ export default function App() {
     let latestPreviewSummary =
       preservedPreviewSummary ?? createLivePreviewSummary(submittedRequest);
     let latestProgress: SearchProgress | null = options?.initialProgress ?? null;
+    let latestSearchJobId: string | undefined;
     let shouldShowCompletedResults = hasMeaningfulSummary(latestPreviewSummary);
     const initialSearchProgress: SearchProgress =
       options?.resume && latestProgress
@@ -916,7 +919,7 @@ export default function App() {
             ...latestProgress,
             stage: "Resuming search",
             detail:
-              "Restarting the same search after the Google Flights cooldown while keeping the partial results below.",
+              "Continuing the same search after the Google Flights cooldown while keeping the partial results below.",
             percent: Math.min(latestProgress.percent, 99)
           }
         : {
@@ -936,6 +939,9 @@ export default function App() {
 
     try {
       const response = await runFlightSearch(submittedRequest, {
+        onJobCreated(jobId) {
+          latestSearchJobId = jobId;
+        },
         onProgress(progress) {
           if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
             return;
@@ -952,6 +958,7 @@ export default function App() {
             setLivePreviewSummary(latestPreviewSummary);
           });
         },
+        resumeFromJobId: options?.resumeFromJobId,
         signal: controller.signal
       });
       if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
@@ -970,6 +977,7 @@ export default function App() {
             ? {
                 availableAt: Date.now() + rateLimitResumeDelayMs,
                 error: response.error,
+                jobId: latestSearchJobId,
                 previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
                 progress: latestProgress,
                 request: submittedRequest
@@ -1016,6 +1024,7 @@ export default function App() {
           ? {
               availableAt: Date.now() + rateLimitResumeDelayMs,
               error: message,
+              jobId: latestSearchJobId,
               previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
               progress: latestProgress,
               request: submittedRequest
@@ -1054,7 +1063,8 @@ export default function App() {
       initialPreviewSummary: resumeSearchState.previewSummary,
       initialProgress: resumeSearchState.progress,
       preservePreview: true,
-      resume: true
+      resume: true,
+      resumeFromJobId: resumeSearchState.jobId
     });
   }
 

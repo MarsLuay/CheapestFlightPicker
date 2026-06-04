@@ -207,6 +207,29 @@ export type SearchProgressPreview = {
   inspectedOptions: number;
 };
 
+export type SearchResumeOneWayResult = {
+  departureDate: string;
+  options: FlightOption[];
+};
+
+export type SearchResumeRoundTripResult = {
+  departureDate: string;
+  returnDate?: string;
+  cheapestRoundTrip: FlightOption | null;
+  cheapestTwoOneWays: FlightOption | null;
+  cheapestNonstop: FlightOption | null;
+  inspectedOptions: number;
+};
+
+export type SearchResumeCheckpoint = {
+  version: 1;
+  request: SearchRequest;
+  departureDatePrices: DatePrice[];
+  returnDatePrices: DatePrice[];
+  oneWayResults?: SearchResumeOneWayResult[];
+  roundTripResults?: SearchResumeRoundTripResult[];
+};
+
 export type SearchProgress = {
   stage: string;
   detail?: string;
@@ -226,6 +249,7 @@ export type SearchJobStatus = {
   progress: SearchProgress;
   summary?: SearchSummary;
   error?: string;
+  resumeCheckpoint?: SearchResumeCheckpoint;
 };
 
 export type SearchResponse =

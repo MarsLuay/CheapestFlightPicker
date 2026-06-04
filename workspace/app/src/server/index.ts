@@ -5,6 +5,7 @@ import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
 
+import { stableSerialize } from "../core/cache";
 import {
   findClosestAirport,
   searchAirlines,
@@ -25,8 +26,10 @@ import {
   createSearchJob,
   failSearchJob,
   getSearchJob,
+  updateSearchJobResumeCheckpoint,
   updateSearchJobProgress
 } from "./search-jobs";
+import { searchRequestSchema } from "../shared/schemas";
 import type { SearchRequest, SearchSummary } from "../shared/types";
 
 const app = express();
@@ -203,6 +206,47 @@ function summarizeSearchSummary(summary: SearchSummary): Record<string, unknown>
   };
 }
 
+function parseSearchJobPayload(input: unknown): {
+  requestInput: unknown;
+  resumeFromJobId?: string;
+} {
+  if (!input || typeof input !== "object") {
+    return {
+      requestInput: input
+    };
+  }
+
+  const payload = input as Record<string, unknown>;
+  if (!("request" in payload)) {
+    return {
+      requestInput: input
+    };
+  }
+
+  return {
+    requestInput: payload.request,
+    resumeFromJobId:
+      typeof payload.resumeFromJobId === "string" &&
+      payload.resumeFromJobId.trim()
+        ? payload.resumeFromJobId.trim()
+        : undefined
+  };
+}
+
+function searchJobRequestMatchesCheckpoint(
+  requestInput: unknown,
+  checkpointRequest: SearchRequest
+): boolean {
+  try {
+    return (
+      stableSerialize(searchRequestSchema.parse(requestInput)) ===
+      stableSerialize(checkpointRequest)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isVercelRuntime(): boolean {
   return process.env.VERCEL === "1" || process.env.VERCEL === "true";
 }
@@ -340,22 +384,47 @@ app.post("/api/search", async (request, response) => {
 });
 
 app.post("/api/search/jobs", (request, response) => {
-  const requestSummary = summarizeSearchRequest(request.body);
+  const jobPayload = parseSearchJobPayload(request.body);
+  const requestSummary = summarizeSearchRequest(jobPayload.requestInput);
   const job = createSearchJob();
+  const resumeSourceJob = jobPayload.resumeFromJobId
+    ? getSearchJob(jobPayload.resumeFromJobId)
+    : null;
+  const resumeCheckpoint =
+    resumeSourceJob?.resumeCheckpoint &&
+    searchJobRequestMatchesCheckpoint(
+      jobPayload.requestInput,
+      resumeSourceJob.resumeCheckpoint.request
+    )
+      ? resumeSourceJob.resumeCheckpoint
+      : null;
 
   appendServerLog("info", "POST /api/search/jobs started", {
     jobId: job.id,
+    resumeFromJobId: jobPayload.resumeFromJobId ?? null,
+    resumeCheckpointFound: Boolean(resumeCheckpoint),
     ...requestSummary
   });
 
   void (async () => {
     try {
-      const summary = await searchService.search(request.body, (progress) => {
-        updateSearchJobProgress(job.id, progress);
-      });
+      const summary = await searchService.search(
+        jobPayload.requestInput,
+        (progress) => {
+          updateSearchJobProgress(job.id, progress);
+        },
+        {
+          checkpointReporter(checkpoint) {
+            updateSearchJobResumeCheckpoint(job.id, checkpoint);
+          },
+          resumeCheckpoint
+        }
+      );
       completeSearchJob(job.id, summary);
       appendServerLog("info", "POST /api/search/jobs completed", {
         jobId: job.id,
+        resumeFromJobId: jobPayload.resumeFromJobId ?? null,
+        resumeCheckpointUsed: Boolean(resumeCheckpoint),
         ...requestSummary,
         ...summarizeSearchSummary(summary)
       });

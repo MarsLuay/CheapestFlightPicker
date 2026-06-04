@@ -127,6 +127,54 @@ describe("runFlightSearch", () => {
     );
   });
 
+  it("passes the failed job id when a search is resumed", async () => {
+    globalThis.window = globalThis as typeof globalThis & Window;
+
+    const request = buildRequest();
+    const summary = buildSummary(request);
+    const completedJob: SearchJobStatus = {
+      id: "resumed-job",
+      status: "completed",
+      createdAt: "2026-03-25T07:59:13.100Z",
+      updatedAt: "2026-03-25T07:59:16.100Z",
+      progress: {
+        stage: "Completed",
+        detail: "Search finished",
+        completedSteps: 10,
+        totalSteps: 10,
+        percent: 100
+      },
+      summary
+    };
+    const jobIds: string[] = [];
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ jobId: "resumed-job" }, 202))
+      .mockResolvedValueOnce(createJsonResponse(completedJob, 200));
+
+    globalThis.fetch = fetchMock;
+
+    const response = await runFlightSearch(request, {
+      onJobCreated(jobId) {
+        jobIds.push(jobId);
+      },
+      resumeFromJobId: "failed-job"
+    });
+
+    expect(response).toEqual({
+      ok: true,
+      summary
+    });
+    expect(jobIds).toEqual(["resumed-job"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/search/jobs");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      request,
+      resumeFromJobId: "failed-job"
+    });
+  });
+
   it("aborts an in-flight search when the caller cancels it", async () => {
     globalThis.window = globalThis as typeof globalThis & Window;
 

@@ -21,7 +21,9 @@ type RequestJsonOptions<T> = {
 };
 
 type RunFlightSearchOptions = {
+  onJobCreated?: (jobId: string) => void;
   onProgress?: (progress: SearchProgress) => void;
+  resumeFromJobId?: string;
   signal?: AbortSignal;
 };
 
@@ -371,7 +373,14 @@ export async function runFlightSearch(
     return requestJson<{ jobId: string }>(
       "/api/search/jobs",
       {
-        body: JSON.stringify(request),
+        body: JSON.stringify(
+          options.resumeFromJobId
+            ? {
+                request,
+                resumeFromJobId: options.resumeFromJobId
+              }
+            : request
+        ),
         headers: {
           "content-type": "application/json"
         },
@@ -386,6 +395,7 @@ export async function runFlightSearch(
 
   try {
     let job = await createSearchJob();
+    options.onJobCreated?.(job.jobId);
 
     while (true) {
       if (performance.now() - searchStartedAt > searchJobTimeoutMs) {
@@ -429,6 +439,7 @@ export async function runFlightSearch(
             percent: 0
           });
           job = await createSearchJob();
+          options.onJobCreated?.(job.jobId);
           continue;
         }
 
