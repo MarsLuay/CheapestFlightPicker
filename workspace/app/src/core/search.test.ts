@@ -61,6 +61,103 @@ function buildDatedOneWayOption(totalPrice: number, outboundDate: string): Fligh
   };
 }
 
+function buildTimedOneWayOption({
+  totalPrice,
+  outboundDate,
+  departureDateTime,
+  arrivalDateTime,
+  origin = "SEA",
+  destination = "PIT"
+}: {
+  totalPrice: number;
+  outboundDate: string;
+  departureDateTime: string;
+  arrivalDateTime: string;
+  origin?: string;
+  destination?: string;
+}): FlightOption {
+  return {
+    currency: "USD",
+    slices: [
+      {
+        durationMinutes: 120,
+        legs: [
+          {
+            airlineCode: "TA",
+            airlineName: "Test Air",
+            flightNumber: "123",
+            departureAirportCode: origin,
+            departureAirportName: origin,
+            departureDateTime,
+            arrivalAirportCode: destination,
+            arrivalAirportName: destination,
+            arrivalDateTime,
+            durationMinutes: 120
+          }
+        ],
+        stops: 0
+      }
+    ],
+    bookingSource: {
+      type: "direct_airline",
+      label: "Direct with Test Air",
+      sellerName: "Test Air",
+      detected: true
+    },
+    source: "google_one_way",
+    totalPrice,
+    outboundDate
+  };
+}
+
+function buildTimedRoundTripOption({
+  totalPrice,
+  outboundDate,
+  returnDate,
+  outboundDepartureDateTime,
+  outboundArrivalDateTime,
+  returnDepartureDateTime,
+  returnArrivalDateTime
+}: {
+  totalPrice: number;
+  outboundDate: string;
+  returnDate: string;
+  outboundDepartureDateTime: string;
+  outboundArrivalDateTime: string;
+  returnDepartureDateTime: string;
+  returnArrivalDateTime: string;
+}): FlightOption {
+  return {
+    currency: "USD",
+    slices: [
+      buildTimedOneWayOption({
+        totalPrice,
+        outboundDate,
+        departureDateTime: outboundDepartureDateTime,
+        arrivalDateTime: outboundArrivalDateTime
+      }).slices[0],
+      buildTimedOneWayOption({
+        totalPrice,
+        outboundDate: returnDate,
+        departureDateTime: returnDepartureDateTime,
+        arrivalDateTime: returnArrivalDateTime,
+        origin: "PIT",
+        destination: "SEA"
+      }).slices[0]
+    ],
+    bookingSource: {
+      type: "direct_airline",
+      label: "Direct with Test Air",
+      sellerName: "Test Air",
+      detected: true
+    },
+    source: "google_round_trip",
+    totalPrice,
+    outboundDate,
+    returnDate
+  };
+}
+
 function buildUnknownAirlineOption(
   totalPrice: number,
   airlineCode: string,
@@ -662,6 +759,80 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(summary.cheapestOverall?.totalPrice).toBe(95);
   });
 
+  it("adds exact departure and arrival times to ranked one-way dates", async () => {
+    const service = new FlightSearchService();
+    const serviceWithMocks = service as unknown as {
+      bookingSourceSupplementService: {
+        supplementOptions: (
+          options: FlightOption[],
+          request: SearchRequest,
+          maxTargets?: number
+        ) => Promise<FlightOption[]>;
+        supplementSummary: <T>(summary: T) => Promise<T>;
+      };
+      provider: {
+        searchExactFlights: (
+          input: {
+            tripType: "one_way" | "round_trip";
+            departureDate: string;
+          },
+          runtimeOptions?: { bypassCache?: boolean }
+        ) => Promise<FlightOption[]>;
+        searchOneWayWithinWindow: () => Promise<Array<{ date: string; price: number }>>;
+      };
+    };
+
+    serviceWithMocks.provider = {
+      async searchOneWayWithinWindow() {
+        return [{ date: "2026-05-08", price: 120 }];
+      },
+      async searchExactFlights(input) {
+        return [
+          buildTimedOneWayOption({
+            totalPrice: 150,
+            outboundDate: input.departureDate,
+            departureDateTime: `${input.departureDate}T07:35:00`,
+            arrivalDateTime: `${input.departureDate}T13:10:00`
+          })
+        ];
+      }
+    };
+    serviceWithMocks.bookingSourceSupplementService = {
+      async supplementOptions(options) {
+        return options;
+      },
+      async supplementSummary(summary) {
+        return summary;
+      }
+    };
+
+    const summary = await service.search({
+      tripType: "one_way",
+      origin: "SEA",
+      destination: "PIT",
+      departureDateFrom: "2026-05-08",
+      departureDateTo: "2026-05-08",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      preferDirectBookingOnly: false,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      },
+      maxResults: 1
+    });
+
+    expect(summary.departureDatePrices[0]).toMatchObject({
+      date: "2026-05-08",
+      price: 120,
+      departureDateTime: "2026-05-08T07:35:00",
+      arrivalDateTime: "2026-05-08T13:10:00"
+    });
+  });
+
   it("keeps the cheapest one-way exact fare even when earlier dates return more options", async () => {
     const service = new FlightSearchService();
     const serviceWithMocks = service as unknown as {
@@ -871,6 +1042,124 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(liveUpdate?.previewSummary?.inspectedOptions).toBe(3);
     expect(summary.inspectedOptions).toBe(6);
     expect(summary.cheapestOverall?.totalPrice).toBe(210);
+  });
+
+  it("adds outbound and inbound times to ranked round-trip dates", async () => {
+    const service = new FlightSearchService();
+    const serviceWithMocks = service as unknown as {
+      bookingSourceSupplementService: {
+        supplementOptions: (
+          options: FlightOption[],
+          request: SearchRequest,
+          maxTargets?: number
+        ) => Promise<FlightOption[]>;
+        supplementSummary: <T>(summary: T) => Promise<T>;
+      };
+      provider: {
+        searchExactFlights: (
+          input: {
+            tripType: "one_way" | "round_trip";
+            origin: string;
+            departureDate: string;
+            returnDate?: string;
+          },
+          runtimeOptions?: { bypassCache?: boolean }
+        ) => Promise<FlightOption[]>;
+        searchOneWayWithinWindow: (
+          request: unknown,
+          origin: string
+        ) => Promise<Array<{ date: string; price: number }>>;
+      };
+    };
+
+    serviceWithMocks.provider = {
+      async searchOneWayWithinWindow(_request, origin) {
+        return origin === "SEA"
+          ? [{ date: "2026-05-08", price: 120 }]
+          : [{ date: "2026-05-15", price: 100 }];
+      },
+      async searchExactFlights(input) {
+        if (input.tripType === "round_trip") {
+          return [
+            buildTimedRoundTripOption({
+              totalPrice: 260,
+              outboundDate: input.departureDate,
+              returnDate: input.returnDate ?? "2026-05-15",
+              outboundDepartureDateTime: "2026-05-08T08:20:00",
+              outboundArrivalDateTime: "2026-05-08T14:05:00",
+              returnDepartureDateTime: "2026-05-15T17:40:00",
+              returnArrivalDateTime: "2026-05-15T21:30:00"
+            })
+          ];
+        }
+
+        if (input.origin === "SEA") {
+          return [
+            buildTimedOneWayOption({
+              totalPrice: 120,
+              outboundDate: input.departureDate,
+              departureDateTime: "2026-05-08T07:45:00",
+              arrivalDateTime: "2026-05-08T13:20:00"
+            })
+          ];
+        }
+
+        return [
+          buildTimedOneWayOption({
+            totalPrice: 100,
+            outboundDate: input.departureDate,
+            departureDateTime: "2026-05-15T18:15:00",
+            arrivalDateTime: "2026-05-15T22:05:00",
+            origin: "PIT",
+            destination: "SEA"
+          })
+        ];
+      }
+    };
+    serviceWithMocks.bookingSourceSupplementService = {
+      async supplementOptions(options) {
+        return options;
+      },
+      async supplementSummary(summary) {
+        return summary;
+      }
+    };
+
+    const summary = await service.search({
+      tripType: "round_trip",
+      origin: "SEA",
+      destination: "PIT",
+      departureDateFrom: "2026-05-08",
+      departureDateTo: "2026-05-08",
+      returnDateFrom: "2026-05-15",
+      returnDateTo: "2026-05-15",
+      minimumTripDays: 7,
+      maximumTripDays: 14,
+      cabinClass: "economy",
+      stopsFilter: "any",
+      preferDirectBookingOnly: false,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      },
+      maxResults: 1
+    });
+
+    expect(summary.departureDatePrices[0]).toMatchObject({
+      date: "2026-05-08",
+      price: 120,
+      departureDateTime: "2026-05-08T07:45:00",
+      arrivalDateTime: "2026-05-08T13:20:00"
+    });
+    expect(summary.returnDatePrices[0]).toMatchObject({
+      date: "2026-05-15",
+      price: 100,
+      departureDateTime: "2026-05-15T18:15:00",
+      arrivalDateTime: "2026-05-15T22:05:00"
+    });
   });
 
   it("resumes a round-trip search without rechecking completed date pairs", async () => {

@@ -74,6 +74,20 @@ function formatDateTime(value: string) {
   }).format(parsedDate);
 }
 
+function formatCompactDateTime(value: string) {
+  const parsedDate = parseLocalDateTime(value);
+  if (!parsedDate) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(parsedDate);
+}
+
 function formatDuration(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
@@ -205,10 +219,26 @@ function PriceStrip({
             entry.date,
             direction
           );
+          const timingRows = getDatePriceTimingRows(entry, direction);
+          const timingLabel = formatDatePriceTimingLabel(entry, direction);
           const content = (
             <>
               <strong>{formatDate(entry.date)}</strong>
               <span>{formatPrice(entry.price, "USD")}</span>
+              {timingRows.length > 0 ? (
+                <span className="price-pill__times">
+                  {timingRows.map((row) => (
+                    <span className="price-pill__time-row" key={row.label}>
+                      <span className="price-pill__time-label">
+                        {row.label}
+                      </span>
+                      <span className="price-pill__time-value">
+                        {row.value}
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
             </>
           );
 
@@ -217,7 +247,7 @@ function PriceStrip({
               aria-label={`${label}: ${formatDate(entry.date)} for ${formatPrice(
                 entry.price,
                 "USD"
-              )}. Open on Google Flights.`}
+              )}${timingLabel ? `. ${timingLabel}` : ""}. Open on Google Flights.`}
               className="price-pill price-pill--link"
               href={href}
               key={`${label}-${entry.date}`}
@@ -256,6 +286,35 @@ function getPriceAlertBadgeLabel(alert: PriceAlert) {
   return alert.kind === "significant_rise"
     ? `+${alert.changePercent}%`
     : `-${alert.changePercent}%`;
+}
+
+function getDatePriceTimingRows(
+  entry: DatePrice,
+  direction: DatePriceSearchDirection
+) {
+  return [
+    entry.departureDateTime
+      ? {
+          label: direction === "return" ? "Return" : "Depart",
+          value: formatCompactDateTime(entry.departureDateTime)
+        }
+      : null,
+    entry.arrivalDateTime
+      ? {
+          label: direction === "return" ? "Arrive back" : "Arrive",
+          value: formatCompactDateTime(entry.arrivalDateTime)
+        }
+      : null
+  ].filter((row): row is { label: string; value: string } => row !== null);
+}
+
+function formatDatePriceTimingLabel(
+  entry: DatePrice,
+  direction: DatePriceSearchDirection
+) {
+  return getDatePriceTimingRows(entry, direction)
+    .map((row) => `${row.label} ${row.value}`)
+    .join(", ");
 }
 
 function TimingGuidanceCard({

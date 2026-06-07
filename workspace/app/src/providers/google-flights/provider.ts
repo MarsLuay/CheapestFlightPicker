@@ -4,6 +4,7 @@ import { optionAppearsToIncludeFreeCarryOnBag } from "../../core/fare-characteri
 import {
   clampTimeWindow,
   combineBookingSources,
+  findCheapest,
   mapWithConcurrency,
   prefersDirectBooking
 } from "../../core/utils";
@@ -27,6 +28,7 @@ const calendarUrl =
 const shoppingUrl =
   "https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetShoppingResults";
 const roundTripFollowUpConcurrency = 2;
+const datePriceTimingCandidateCount = 12;
 
 type ExactSearchRuntimeOptions = {
   bypassCache?: boolean;
@@ -40,7 +42,7 @@ export class GoogleFlightsProvider {
     ttlMs: 1000 * 60 * 30,
     maxEntries: 300,
     sweepIntervalMs: 1000 * 60 * 2,
-    version: 2
+    version: 3
   });
 
   private readonly exactSearchCache = new JsonFileCache<FlightOption[]>({
@@ -70,8 +72,12 @@ export class GoogleFlightsProvider {
     const payload = encodeCalendarSearch(normalizedParams);
     const response = await this.client.post(calendarUrl, `f.req=${payload}`);
     const parsedResults = parseCalendarResponse(response);
-    this.calendarCache.set(cacheKey, parsedResults);
-    return parsedResults;
+    const resultsWithTimes = await this.annotateDatePricesWithExactTimes(
+      normalizedParams,
+      parsedResults
+    );
+    this.calendarCache.set(cacheKey, resultsWithTimes);
+    return resultsWithTimes;
   }
 
   async searchExactFlights(
@@ -215,6 +221,84 @@ export class GoogleFlightsProvider {
       departureTimeWindow: request.departureTimeWindow ?? undefined,
       arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
     });
+  }
+
+  private async annotateDatePricesWithExactTimes(
+    params: CalendarSearchParams,
+    datePrices: DatePrice[]
+  ): Promise<DatePrice[]> {
+    if (datePrices.length === 0) {
+      return datePrices;
+    }
+
+    const targetDates = new Set(
+      [...datePrices]
+        .sort((left, right) => {
+          if (left.price !== right.price) {
+            return left.price - right.price;
+          }
+
+          return left.date.localeCompare(right.date);
+        })
+        .slice(0, datePriceTimingCandidateCount)
+        .map((entry) => entry.date)
+    );
+    const timingByDate = new Map<
+      string,
+      Pick<DatePrice, "departureDateTime" | "arrivalDateTime">
+    >();
+
+    await mapWithConcurrency(
+      [...targetDates],
+      roundTripFollowUpConcurrency,
+      async (departureDate) => {
+        const options = await this.searchExactFlights({
+          tripType: "one_way",
+          origin: params.origin,
+          destination: params.destination,
+          departureDate,
+          cabinClass: params.cabinClass,
+          stopsFilter: params.stopsFilter,
+          requireFreeCarryOnBag: params.requireFreeCarryOnBag,
+          airlines: params.airlines,
+          passengers: params.passengers,
+          departureTimeWindow: params.departureTimeWindow,
+          arrivalTimeWindow: params.arrivalTimeWindow
+        });
+        const cheapest = findCheapest(options);
+        const timing = cheapest
+          ? this.getFirstSliceDateTimes(cheapest)
+          : {};
+
+        if (timing.departureDateTime || timing.arrivalDateTime) {
+          timingByDate.set(departureDate, timing);
+        }
+      }
+    );
+
+    return datePrices.map((entry) => {
+      const timing = timingByDate.get(entry.date);
+      return timing ? { ...entry, ...timing } : entry;
+    });
+  }
+
+  private getFirstSliceDateTimes(
+    option: FlightOption
+  ): Pick<DatePrice, "departureDateTime" | "arrivalDateTime"> {
+    const legs = option.slices[0]?.legs ?? [];
+    const timing: Pick<DatePrice, "departureDateTime" | "arrivalDateTime"> = {};
+    const departureDateTime = legs[0]?.departureDateTime;
+    const arrivalDateTime = legs[legs.length - 1]?.arrivalDateTime;
+
+    if (departureDateTime) {
+      timing.departureDateTime = departureDateTime;
+    }
+
+    if (arrivalDateTime) {
+      timing.arrivalDateTime = arrivalDateTime;
+    }
+
+    return timing;
   }
 
   private toRoundTripOption(

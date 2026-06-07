@@ -1034,6 +1034,36 @@ select {
   text-decoration: none;
 }
 
+.price-pill__times {
+  border-top: 1px solid rgba(246, 221, 187, 0.1);
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+.price-pill__time-row {
+  align-items: baseline;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr);
+}
+
+.price-pill__time-label {
+  color: rgba(255, 246, 234, 0.58);
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+
+.price-pill__time-value {
+  color: rgba(255, 246, 234, 0.82);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .price-pill--link {
   cursor: pointer;
   transition:

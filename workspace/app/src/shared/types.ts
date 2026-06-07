@@ -89,6 +89,8 @@ export type AirlineRecord = {
 export type DatePrice = {
   date: string;
   price: number;
+  departureDateTime?: string;
+  arrivalDateTime?: string;
 };
 
 export type FlightLeg = {

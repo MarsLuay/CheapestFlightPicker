@@ -51,6 +51,25 @@ function parseAmount(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function getFirstSliceDateTimes(
+  option: FlightOption
+): Pick<DatePrice, "departureDateTime" | "arrivalDateTime"> {
+  const legs = option.slices[0]?.legs ?? [];
+  const timing: Pick<DatePrice, "departureDateTime" | "arrivalDateTime"> = {};
+  const departureDateTime = legs[0]?.departureDateTime;
+  const arrivalDateTime = legs[legs.length - 1]?.arrivalDateTime;
+
+  if (departureDateTime) {
+    timing.departureDateTime = departureDateTime;
+  }
+
+  if (arrivalDateTime) {
+    timing.arrivalDateTime = arrivalDateTime;
+  }
+
+  return timing;
+}
+
 function parseIsoDurationToMinutes(value: string | undefined): number {
   if (!value) {
     return 0;
@@ -318,7 +337,8 @@ export class AmadeusFlightSearchProvider {
         results[currentIndex] = cheapest
           ? {
               date: departureDate,
-              price: cheapest.totalPrice
+              price: cheapest.totalPrice,
+              ...getFirstSliceDateTimes(cheapest)
             }
           : null;
       }

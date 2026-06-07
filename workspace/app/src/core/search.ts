@@ -114,6 +114,69 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
   return count === 1 ? singular : plural;
 }
 
+type DatePriceTimingDirection = "departure" | "return";
+
+function getOptionSliceIndexForDatePrice(
+  option: FlightOption,
+  direction: DatePriceTimingDirection
+): number {
+  return direction === "return" && option.slices.length > 1 ? 1 : 0;
+}
+
+function getSliceDateTimes(
+  option: FlightOption,
+  direction: DatePriceTimingDirection
+): Pick<DatePrice, "departureDateTime" | "arrivalDateTime"> {
+  const slice = option.slices[getOptionSliceIndexForDatePrice(option, direction)];
+  const legs = slice?.legs ?? [];
+
+  return {
+    departureDateTime: legs[0]?.departureDateTime,
+    arrivalDateTime: legs[legs.length - 1]?.arrivalDateTime
+  };
+}
+
+function annotateDatePricesWithBestOptionTimes(
+  datePrices: DatePrice[],
+  options: FlightOption[],
+  direction: DatePriceTimingDirection
+): DatePrice[] {
+  const bestOptionByDate = new Map<string, FlightOption>();
+
+  for (const option of options) {
+    const date = direction === "return" ? option.returnDate : option.outboundDate;
+    if (!date) {
+      continue;
+    }
+
+    const currentBest = bestOptionByDate.get(date);
+    if (!currentBest || option.totalPrice < currentBest.totalPrice) {
+      bestOptionByDate.set(date, option);
+    }
+  }
+
+  return datePrices.map((entry) => {
+    const option = bestOptionByDate.get(entry.date);
+    if (!option) {
+      return entry;
+    }
+
+    const { departureDateTime, arrivalDateTime } = getSliceDateTimes(
+      option,
+      direction
+    );
+    if (!departureDateTime && !arrivalDateTime) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      ...(departureDateTime ? { departureDateTime } : {}),
+      ...(arrivalDateTime ? { arrivalDateTime } : {})
+    };
+  });
+}
+
 function buildOneWayCheckpointPreview(
   checkpoint: SearchResumeCheckpoint
 ): SearchProgressPreview | null {
@@ -845,13 +908,13 @@ export class FlightSearchService {
       }
     );
 
-    let searchOptions = optionsByDate.flat();
-    searchOptions = await this.refineOptionsForDirectBookingPreference(
-      searchOptions,
+    let exactSearchOptions = optionsByDate.flat();
+    exactSearchOptions = await this.refineOptionsForDirectBookingPreference(
+      exactSearchOptions,
       request
     );
-    const inspectedOptions = searchOptions.length;
-    searchOptions = sortFlightOptionsByPrice(searchOptions).slice(
+    const inspectedOptions = exactSearchOptions.length;
+    let searchOptions = sortFlightOptionsByPrice(exactSearchOptions).slice(
       0,
       request.maxResults * 4
     );
@@ -865,6 +928,11 @@ export class FlightSearchService {
         request,
         cheapestOverall
       );
+      exactSearchOptions = this.replaceMatchingOption(
+        exactSearchOptions,
+        cheapestOverall,
+        repricedCheapestOverall
+      );
       searchOptions = this.replaceMatchingOption(
         searchOptions,
         cheapestOverall,
@@ -872,6 +940,11 @@ export class FlightSearchService {
       );
       cheapestOverall = findCheapest(searchOptions);
     }
+    departureDatePrices = annotateDatePricesWithBestOptionTimes(
+      departureDatePrices,
+      exactSearchOptions,
+      "departure"
+    );
     const cheapestNonstop = findCheapestNonstop(searchOptions);
     tracker.setPreviewSummary(
       toPreviewSummary({
@@ -1447,6 +1520,17 @@ export class FlightSearchService {
       );
     }
 
+    const exactDateTimingOptions = [...roundTripOptions, ...twoOneWayOptions];
+    departureDatePrices = annotateDatePricesWithBestOptionTimes(
+      departureDatePrices,
+      exactDateTimingOptions,
+      "departure"
+    );
+    returnDatePrices = annotateDatePricesWithBestOptionTimes(
+      returnDatePrices,
+      exactDateTimingOptions,
+      "return"
+    );
     const cheapestNonstop = findCheapest(nonstopOptions);
     tracker.setPreviewSummary(
       toPreviewSummary({
