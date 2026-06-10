@@ -309,7 +309,10 @@ export class AmadeusFlightSearchProvider {
       normalizedParams.fromDate,
       normalizedParams.toDate
     );
-    const results: Array<DatePrice | null> = new Array(dates.length).fill(null);
+    const results: Array<DatePrice | null> = Array.from(
+      { length: dates.length },
+      () => null
+    );
     let index = 0;
 
     async function worker(

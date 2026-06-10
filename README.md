@@ -6,6 +6,10 @@ It still uses Google Flights when you run it locally on your own machine, and it
 
 The root of this repo is intentionally pretty clean to let even your grandma run this tool, and the meat of the project lives in `workspace/app`.
 
+![Cheapest Flight Picker UI](docs/ui.png)
+
+Here's what you get when you fire it up. Punch in a flexible range, hit the button, and let it do the digging.
+
 ## What this thing does
 
 - Searches flexible departure and return windows

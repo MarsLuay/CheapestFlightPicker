@@ -1,9 +1,6 @@
 import { createAmadeusFlightSearchProviderFromEnv } from "../providers/amadeus/provider";
 import { GoogleFlightsProvider } from "../providers/google-flights/provider";
-import type {
-  CalendarSearchParams,
-  ExactFlightSearchParams
-} from "../providers/google-flights/types";
+import type { ExactFlightSearchParams } from "../providers/google-flights/types";
 import type { DatePrice, FlightOption, SearchRequest } from "../shared/types";
 
 export type SearchProviderRuntimeOptions = {

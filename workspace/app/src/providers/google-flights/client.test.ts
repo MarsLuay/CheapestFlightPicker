@@ -1,10 +1,7 @@
 import type { AxiosRequestConfig, AxiosResponse } from "axios";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  GoogleFlightsClient,
-  GoogleFlightsRateLimitError
-} from "./client";
+import { GoogleFlightsClient } from "./client";
 
 type RequestFn = (
   config: AxiosRequestConfig<string>

@@ -1033,16 +1033,14 @@ export default function App() {
       );
       shouldShowCompletedResults = shouldPreservePreview;
     } finally {
-      if (mainSearchRunIdRef.current !== runId) {
-        return;
+      if (mainSearchRunIdRef.current === runId) {
+        if (mainSearchAbortControllerRef.current === controller) {
+          mainSearchAbortControllerRef.current = null;
+        }
+        setIsSearching(false);
+        setHasCompletedSearch(shouldShowCompletedResults);
+        setSearchProgress(null);
       }
-
-      if (mainSearchAbortControllerRef.current === controller) {
-        mainSearchAbortControllerRef.current = null;
-      }
-      setIsSearching(false);
-      setHasCompletedSearch(shouldShowCompletedResults);
-      setSearchProgress(null);
     }
   }
 

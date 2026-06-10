@@ -797,7 +797,9 @@ export class FlightSearchService {
       `Inspecting ${candidateDates.length} exact flight searches`
     );
 
-    const optionsByDate: FlightOption[][] = new Array(candidateDates.length);
+    const optionsByDate: FlightOption[][] = Array.from({
+      length: candidateDates.length
+    });
     const previewOptions: FlightOption[] = [];
     const previewEvaluatedDatePairs: CandidatePair[] = [];
     let completedLookups = 0;
