@@ -178,8 +178,8 @@ describe("buildTimingGuidance", () => {
         maximum: 320,
         median: 260,
         minimum: 220,
-        scope: "route_level",
-        source: "amadeus",
+        scope: "route_history",
+        source: "local_emulation",
         thirdQuartile: 280
       }
     );
@@ -326,7 +326,6 @@ describe("TimingGuidanceService", () => {
     const historyCache = createMemoryCache<unknown[]>();
     const service = new TimingGuidanceService({
       historyCache: historyCache as never,
-      marketPriceCache: createMemoryCache<unknown>() as never,
       routeHistoryCache: createMemoryCache<unknown[]>() as never
     });
     const summary = buildSummary();
@@ -443,7 +442,6 @@ describe("TimingGuidanceService", () => {
     const routeHistoryCache = createMemoryCache<unknown[]>();
     const service = new TimingGuidanceService({
       historyCache: historyCache as never,
-      marketPriceCache: createMemoryCache<unknown>() as never,
       routeHistoryCache: routeHistoryCache as never
     });
     const flexibleSummary = buildSummary();
@@ -472,65 +470,5 @@ describe("TimingGuidanceService", () => {
 
     expect(historyCache.size()).toBe(2);
     expect(routeHistoryCache.size()).toBe(2);
-  });
-
-  it("uses cached Amadeus price analysis once per route snapshot and falls back cleanly", async () => {
-    const historyCache = createMemoryCache<unknown[]>();
-    const marketPriceCache = createMemoryCache<unknown>();
-    let calls = 0;
-    const service = new TimingGuidanceService({
-      historyCache: historyCache as never,
-      marketPriceCache: marketPriceCache as never,
-      routeHistoryCache: createMemoryCache<unknown[]>() as never,
-      amadeusClient: {
-        async getItineraryPriceMetrics() {
-          calls += 1;
-          return [
-            {
-              priceMetrics: [
-                { quartileRanking: "MINIMUM", amount: "200" },
-                { quartileRanking: "FIRST", amount: "240" },
-                { quartileRanking: "MEDIUM", amount: "300" },
-                { quartileRanking: "THIRD", amount: "360" },
-                { quartileRanking: "MAXIMUM", amount: "420" }
-              ]
-            }
-          ];
-        }
-      }
-    });
-    const summary = buildSummary();
-    summary.cheapestOverall = {
-      ...summary.cheapestOverall!,
-      outboundDate: "2026-04-20"
-    };
-    const options = [summary.cheapestOverall];
-
-    const firstResult = await service.annotateSummary(
-      summary,
-      options.filter(Boolean),
-      new Date("2026-03-25T12:00:00.000Z")
-    );
-    const secondResult = await service.annotateSummary(
-      summary,
-      options.filter(Boolean),
-      new Date("2026-03-26T12:00:00.000Z")
-    );
-    const cachedMarketEntry = marketPriceCache.get({
-      currencyCode: "USD",
-      departureDate: "2026-04-20",
-      destinationIataCode: "JFK",
-      oneWay: false,
-      originIataCode: "SEA"
-    }) as {
-      metrics?: { source?: string };
-      status?: string;
-    } | null;
-
-    expect(calls).toBe(1);
-    expect(cachedMarketEntry?.status).toBe("hit");
-    expect(cachedMarketEntry?.metrics?.source).toBe("amadeus");
-    expect(firstResult.timingGuidance).not.toBeNull();
-    expect(secondResult.timingGuidance).not.toBeNull();
   });
 });

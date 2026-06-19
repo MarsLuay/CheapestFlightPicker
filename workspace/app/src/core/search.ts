@@ -14,7 +14,6 @@ import {
   isLikelyDirectAirlineBookingOption,
   mapWithConcurrency
 } from "./utils";
-import { createAmadeusMissingInfoSupplementProviderFromEnv } from "../providers/amadeus/missing-info-supplement";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   DatePrice,
@@ -410,18 +409,16 @@ class ProgressTracker {
 }
 
 export class FlightSearchService {
-  private readonly provider: FlightSearchProvider = createFlightSearchProvider();
+  private readonly provider: FlightSearchProvider;
+
+  constructor(provider: FlightSearchProvider = createFlightSearchProvider()) {
+    this.provider = provider;
+  }
 
   private readonly timingGuidanceService = new TimingGuidanceService();
 
   private readonly bookingSourceSupplementService =
-    new BookingSourceSupplementService(
-      (() => {
-        const amadeusProvider =
-          createAmadeusMissingInfoSupplementProviderFromEnv();
-        return amadeusProvider ? [amadeusProvider] : [];
-      })()
-    );
+    new BookingSourceSupplementService();
 
   private async refineOptionsForDirectBookingPreference(
     options: FlightOption[],

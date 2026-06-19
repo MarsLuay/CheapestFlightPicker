@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+on_setup_exit() {
+  local status=$?
+
+  if [[ "$status" -ne 0 && -t 0 ]]; then
+    echo
+    echo "Setup stopped before the app could launch."
+    read -r -p "Press Enter to close this window..." _ || true
+  fi
+}
+
+trap on_setup_exit EXIT
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 case "$SCRIPT_DIR" in
   */*.app/Contents/MacOS | */*.app/Contents/Resources)

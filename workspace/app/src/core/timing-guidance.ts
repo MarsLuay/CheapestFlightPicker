@@ -5,8 +5,6 @@ import {
   isNonstopOption,
   optionAppearsToIncludeFreeCarryOnBag
 } from "./fare-characteristics";
-import { createAmadeusClientFromEnv, type AmadeusClient } from "../providers/amadeus/client";
-import type { AmadeusItineraryPriceMetricsEntry } from "../providers/amadeus/types";
 import type {
   HackerFareInsight,
   FlightOption,
@@ -53,8 +51,8 @@ type TimingMarketPriceMetrics = {
   maximum: number;
   median: number;
   minimum: number;
-  scope: "exact_trip_history" | "route_history" | "route_level";
-  source: "amadeus" | "local_emulation";
+  scope: "exact_trip_history" | "route_history";
+  source: "local_emulation";
   thirdQuartile: number;
 };
 
@@ -74,22 +72,8 @@ type TimingSignal = {
   score: number;
 };
 
-type TimingMarketPriceCacheEntry =
-  | {
-      metrics: TimingMarketPriceMetrics;
-      status: "hit";
-    }
-  | {
-      status: "miss";
-    };
-
 type TimingGuidanceServiceOptions = {
-  amadeusClient?: Pick<AmadeusClient, "getItineraryPriceMetrics"> | null;
   historyCache?: Pick<JsonFileCache<TimingObservation[]>, "get" | "set">;
-  marketPriceCache?: Pick<
-    JsonFileCache<TimingMarketPriceCacheEntry>,
-    "get" | "set"
-  >;
   routeHistoryCache?: Pick<JsonFileCache<TimingObservation[]>, "get" | "set">;
 };
 
@@ -778,76 +762,6 @@ function buildLocalMarketPriceMetrics(
   };
 }
 
-function buildAmadeusMarketPriceMetrics(
-  entries: AmadeusItineraryPriceMetricsEntry[],
-  currency: string
-): TimingMarketPriceMetrics | null {
-  const entry = entries[0];
-  const priceMetrics = Array.isArray(entry?.priceMetrics) ? entry.priceMetrics : [];
-  if (priceMetrics.length === 0) {
-    return null;
-  }
-
-  let minimum: number | null = null;
-  let firstQuartile: number | null = null;
-  let median: number | null = null;
-  let thirdQuartile: number | null = null;
-  let maximum: number | null = null;
-
-  for (const metric of priceMetrics) {
-    const amount =
-      typeof metric.amount === "number"
-        ? metric.amount
-        : typeof metric.amount === "string"
-          ? Number.parseFloat(metric.amount)
-          : Number.NaN;
-    if (!Number.isFinite(amount)) {
-      continue;
-    }
-
-    switch (metric.quartileRanking) {
-      case "MINIMUM":
-        minimum = amount;
-        break;
-      case "FIRST":
-        firstQuartile = amount;
-        break;
-      case "MEDIUM":
-        median = amount;
-        break;
-      case "THIRD":
-        thirdQuartile = amount;
-        break;
-      case "MAXIMUM":
-        maximum = amount;
-        break;
-      default:
-        break;
-    }
-  }
-
-  if (
-    minimum === null ||
-    firstQuartile === null ||
-    median === null ||
-    thirdQuartile === null ||
-    maximum === null
-  ) {
-    return null;
-  }
-
-  return {
-    currency,
-    firstQuartile,
-    maximum,
-    median,
-    minimum,
-    scope: "route_level",
-    source: "amadeus",
-    thirdQuartile
-  };
-}
-
 type MarketPricePosition = "high" | "low" | "typical" | "unknown";
 
 function getMarketPricePosition(
@@ -879,11 +793,9 @@ function buildMarketPriceReason(
 
   const marketPosition = getMarketPricePosition(currentBestPrice, metrics);
   const marketLabel =
-    metrics.source === "amadeus"
-      ? "Amadeus route-level price analysis"
-      : metrics.scope === "route_history"
-        ? "Your broader local fare-history price analysis"
-        : "Your exact-trip fare-history price analysis";
+    metrics.scope === "route_history"
+      ? "Your broader local fare-history price analysis"
+      : "Your exact-trip fare-history price analysis";
 
   if (marketPosition === "low") {
     return {
@@ -1181,7 +1093,7 @@ export function buildTimingGuidance(
   if (
     marketPriceReason &&
     effectiveMarketMetrics?.scope !== "exact_trip_history" &&
-    (marketPriceReason.score !== 0 || effectiveMarketMetrics?.source === "amadeus")
+    marketPriceReason.score !== 0
   ) {
     signals.push({
       priority: 3.5,
@@ -1288,20 +1200,10 @@ export function buildTimingGuidance(
 }
 
 export class TimingGuidanceService {
-  private readonly amadeusClient: Pick<
-    AmadeusClient,
-    "getItineraryPriceMetrics"
-  > | null;
-
   private readonly historyCache: Pick<JsonFileCache<TimingObservation[]>, "get" | "set">;
 
   private readonly routeHistoryCache: Pick<
     JsonFileCache<TimingObservation[]>,
-    "get" | "set"
-  >;
-
-  private readonly marketPriceCache: Pick<
-    JsonFileCache<TimingMarketPriceCacheEntry>,
     "get" | "set"
   >;
 
@@ -1322,18 +1224,6 @@ export class TimingGuidanceService {
         maxEntries: 1800,
         version: 2
       });
-    this.marketPriceCache =
-      options.marketPriceCache ??
-      new JsonFileCache<TimingMarketPriceCacheEntry>({
-        directorySegments: [".cache", "timing-price-analysis"],
-        ttlMs: dayMs * 14,
-        maxEntries: 1200,
-        version: 2
-      });
-    this.amadeusClient =
-      options.amadeusClient === undefined
-        ? createAmadeusClientFromEnv()
-        : options.amadeusClient;
   }
 
   async annotateSummary(
@@ -1413,47 +1303,6 @@ export class TimingGuidanceService {
         currentBest.currency,
         "exact_trip_history"
       );
-    if (!this.amadeusClient || !currentBest.outboundDate) {
-      return localMetrics;
-    }
-
-    const cacheKey = {
-      currencyCode: currentBest.currency,
-      departureDate: currentBest.outboundDate,
-      destinationIataCode: summary.request.destination,
-      oneWay: summary.request.tripType === "one_way",
-      originIataCode: summary.request.origin
-    };
-    const cachedEntry = this.marketPriceCache.get(cacheKey);
-    if (cachedEntry) {
-      return cachedEntry.status === "hit" ? cachedEntry.metrics : localMetrics;
-    }
-
-    try {
-      const entries = await this.amadeusClient.getItineraryPriceMetrics({
-        originIataCode: summary.request.origin,
-        destinationIataCode: summary.request.destination,
-        departureDate: currentBest.outboundDate,
-        currencyCode: currentBest.currency,
-        oneWay: summary.request.tripType === "one_way"
-      });
-      const metrics = buildAmadeusMarketPriceMetrics(entries, currentBest.currency);
-
-      if (metrics) {
-        this.marketPriceCache.set(cacheKey, {
-          status: "hit",
-          metrics
-        });
-        return metrics;
-      }
-    } catch {
-      // Route coverage is incomplete for Amadeus price analysis, so falling back
-      // silently to local emulation is expected and keeps the search resilient.
-    }
-
-    this.marketPriceCache.set(cacheKey, {
-      status: "miss"
-    });
     return localMetrics;
   }
 }

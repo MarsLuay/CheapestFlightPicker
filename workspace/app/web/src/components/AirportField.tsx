@@ -12,22 +12,28 @@ type AirportFieldProps = {
   label: string;
   value: string;
   onSelect: (code: string) => void;
+  multiple?: boolean;
   placeholder?: string;
+  selectedCodes?: string[];
 };
 
 export function AirportField({
   label,
+  multiple = false,
   value,
   onSelect,
-  placeholder = "Enter an airport, city, or code"
+  placeholder = "Enter an airport, city, or code",
+  selectedCodes = []
 }: AirportFieldProps) {
-  const [query, setQuery] = useState(value);
+  const [query, setQuery] = useState(multiple ? "" : value);
   const [options, setOptions] = useState<AirportRecord[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isFocused, setIsFocused] = useState(false);
   const [hasCommittedSelection, setHasCommittedSelection] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const trimmedQuery = query.trim();
+  const selectedCodesLabel = selectedCodes.join(", ");
+  const inputValue = multiple && !isFocused ? selectedCodesLabel : query;
   const suggestionOptions = options.slice(0, 6);
   const shouldShowSuggestions =
     isFocused &&
@@ -36,9 +42,9 @@ export function AirportField({
     suggestionOptions.length > 0;
 
   useEffect(() => {
-    setQuery(value);
+    setQuery(multiple ? "" : value);
     setHasCommittedSelection(false);
-  }, [value]);
+  }, [multiple, value]);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,18 +72,27 @@ export function AirportField({
   }, [trimmedQuery, options]);
 
   function selectAirport(airport: AirportRecord) {
-    setQuery(airport.iata);
+    setQuery(multiple ? "" : airport.iata);
     setActiveIndex(0);
     setHasCommittedSelection(true);
     onSelect(airport.iata);
   }
 
-  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (!shouldShowSuggestions) {
-      return;
+  function commitTypedAirportCode(): boolean {
+    if (!/^[A-Za-z]{3}$/u.test(trimmedQuery)) {
+      return false;
     }
 
-    if (event.key === "ArrowDown") {
+    const code = trimmedQuery.toUpperCase();
+    setQuery(multiple ? "" : code);
+    setActiveIndex(0);
+    setHasCommittedSelection(true);
+    onSelect(code);
+    return true;
+  }
+
+  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown" && shouldShowSuggestions) {
       event.preventDefault();
       setActiveIndex((current) =>
         Math.min(current + 1, suggestionOptions.length - 1)
@@ -85,25 +100,25 @@ export function AirportField({
       return;
     }
 
-    if (event.key === "ArrowUp") {
+    if (event.key === "ArrowUp" && shouldShowSuggestions) {
       event.preventDefault();
       setActiveIndex((current) => Math.max(current - 1, 0));
       return;
     }
 
-    if (event.key === "Enter" || event.key === "Tab") {
+    if (event.key === "Enter") {
+      event.preventDefault();
       const match = suggestionOptions[activeIndex] ?? suggestionOptions[0];
-      if (match) {
+      if (shouldShowSuggestions && match) {
         selectAirport(match);
+        return;
       }
 
-      if (event.key === "Enter") {
-        event.preventDefault();
-      }
+      commitTypedAirportCode();
       return;
     }
 
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && shouldShowSuggestions) {
       setActiveIndex(0);
     }
   }
@@ -111,29 +126,58 @@ export function AirportField({
   return (
     <div className="field filter-field filter-field--airport">
       <span>{label}</span>
-      <div className="autocomplete-shell airport-autocomplete-shell">
+      <div
+        className={`autocomplete-shell airport-autocomplete-shell ${
+          multiple ? "airport-autocomplete-shell--multiple" : ""
+        }`}
+      >
         <input
-          className="airport-autocomplete-input"
-          value={query}
+          className={`airport-autocomplete-input ${
+            multiple ? "airport-autocomplete-input--with-icon" : ""
+          }`}
+          value={inputValue}
           onBlur={() => {
             setIsFocused(false);
+            if (multiple) {
+              setQuery("");
+            }
             setHasCommittedSelection(false);
           }}
           onChange={(event) => {
             const nextValue = event.target.value;
             setQuery(nextValue);
             setHasCommittedSelection(false);
-            if (/^[A-Za-z]{3}$/u.test(nextValue.trim())) {
-              onSelect(nextValue.trim().toUpperCase());
-            }
           }}
           onFocus={() => {
             setIsFocused(true);
+            if (multiple) {
+              setQuery("");
+            }
             setHasCommittedSelection(false);
           }}
           onKeyDown={handleInputKeyDown}
-          placeholder={placeholder}
+          placeholder={
+            multiple && selectedCodesLabel ? selectedCodesLabel : placeholder
+          }
         />
+        {multiple ? (
+          <button
+            aria-label={`Select multiple ${label.toLowerCase()}`}
+            className="airport-select-icon"
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={(event) => {
+              const input = event.currentTarget
+                .previousElementSibling as HTMLInputElement | null;
+              input?.focus();
+            }}
+            title={`Select multiple ${label.toLowerCase()}`}
+            type="button"
+          >
+            <span aria-hidden="true" />
+          </button>
+        ) : null}
         {shouldShowSuggestions ? (
           <div
             className="suggestion-list"

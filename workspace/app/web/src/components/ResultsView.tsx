@@ -638,6 +638,9 @@ export function ResultsView({
               These cards update live as lower fares show up.
             </p>
           ) : null}
+          <p className="muted-copy">
+            Route {summary.request.origin} {"->"} {summary.request.destination}.
+          </p>
           {summary.request.tripType === "round_trip" ? (
             <p className="muted-copy">
               Departure window {formatDate(summary.request.departureDateFrom)} to{" "}

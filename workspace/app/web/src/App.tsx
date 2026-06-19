@@ -60,7 +60,7 @@ const defaultExactTripLengthDays = 7;
 const defaultDateRangeSpanDays = 14;
 const fallbackOriginAirport = "SEA";
 const hostedSearchUnavailableMessage =
-  "Won't work on the website :) I'm too broke to buy an API key to fix that, but if you run setup-and-launch.bat anywhere on your computer it will work properly!";
+  "Won't work on the website :) Google Flights rate-limits hosted traffic, but if you run setup-and-launch.bat anywhere on your computer it will work properly!";
 const rateLimitResumeDelayMs = 1000 * 60;
 
 type OriginDetectionStatus =
@@ -98,6 +98,8 @@ type ResumeSearchState = {
   progress: SearchProgress | null;
   request: SearchRequest;
 };
+
+type AirportSelectionKind = "origin" | "destination";
 
 function createDefaultSearchDates(
   referenceDate = new Date(),
@@ -367,6 +369,110 @@ function isIataCode(value: string): boolean {
   return /^[A-Za-z]{3}$/u.test(value.trim());
 }
 
+function normalizeAirportCode(value: string): string | null {
+  const normalizedValue = value.trim().toUpperCase();
+  return isIataCode(normalizedValue) ? normalizedValue : null;
+}
+
+function getAirportCodeList(primaryAirport: string, additionalAirports: string[]) {
+  const seenAirports = new Set<string>();
+  const airportCodes: string[] = [];
+
+  [primaryAirport, ...additionalAirports].forEach((airport) => {
+    const code = normalizeAirportCode(airport);
+    if (!code || seenAirports.has(code)) {
+      return;
+    }
+
+    seenAirports.add(code);
+    airportCodes.push(code);
+  });
+
+  return airportCodes;
+}
+
+function buildMultiAirportRouteRequests(
+  baseRequest: SearchRequest,
+  additionalOriginAirports: string[],
+  additionalDestinationAirports: string[]
+): SearchRequest[] {
+  const origins = getAirportCodeList(baseRequest.origin, additionalOriginAirports);
+  const destinations = getAirportCodeList(
+    baseRequest.destination,
+    additionalDestinationAirports
+  );
+  const routeRequests: SearchRequest[] = [];
+
+  origins.forEach((origin) => {
+    destinations.forEach((destination) => {
+      if (origin === destination) {
+        return;
+      }
+
+      routeRequests.push({
+        ...baseRequest,
+        origin,
+        destination
+      });
+    });
+  });
+
+  return routeRequests;
+}
+
+function getSummaryBestPrice(summary: SearchSummary): number {
+  return summary.cheapestOverall?.totalPrice ?? Number.POSITIVE_INFINITY;
+}
+
+function pickBetterSummary(
+  currentSummary: SearchSummary | null,
+  nextSummary: SearchSummary
+): SearchSummary {
+  if (!currentSummary) {
+    return nextSummary;
+  }
+
+  const currentBestPrice = getSummaryBestPrice(currentSummary);
+  const nextBestPrice = getSummaryBestPrice(nextSummary);
+
+  if (nextBestPrice < currentBestPrice) {
+    return nextSummary;
+  }
+
+  if (
+    !Number.isFinite(currentBestPrice) &&
+    nextSummary.inspectedOptions > currentSummary.inspectedOptions
+  ) {
+    return nextSummary;
+  }
+
+  return currentSummary;
+}
+
+function buildMultiAirportProgress(
+  routeRequest: SearchRequest,
+  progress: SearchProgress,
+  routeIndex: number,
+  routeCount: number
+): SearchProgress {
+  const completedRouteUnits = routeIndex * 100;
+  const routeProgressUnits = Math.max(0, Math.min(100, progress.percent));
+  const totalUnits = routeCount * 100;
+  const completedUnits = Math.round(completedRouteUnits + routeProgressUnits);
+  const percent = Math.round((completedUnits / totalUnits) * 100);
+
+  return {
+    ...progress,
+    stage: `Route ${routeIndex + 1}/${routeCount}: ${routeRequest.origin} -> ${routeRequest.destination}`,
+    detail: progress.detail
+      ? `${progress.stage}: ${progress.detail}`
+      : progress.stage,
+    completedSteps: completedUnits,
+    totalSteps: totalUnits,
+    percent
+  };
+}
+
 function getSearchValidationError(request: SearchRequest): string | null {
   const todayDateInput = getTodayDateInput();
 
@@ -477,6 +583,13 @@ export default function App() {
   const [originDetection, setOriginDetection] = useState<OriginDetectionState>(
     () => initialFormState.originDetection
   );
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [useMultipleAirports, setUseMultipleAirports] = useState(false);
+  const [additionalOriginAirports, setAdditionalOriginAirports] = useState<
+    string[]
+  >([]);
+  const [additionalDestinationAirports, setAdditionalDestinationAirports] =
+    useState<string[]>([]);
   const requestRef = useRef<SearchRequest>(request);
   const mainSearchAbortControllerRef = useRef<AbortController | null>(null);
   const mainSearchRunIdRef = useRef(0);
@@ -691,6 +804,99 @@ export default function App() {
     setMaximumTripDaysInput(String(request.maximumTripDays ?? 14));
   }, [request.maximumTripDays]);
 
+  useEffect(() => {
+    setAdditionalOriginAirports((currentAirports) =>
+      currentAirports.filter((airport) => airport !== request.origin)
+    );
+  }, [request.origin]);
+
+  useEffect(() => {
+    setAdditionalDestinationAirports((currentAirports) =>
+      currentAirports.filter((airport) => airport !== request.destination)
+    );
+  }, [request.destination]);
+
+  function addAdditionalAirport(kind: AirportSelectionKind, airport: string) {
+    const code = normalizeAirportCode(airport);
+    if (!code) {
+      return;
+    }
+
+    const primaryAirport =
+      kind === "origin"
+        ? requestRef.current.origin
+        : requestRef.current.destination;
+    const setAirports =
+      kind === "origin"
+        ? setAdditionalOriginAirports
+        : setAdditionalDestinationAirports;
+
+    setAirports((currentAirports) => {
+      if (code === primaryAirport || currentAirports.includes(code)) {
+        return currentAirports;
+      }
+
+      return [...currentAirports, code];
+    });
+  }
+
+  function clearAdditionalAirports() {
+    setAdditionalOriginAirports([]);
+    setAdditionalDestinationAirports([]);
+  }
+
+  function updatePrimaryOrigin(origin: string) {
+    updateRequest((currentRequest) => ({
+      ...currentRequest,
+      origin
+    }));
+    setOriginDetection((currentState) => ({
+      ...currentState,
+      selectionSource: "manual_override",
+      appliedOrigin: origin,
+      browserTimeZone:
+        currentState.browserTimeZone ?? getBrowserTimeZone(),
+      message: currentState.inferredAirport
+        ? `Origin manually changed to ${origin}. The initial fallback guess was ${currentState.inferredAirport}.`
+        : `Origin manually changed to ${origin}.`
+    }));
+  }
+
+  function selectOriginAirport(origin: string) {
+    const code = normalizeAirportCode(origin);
+    if (!code) {
+      return;
+    }
+
+    const primaryOrigin = normalizeAirportCode(requestRef.current.origin);
+    if (useMultipleAirports && primaryOrigin && code !== primaryOrigin) {
+      addAdditionalAirport("origin", code);
+      return;
+    }
+
+    updatePrimaryOrigin(code);
+  }
+
+  function selectDestinationAirport(destination: string) {
+    const code = normalizeAirportCode(destination);
+    if (!code) {
+      return;
+    }
+
+    const primaryDestination = normalizeAirportCode(
+      requestRef.current.destination
+    );
+    if (useMultipleAirports && primaryDestination && code !== primaryDestination) {
+      addAdditionalAirport("destination", code);
+      return;
+    }
+
+    updateRequest((currentRequest) => ({
+      ...currentRequest,
+      destination: code
+    }));
+  }
+
   function toggleExactDates(nextUseExactDates: boolean) {
     setUseExactDates(nextUseExactDates);
     if (nextUseExactDates && requestRef.current.tripType === "round_trip") {
@@ -870,7 +1076,8 @@ export default function App() {
       resumeFromJobId?: string;
     }
   ) {
-    const validationError = hostedApiMode
+    const shouldBlockHostedSearch = hostedApiMode;
+    const validationError = shouldBlockHostedSearch
       ? null
       : getSearchValidationError(submittedRequest);
 
@@ -892,7 +1099,7 @@ export default function App() {
     setSearchProgress(null);
     setIsSearching(false);
 
-    if (hostedApiMode) {
+    if (shouldBlockHostedSearch) {
       setLivePreviewSummary(null);
       setHasCompletedSearch(false);
       setResumeSearchState(null);
@@ -994,13 +1201,13 @@ export default function App() {
         setLivePreviewSummary(null);
         setResumeSearchState(null);
         setUpgradeFareBox(
-          hostedApiMode
+          shouldBlockHostedSearch
             ? null
             : createInitialUpgradeFareCardState(response.summary, submittedRequest)
         );
       });
       setUpgradeSearchRequest(
-        hostedApiMode
+        shouldBlockHostedSearch
           ? null
           : buildAdjacentCabinSearchRequest(submittedRequest)
       );
@@ -1044,12 +1251,207 @@ export default function App() {
     }
   }
 
+  async function startMultiAirportSearch(
+    submittedRequest: SearchRequest,
+    routeRequests: SearchRequest[]
+  ) {
+    if (routeRequests.length === 0) {
+      setError(
+        "Choose at least one valid origin airport and one valid destination airport."
+      );
+      return;
+    }
+
+    const shouldBlockHostedSearch = hostedApiMode;
+    const validationError = shouldBlockHostedSearch
+      ? null
+      : routeRequests.map(getSearchValidationError).find(Boolean) ?? null;
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    mainSearchRunIdRef.current += 1;
+    mainSearchAbortControllerRef.current?.abort();
+    mainSearchAbortControllerRef.current = null;
+    upgradeSearchRunIdRef.current += 1;
+    upgradeSearchAbortControllerRef.current?.abort();
+    upgradeSearchAbortControllerRef.current = null;
+    setUpgradeFareBox(null);
+    setUpgradeSearchRequest(null);
+    setError("");
+    setSummary(null);
+    setSearchProgress(null);
+    setIsSearching(false);
+
+    if (shouldBlockHostedSearch) {
+      setLivePreviewSummary(null);
+      setHasCompletedSearch(false);
+      setResumeSearchState(null);
+      setError(hostedSearchUnavailableMessage);
+      return;
+    }
+
+    const controller = new AbortController();
+    const runId = ++mainSearchRunIdRef.current;
+    const routeCount = routeRequests.length;
+    const searchFailures: string[] = [];
+    let bestSummary: SearchSummary | null = null;
+    let shouldShowCompletedResults = false;
+
+    mainSearchAbortControllerRef.current = controller;
+    setResumeSearchState(null);
+    setIsSearching(true);
+    setLivePreviewSummary(null);
+    setHasCompletedSearch(false);
+    setSearchProgress({
+      stage: `Preparing ${routeCount} airport routes`,
+      detail: "The app will compare each selected airport combination and keep the cheapest route.",
+      completedSteps: 0,
+      totalSteps: routeCount * 100,
+      percent: 0
+    });
+
+    try {
+      for (let index = 0; index < routeRequests.length; index += 1) {
+        const routeRequest = routeRequests[index] ?? submittedRequest;
+
+        if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
+          return;
+        }
+
+        const response = await runFlightSearch(routeRequest, {
+          onProgress(progress) {
+            if (
+              controller.signal.aborted ||
+              mainSearchRunIdRef.current !== runId
+            ) {
+              return;
+            }
+
+            const multiAirportProgress = buildMultiAirportProgress(
+              routeRequest,
+              progress,
+              index,
+              routeCount
+            );
+            setSearchProgress(multiAirportProgress);
+
+            const previewSummary = createLivePreviewSummary(
+              routeRequest,
+              progress.previewSummary
+            );
+            if (hasMeaningfulSummary(previewSummary)) {
+              bestSummary = pickBetterSummary(bestSummary, previewSummary);
+              shouldShowCompletedResults = true;
+              startTransition(() => {
+                setLivePreviewSummary(bestSummary);
+              });
+            }
+          },
+          signal: controller.signal
+        });
+
+        if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
+          return;
+        }
+
+        if (response.ok) {
+          bestSummary = pickBetterSummary(bestSummary, response.summary);
+          shouldShowCompletedResults = true;
+          startTransition(() => {
+            setLivePreviewSummary(bestSummary);
+          });
+          continue;
+        }
+
+        searchFailures.push(
+          `${routeRequest.origin} -> ${routeRequest.destination}: ${response.error}`
+        );
+      }
+
+      if (!bestSummary) {
+        setError(
+          searchFailures[0] ??
+            "No selected airport route returned a usable fare summary."
+        );
+        setSummary(null);
+        setLivePreviewSummary(null);
+        setResumeSearchState(null);
+        shouldShowCompletedResults = false;
+        return;
+      }
+
+      const winningSummary = bestSummary;
+      const winningSubmittedRequest = winningSummary.request;
+      startTransition(() => {
+        setSummary(winningSummary);
+        setLivePreviewSummary(null);
+        setResumeSearchState(null);
+        setUpgradeFareBox(
+          createInitialUpgradeFareCardState(
+            winningSummary,
+            winningSubmittedRequest
+          )
+        );
+      });
+      setUpgradeSearchRequest(
+        buildAdjacentCabinSearchRequest(winningSubmittedRequest)
+      );
+      setError(
+        searchFailures.length > 0
+          ? `Some airport routes failed while searching. Best route shown: ${winningSummary.request.origin} -> ${winningSummary.request.destination}. Failed routes: ${searchFailures.join("; ")}`
+          : ""
+      );
+    } catch (caughtError) {
+      if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
+        return;
+      }
+
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Multi-airport search failed unexpectedly";
+      setError(message);
+      setSummary(null);
+      setLivePreviewSummary(bestSummary);
+      shouldShowCompletedResults = hasMeaningfulSummary(bestSummary);
+      setResumeSearchState(null);
+    } finally {
+      if (mainSearchRunIdRef.current === runId) {
+        if (mainSearchAbortControllerRef.current === controller) {
+          mainSearchAbortControllerRef.current = null;
+        }
+        setIsSearching(false);
+        setHasCompletedSearch(shouldShowCompletedResults);
+        setSearchProgress(null);
+      }
+    }
+  }
+
   async function handleSearch(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    await startMainSearch({
+    const submittedRequest = {
       ...requestRef.current,
       useExactDates
-    });
+    };
+    const routeRequests = buildMultiAirportRouteRequests(
+      submittedRequest,
+      additionalOriginAirports,
+      additionalDestinationAirports
+    );
+    const hasAdditionalAirportSelections =
+      useMultipleAirports &&
+      (additionalOriginAirports.length > 0 ||
+        additionalDestinationAirports.length > 0);
+
+    if (hasAdditionalAirportSelections) {
+      await startMultiAirportSearch(submittedRequest, routeRequests);
+      return;
+    }
+
+    await startMainSearch(submittedRequest);
   }
 
   function handleResumeSearch() {
@@ -1087,6 +1489,22 @@ export default function App() {
     useExactDates,
     todayDateInput
   );
+  const selectedOriginAirports = getAirportCodeList(
+    request.origin,
+    additionalOriginAirports
+  );
+  const selectedDestinationAirports = getAirportCodeList(
+    request.destination,
+    additionalDestinationAirports
+  );
+  const multiAirportRouteCount = buildMultiAirportRouteRequests(
+    request,
+    additionalOriginAirports,
+    additionalDestinationAirports
+  ).length;
+  const hasAdditionalAirportSelections =
+    additionalOriginAirports.length > 0 ||
+    additionalDestinationAirports.length > 0;
 
   const adminUiSnapshot = {
     route: {
@@ -1227,6 +1645,77 @@ export default function App() {
         </section>
 
         <section className="form-card">
+          <div className="form-card__settings">
+            <button
+              aria-expanded={isSettingsOpen}
+              aria-label="Open search settings"
+              className={`settings-button ${isSettingsOpen ? "is-active" : ""}`}
+              onClick={() => setIsSettingsOpen((current) => !current)}
+              title="Search settings"
+              type="button"
+            >
+              <span className="settings-button__icon" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+            </button>
+
+            {isSettingsOpen ? (
+              <div
+                aria-label="Search settings"
+                className="settings-panel"
+                role="dialog"
+              >
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={useMultipleAirports}
+                    onChange={(event) =>
+                      setUseMultipleAirports(event.target.checked)
+                    }
+                  />
+                  <span className="settings-toggle__switch" aria-hidden="true">
+                    <span />
+                  </span>
+                  <span>
+                    <strong>Multiple airport selection</strong>
+                    <small>
+                      Compare alternate origin and destination airports in one
+                      search.
+                    </small>
+                  </span>
+                </label>
+
+                {useMultipleAirports ? (
+                  <div className="multi-airport-settings">
+                    <p className="settings-panel__note">
+                      Use the existing origin and destination fields to select
+                      more airports. Selected airports will show as comma-separated
+                      codes in each field.
+                    </p>
+                    <p className="settings-panel__note">
+                      {multiAirportRouteCount > 0
+                        ? `${multiAirportRouteCount} route combination${
+                            multiAirportRouteCount === 1 ? "" : "s"
+                          } will be checked.`
+                        : "Add at least one valid origin and destination to check airport combinations."}
+                    </p>
+                    <button
+                      className="secondary-action secondary-action--compact"
+                      disabled={!hasAdditionalAirportSelections}
+                      onClick={clearAdditionalAirports}
+                      type="button"
+                    >
+                      Clear extra airports
+                    </button>
+                  </div>
+                ) : null}
+
+              </div>
+            ) : null}
+          </div>
+
           <form className="search-form" onSubmit={handleSearch}>
             <section className="form-section">
               <div className="section-heading">
@@ -1270,34 +1759,18 @@ export default function App() {
                 <AirportField
                   label="Origin airport"
                   value={request.origin}
-                  onSelect={(origin) => {
-                    updateRequest((currentRequest) => ({
-                      ...currentRequest,
-                      origin
-                    }));
-                    setOriginDetection((currentState) => ({
-                      ...currentState,
-                      selectionSource: "manual_override",
-                      appliedOrigin: origin,
-                      browserTimeZone:
-                        currentState.browserTimeZone ?? getBrowserTimeZone(),
-                      message: currentState.inferredAirport
-                        ? `Origin manually changed to ${origin}. The initial fallback guess was ${currentState.inferredAirport}.`
-                        : `Origin manually changed to ${origin}.`
-                    }));
-                  }}
+                  multiple={useMultipleAirports}
+                  selectedCodes={selectedOriginAirports}
+                  onSelect={selectOriginAirport}
                 />
 
                 <AirportField
                   label="Destination airport"
                   value={request.destination}
+                  multiple={useMultipleAirports}
                   placeholder="Enter the airport, city, or code you want to fly to"
-                  onSelect={(destination) =>
-                    updateRequest((currentRequest) => ({
-                      ...currentRequest,
-                      destination
-                    }))
-                  }
+                  selectedCodes={selectedDestinationAirports}
+                  onSelect={selectDestinationAirport}
                 />
                 </div>
               </div>

@@ -259,9 +259,181 @@ select {
   z-index: 10;
 }
 
+.form-card__settings {
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  z-index: 60;
+}
+
+.settings-button {
+  align-items: center;
+  background: rgba(246, 221, 187, 0.08);
+  border: 1px solid rgba(246, 221, 187, 0.18);
+  border-radius: 999px;
+  color: #fff6ea;
+  cursor: pointer;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+  width: 44px;
+}
+
+.settings-button:hover,
+.settings-button:focus-visible,
+.settings-button.is-active {
+  background: rgba(241, 190, 132, 0.14);
+  border-color: rgba(241, 190, 132, 0.34);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.settings-button__icon {
+  display: grid;
+  gap: 4px;
+  width: 20px;
+}
+
+.settings-button__icon span {
+  background: currentColor;
+  border-radius: 999px;
+  display: block;
+  height: 2px;
+  position: relative;
+}
+
+.settings-button__icon span::after {
+  background: #f1be84;
+  border-radius: 999px;
+  content: "";
+  height: 6px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+}
+
+.settings-button__icon span:nth-child(1)::after {
+  left: 4px;
+}
+
+.settings-button__icon span:nth-child(2)::after {
+  right: 3px;
+}
+
+.settings-button__icon span:nth-child(3)::after {
+  left: 9px;
+}
+
+.settings-panel {
+  background:
+    linear-gradient(180deg, rgba(246, 221, 187, 0.08), rgba(246, 221, 187, 0.025)),
+    rgba(8, 20, 30, 0.98);
+  border: 1px solid rgba(246, 221, 187, 0.18);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(4, 10, 16, 0.42);
+  display: grid;
+  gap: 16px;
+  margin-top: 10px;
+  padding: 16px;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  width: min(420px, calc(100vw - 40px));
+}
+
+.settings-toggle {
+  align-items: center;
+  background: rgba(6, 15, 24, 0.5);
+  border: 1px solid rgba(246, 221, 187, 0.12);
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.settings-toggle input {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  width: 0;
+}
+
+.settings-toggle > span:last-child {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-toggle strong {
+  color: rgba(255, 246, 234, 0.94);
+  font-size: 0.95rem;
+}
+
+.settings-toggle small {
+  color: rgba(247, 242, 233, 0.66);
+  line-height: 1.4;
+}
+
+.settings-toggle__switch {
+  background: rgba(6, 15, 24, 0.8);
+  border: 1px solid rgba(246, 221, 187, 0.18);
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 30px;
+  justify-content: flex-start;
+  padding: 3px;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+  width: 54px;
+}
+
+.settings-toggle__switch span {
+  background: rgba(255, 246, 234, 0.92);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(4, 10, 16, 0.24);
+  display: block;
+  height: 22px;
+  transition: transform 180ms ease;
+  width: 22px;
+}
+
+.settings-toggle input:checked + .settings-toggle__switch {
+  background: linear-gradient(135deg, rgba(241, 190, 132, 0.88), rgba(215, 96, 53, 0.88));
+  border-color: rgba(241, 190, 132, 0.42);
+}
+
+.settings-toggle input:checked + .settings-toggle__switch span {
+  transform: translateX(24px);
+}
+
+.multi-airport-settings {
+  display: grid;
+  gap: 12px;
+}
+
+.multi-airport-settings .secondary-action {
+  justify-self: start;
+}
+
+.settings-panel__note {
+  color: rgba(247, 242, 233, 0.7);
+  line-height: 1.5;
+  margin: 0;
+}
+
 .search-form {
   display: grid;
   gap: 18px;
+  padding-top: 48px;
 }
 
 .form-section {
@@ -568,6 +740,69 @@ select {
   min-width: 0;
   text-overflow: ellipsis;
   width: 100%;
+}
+
+.airport-autocomplete-input--with-icon {
+  padding-right: 48px;
+}
+
+.airport-select-icon {
+  align-items: center;
+  background: rgba(241, 190, 132, 0.12);
+  border: 1px solid rgba(241, 190, 132, 0.24);
+  border-radius: 999px;
+  color: #f1be84;
+  cursor: pointer;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+  width: 30px;
+}
+
+.airport-select-icon:hover,
+.airport-select-icon:focus-visible {
+  background: rgba(241, 190, 132, 0.2);
+  border-color: rgba(241, 190, 132, 0.42);
+  outline: none;
+}
+
+.airport-select-icon span,
+.airport-select-icon span::before,
+.airport-select-icon span::after {
+  background: currentColor;
+  border-radius: 999px;
+  content: "";
+  display: block;
+  height: 2px;
+  position: absolute;
+  width: 12px;
+}
+
+.airport-select-icon span {
+  position: relative;
+}
+
+.airport-select-icon span::before {
+  left: 0;
+  top: -5px;
+}
+
+.airport-select-icon span::after {
+  left: 0;
+  top: 5px;
+}
+
+.airport-autocomplete-shell--multiple:focus-within .airport-select-icon {
+  background: rgba(241, 190, 132, 0.22);
+  border-color: rgba(241, 190, 132, 0.48);
 }
 
 .field input::placeholder {

@@ -175,7 +175,6 @@ Main files:
 | `workspace/app/web/src/components/ResultsView.tsx` | Main results screen. |
 | `workspace/app/src/core/fare-characteristics.ts` | Helps describe bag rules and fare qualities. |
 | `workspace/app/src/core/booking-source-supplement.ts` | Adds more detail about whether booking looks direct with the airline or through a third party. |
-| `workspace/app/src/providers/amadeus/missing-info-supplement.ts` | Optional helper that fills in missing booking details using Amadeus data. |
 
 ### 10. Timing Guidance And "Should I Wait?"
 
@@ -314,15 +313,6 @@ This section is a map of the app by file.
 | `workspace/app/src/providers/google-flights/parsing.ts` | Parses Google Flights responses into usable app results. |
 | `workspace/app/src/providers/google-flights/types.ts` | Type definitions for Google Flights data. |
 | `workspace/app/src/providers/google-flights/provider.test.ts` | Tests the provider flow. |
-
-### Amadeus Provider Files
-
-| File | Plain-English purpose |
-| --- | --- |
-| `workspace/app/src/providers/amadeus/client.ts` | Talks to the Amadeus API. |
-| `workspace/app/src/providers/amadeus/types.ts` | Type definitions for Amadeus data. |
-| `workspace/app/src/providers/amadeus/missing-info-supplement.ts` | Uses Amadeus to fill missing fare or booking details when available. |
-| `workspace/app/src/providers/amadeus/missing-info-supplement.test.ts` | Tests the Amadeus supplement behavior. |
 
 ### CLI Files
 

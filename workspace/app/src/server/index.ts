@@ -238,10 +238,8 @@ function searchJobRequestMatchesCheckpoint(
   checkpointRequest: SearchRequest
 ): boolean {
   try {
-    return (
-      stableSerialize(searchRequestSchema.parse(requestInput)) ===
-      stableSerialize(checkpointRequest)
-    );
+    const parsedRequest = searchRequestSchema.parse(requestInput);
+    return stableSerialize(parsedRequest) === stableSerialize(checkpointRequest);
   } catch {
     return false;
   }
