@@ -8,7 +8,7 @@ export type SearchFailureResponse = {
 };
 
 const upstreamRateLimitMessage =
-  "The flight search provider temporarily rate limited this search. Wait a minute and try again.";
+  "The flight search provider temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN.";
 const upstreamNetworkMessage =
   "The flight search provider could not be reached. Check your internet connection, DNS settings, VPN, or proxy, then try again.";
 

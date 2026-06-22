@@ -63,7 +63,7 @@ describe("GoogleFlightsClient", () => {
       client.post("https://example.com/shopping", "f.req=payload")
     ).rejects.toMatchObject({
       message:
-        "Google Flights temporarily rate limited this search. Wait a minute and try again.",
+        "Google Flights temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN.",
       name: "GoogleFlightsRateLimitError",
       statusCode: 429
     });

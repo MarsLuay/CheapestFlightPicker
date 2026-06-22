@@ -17,7 +17,9 @@ type GoogleFlightsClientOptions = {
 export class GoogleFlightsRateLimitError extends Error {
   readonly statusCode = 429;
 
-  constructor(message = "Google Flights temporarily rate limited this search. Wait a minute and try again.") {
+  constructor(
+    message = "Google Flights temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN."
+  ) {
     super(message);
     this.name = "GoogleFlightsRateLimitError";
   }

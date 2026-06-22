@@ -51,7 +51,7 @@ describe("getSearchFailureResponse", () => {
       getSearchFailureResponse(new GoogleFlightsRateLimitError())
     ).toEqual({
       message:
-        "Google Flights temporarily rate limited this search. Wait a minute and try again.",
+        "Google Flights temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN.",
       statusCode: 429
     });
   });
@@ -59,7 +59,7 @@ describe("getSearchFailureResponse", () => {
   it("maps raw upstream 429 errors to a friendly search error", () => {
     expect(getSearchFailureResponse(buildAxiosError(429))).toEqual({
       message:
-        "The flight search provider temporarily rate limited this search. Wait a minute and try again.",
+        "The flight search provider temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN.",
       statusCode: 429
     });
   });

@@ -2158,6 +2158,10 @@ export default function App() {
                         ? "Partial results are still shown below. Resume this same search after the Google Flights cooldown."
                         : "Resume this same search after the Google Flights cooldown."}
                     </p>
+                    <p className="muted-copy">
+                      If rate limits keep happening, try turning on a VPN and
+                      searching again.
+                    </p>
                     <button
                       className="secondary-action secondary-action--compact"
                       type="button"

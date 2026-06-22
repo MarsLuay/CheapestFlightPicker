@@ -222,11 +222,11 @@ describe("runFlightSearch", () => {
       createdAt: "2026-03-25T07:59:13.100Z",
       updatedAt: "2026-03-25T07:59:16.100Z",
       error:
-        "Google Flights temporarily rate limited this search. Wait a minute and try again.",
+        "Google Flights temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN.",
       progress: {
         stage: "Failed",
         detail:
-          "Google Flights temporarily rate limited this search. Wait a minute and try again.",
+          "Google Flights temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN.",
         completedSteps: 3,
         totalSteps: 9,
         percent: 33,
@@ -266,7 +266,7 @@ describe("runFlightSearch", () => {
     expect(response).toEqual({
       ok: false,
       error:
-        "Google Flights temporarily rate limited this search. Wait a minute and try again."
+        "Google Flights temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN."
     });
     expect(progressUpdates).toHaveLength(1);
     expect(progressUpdates[0]?.previewSummary?.departureDatePrices).toEqual([
