@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { FlightSearchService } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
@@ -466,6 +466,7 @@ describe("FlightSearchService round-trip pairing", () => {
   });
 
   it("streams live one-way preview summaries while exact fares are still being checked", async () => {
+    vi.useFakeTimers();
     const service = new FlightSearchService();
     const serviceWithMocks = service as unknown as {
       bookingSourceSupplementService: {
@@ -494,7 +495,7 @@ describe("FlightSearchService round-trip pairing", () => {
       },
       async searchExactFlights(input) {
         if (input.departureDate === "2026-05-09") {
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await vi.advanceTimersByTimeAsync(20);
           return [
             buildOption(140, "google_one_way", 1, 0, {
               outboundDate: input.departureDate
@@ -562,6 +563,7 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(liveUpdate?.previewSummary?.cheapestOverall?.totalPrice).toBe(150);
     expect(liveUpdate?.previewSummary?.cheapestMultiStop?.totalPrice).toBe(170);
     expect(summary.cheapestOverall?.totalPrice).toBe(140);
+    vi.useRealTimers();
   });
 
   it("resumes a one-way search without rechecking completed dates", async () => {
@@ -919,6 +921,7 @@ describe("FlightSearchService round-trip pairing", () => {
   });
 
   it("streams live round-trip preview summaries while date pairs are still being compared", async () => {
+    vi.useFakeTimers();
     const service = new FlightSearchService();
     const serviceWithMocks = service as unknown as {
       bookingSourceSupplementService: {
@@ -954,7 +957,7 @@ describe("FlightSearchService round-trip pairing", () => {
       },
       async searchExactFlights(input) {
         if (input.returnDate === "2026-05-16" || input.departureDate === "2026-05-16") {
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await vi.advanceTimersByTimeAsync(20);
         }
 
         if (input.tripType === "round_trip") {
@@ -1042,6 +1045,7 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(liveUpdate?.previewSummary?.inspectedOptions).toBe(3);
     expect(summary.inspectedOptions).toBe(6);
     expect(summary.cheapestOverall?.totalPrice).toBe(210);
+    vi.useRealTimers();
   });
 
   it("adds outbound and inbound times to ranked round-trip dates", async () => {

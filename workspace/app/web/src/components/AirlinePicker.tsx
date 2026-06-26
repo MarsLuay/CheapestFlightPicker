@@ -96,9 +96,13 @@ export function AirlinePicker({ selected, onChange }: AirlinePickerProps) {
 
   return (
     <div className="field filter-field filter-field--wide">
-      <span>Airlines</span>
+      <label className="field-label" htmlFor="airline-picker-input">
+        Airlines
+      </label>
       <div className="autocomplete-shell">
         <input
+          id="airline-picker-input"
+          aria-label="Airlines"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => setIsFocused(true)}

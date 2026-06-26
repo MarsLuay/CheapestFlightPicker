@@ -3,13 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; base-uri 'self'; form-action 'self'"
+    />
     <title>Cheapest Flight Picker</title>
     <meta
       name="description"
       content="Find the cheapest flights within date and time windows, then compare round-trips against two one-way tickets."
     />
+    <link rel="canonical" href="https://github.com/MarsLuay/CheapestFlightPicker" />
+    <meta property="og:title" content="Cheapest Flight Picker" />
+    <meta
+      property="og:description"
+      content="Find the cheapest flights within flexible date and time windows."
+    />
+    <meta
+      property="og:image"
+      content="https://raw.githubusercontent.com/MarsLuay/CheapestFlightPicker/main/docs/ui.png"
+    />
+    <meta property="og:type" content="website" />
   </head>
   <body>
+    <h1 class="visually-hidden">Cheapest Flight Picker</h1>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

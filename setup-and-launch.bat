@@ -291,6 +291,7 @@ call :ensure_node_ps1_scripts
 where curl >nul 2>nul
 if not errorlevel 1 (
   call :resolve_node_lts_version
+  if not defined NODE_VERSION set "NODE_VERSION=v24.18.0"
   if defined NODE_VERSION (
     set "NODE_MSI=%TEMP%\node-!NODE_VERSION!-x64.msi"
     echo Downloading Node.js !NODE_VERSION! with curl...
@@ -315,7 +316,11 @@ exit /b %ERRORLEVEL%
 set "NODE_VERSION="
 if not defined POWERSHELL_EXE exit /b 1
 if not defined NODE_RESOLVE_PS1 call :ensure_node_ps1_scripts
-for /f "delims=" %%V in ('"%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "!NODE_RESOLVE_PS1!"') do set "NODE_VERSION=%%V"
+for /f "delims=" %%V in ('"%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "!NODE_RESOLVE_PS1!"') do (
+  set "NODE_VERSION=%%V"
+  goto :node_version_resolved
+)
+:node_version_resolved
 exit /b 0
 
 :ensure_node_ps1_scripts
@@ -328,8 +333,14 @@ if exist "!NODE_SIDECAR_DIR!\install-node-lts.ps1" if exist "!NODE_SIDECAR_DIR!\
   set "NODE_RESOLVE_PS1=!NODE_SIDECAR_DIR!\resolve-node-lts.ps1"
   exit /b 0
 )
+if exist "!LAUNCHER_DIR!\install-node-lts.ps1" if exist "!LAUNCHER_DIR!\resolve-node-lts.ps1" (
+  set "NODE_INSTALL_PS1=!LAUNCHER_DIR!\install-node-lts.ps1"
+  set "NODE_RESOLVE_PS1=!LAUNCHER_DIR!\resolve-node-lts.ps1"
+  exit /b 0
+)
 set "NODE_SCRIPT_DIR=%TEMP%\setup-launcher-node"
-if not exist "!NODE_SCRIPT_DIR!" mkdir "!NODE_SCRIPT_DIR!"
+if exist "!NODE_SCRIPT_DIR!" rmdir /s /q "!NODE_SCRIPT_DIR!"
+mkdir "!NODE_SCRIPT_DIR!"
 set "NODE_INSTALL_PS1=!NODE_SCRIPT_DIR!\install-node-lts.ps1"
 set "NODE_RESOLVE_PS1=!NODE_SCRIPT_DIR!\resolve-node-lts.ps1"
 call :write_embedded_node_install_ps1 "!NODE_INSTALL_PS1!"
@@ -338,14 +349,33 @@ exit /b 0
 
 :write_embedded_node_install_ps1
 if not defined POWERSHELL_EXE call :resolve_powershell
-"%POWERSHELL_EXE%" -NoProfile -Command "$b='JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJwpbTmV0LlNlcnZpY2VQb2ludE1hbmFnZXJdOjpTZWN1cml0eVByb3RvY29sID0gW05ldC5TZWN1cml0eVByb3RvY29sVHlwZV06OlRsczEyCiR1c2VyQWdlbnQgPSAnTW96aWxsYS81LjAgKGNvbXBhdGlibGU7IFNldHVwTGF1bmNoZXIvMS4wKScKCiRlbnRyaWVzID0gQChJbnZva2UtUmVzdE1ldGhvZCAtVXJpICdodHRwczovL25vZGVqcy5vcmcvZGlzdC9pbmRleC5qc29uJyAtVXNlckFnZW50ICR1c2VyQWdlbnQpCiRsdHMgPSAkZW50cmllcyB8IFdoZXJlLU9iamVjdCB7ICRfLmx0cyAtbmUgJGZhbHNlIC1hbmQgJF8ubHRzIH0gfCBTZWxlY3QtT2JqZWN0IC1GaXJzdCAxCmlmICgtbm90ICRsdHMpIHsKICB0aHJvdyAnQ291bGQgbm90IHJlc29sdmUgTm9kZS5qcyBMVFMgdmVyc2lvbi4nCn0KCiR2ZXJzaW9nID0gJGx0cy52ZXJzaW9uCiRtc2lOYW1lID0gIm5vZGUtJHZlcnNpb24teDY0Lm1zaSIKJHVybCA9ICJodHRwczovL25vZGVqcy5vcmcvZGlzdC8kdmVyc2lvbi8kbXNpTmFtZSIKJGluc3RhbGxlciA9IEpvaW4tUGF0aCAkZW52OlRFTVAgJG1zaU5hbWUKCldyaXRlLUhvc3QgIkRvd25sb2FkaW5nICR1cmwiCkludm9rZS1XZWJSZXF1ZXN0IC1VcmkgJHVybCAtT3V0RmlsZSAkaW5zdGFsbGVyIC1Vc2VCYXNpY1BhcnNpbmcgLVVzZXJBZ2VudCAkdXNlckFnZW50CgokcHJvYyA9IFN0YXJ0LVByb2Nlc3MgLUZpbGVQYXRoICdtc2lleGVjLmV4ZScgLUFyZ3VtZW50TGlzdCBAKCcvaScsICRpbnN0YWxsZXIsICcvcXVpZXQnLCAnL25vcmVzdGFydCcpIC1XYWl0IC1QYXNzVGhydQppZiAoJHByb2MuRXhpdENvZGUgLW5lIDAgLWFuZCAkcHJvYy5FeGl0Q29kZSAtbmUgMzAxMCkgewogIGV4aXQgMQp9Cg=='; [IO.File]::WriteAllText('%~1', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)))"
-exit /b 0
+if exist "!LAUNCHER_DIR!\install-node-lts.ps1" (
+  copy /Y "!LAUNCHER_DIR!\install-node-lts.ps1" "%~1" >nul
+  exit /b 0
+)
+"%POWERSHELL_EXE%" -NoProfile -Command "$b='JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJw0KW05ldC5TZXJ2aWNlUG9pbnRNYW5hZ2VyXTo6U2VjdXJpdHlQcm90b2NvbCA9IFtOZXQuU2VjdXJpdHlQcm90b2NvbFR5cGVdOjpUbHMxMg0KJHVzZXJBZ2VudCA9ICdNb3ppbGxhLzUuMCAoY29tcGF0aWJsZTsgU2V0dXBMYXVuY2hlci8xLjApJw0KDQpmdW5jdGlvbiBHZXQtTm9kZUx0c0VudHJ5IHsNCiAgcGFyYW0oDQogICAgW1BhcmFtZXRlcihNYW5kYXRvcnkgPSAkdHJ1ZSldDQogICAgW29iamVjdFtdXSRFbnRyaWVzDQogICkNCg0KICAkbHRzRW50cnkgPSAkRW50cmllcyB8DQogICAgV2hlcmUtT2JqZWN0IHsgJF8ubHRzIC1pcyBbc3RyaW5nXSAtYW5kICRfLmx0cy5UcmltKCkuTGVuZ3RoIC1ndCAwIH0gfA0KICAgIFNlbGVjdC1PYmplY3QgLUZpcnN0IDENCg0KICBpZiAoLW5vdCAkbHRzRW50cnkpIHsNCiAgICByZXR1cm4gJG51bGwNCiAgfQ0KDQogIHJldHVybiAkbHRzRW50cnkNCn0NCg0KZnVuY3Rpb24gR2V0LU5vZGVXaW5kb3dzQXJjaCB7DQogIGlmIChbRW52aXJvbm1lbnRdOjpJczY0Qml0T3BlcmF0aW5nU3lzdGVtKSB7DQogICAgaWYgKCRlbnY6UFJPQ0VTU09SX0FSQ0hJVEVDVFVSRSAtbWF0Y2ggJ0FSTTY0JyAtb3IgJGVudjpQUk9DRVNTT1JfQVJDSElURVc2NDMyIC1tYXRjaCAnQVJNNjQnKSB7DQogICAgICByZXR1cm4gJ2FybTY0Jw0KICAgIH0NCg0KICAgIHJldHVybiAneDY0Jw0KICB9DQoNCiAgcmV0dXJuICd4ODYnDQp9DQoNCmZ1bmN0aW9uIFJlc29sdmUtTm9kZUx0c1ZlcnNpb24gew0KICBwYXJhbSgNCiAgICBbUGFyYW1ldGVyKE1hbmRhdG9yeSA9ICR0cnVlKV0NCiAgICBbb2JqZWN0W11dJEVudHJpZXMNCiAgKQ0KDQogICRsdHNFbnRyeSA9IEdldC1Ob2RlTHRzRW50cnkgLUVudHJpZXMgJEVudHJpZXMNCiAgaWYgKCRsdHNFbnRyeSAtYW5kIC1ub3QgW3N0cmluZ106OklzTnVsbE9yV2hpdGVTcGFjZSgkbHRzRW50cnkudmVyc2lvbikpIHsNCiAgICByZXR1cm4gJGx0c0VudHJ5LnZlcnNpb24uVHJpbSgpDQogIH0NCg0KICByZXR1cm4gJ3YyNC4xOC4wJw0KfQ0KDQokZW50cmllcyA9IEAoSW52b2tlLVJlc3RNZXRob2QgLVVyaSAnaHR0cHM6Ly9ub2RlanMub3JnL2Rpc3QvaW5kZXguanNvbicgLVVzZXJBZ2VudCAkdXNlckFnZW50KQ0KJHZlcnNpb24gPSBSZXNvbHZlLU5vZGVMdHNWZXJzaW9uIC1FbnRyaWVzICRlbnRyaWVzDQppZiAoW3N0cmluZ106OklzTnVsbE9yV2hpdGVTcGFjZSgkdmVyc2lvbikpIHsNCiAgdGhyb3cgJ0NvdWxkIG5vdCByZXNvbHZlIE5vZGUuanMgTFRTIHZlcnNpb24uJw0KfQ0KDQokYXJjaCA9IEdldC1Ob2RlV2luZG93c0FyY2gNCiRtc2lOYW1lID0gIm5vZGUtJHZlcnNpb24tJGFyY2gubXNpIg0KJHVybCA9ICJodHRwczovL25vZGVqcy5vcmcvZGlzdC8kdmVyc2lvbi8kbXNpTmFtZSINCiRpbnN0YWxsZXIgPSBKb2luLVBhdGggJGVudjpURU1QICRtc2lOYW1lDQoNCldyaXRlLUhvc3QgIkRvd25sb2FkaW5nICR1cmwiDQpJbnZva2UtV2ViUmVxdWVzdCAtVXJpICR1cmwgLU91dEZpbGUgJGluc3RhbGxlciAtVXNlQmFzaWNQYXJzaW5nIC1Vc2VyQWdlbnQgJHVzZXJBZ2VudA0KDQppZiAoLW5vdCAoVGVzdC1QYXRoIC1MaXRlcmFsUGF0aCAkaW5zdGFsbGVyKSkgew0KICB0aHJvdyAiTm9kZS5qcyBpbnN0YWxsZXIgd2FzIG5vdCBkb3dubG9hZGVkOiAkaW5zdGFsbGVyIg0KfQ0KDQokcHJvYyA9IFN0YXJ0LVByb2Nlc3MgLUZpbGVQYXRoICdtc2lleGVjLmV4ZScgLUFyZ3VtZW50TGlzdCBAKCcvaScsICRpbnN0YWxsZXIsICcvcXVpZXQnLCAnL25vcmVzdGFydCcpIC1XYWl0IC1QYXNzVGhydQ0KaWYgKCRwcm9jLkV4aXRDb2RlIC1uZSAwIC1hbmQgJHByb2MuRXhpdENvZGUgLW5lIDMwMTApIHsNCiAgZXhpdCAxDQp9DQo='; [IO.File]::WriteAllText('%~1', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)))"
+if exist "%~1" exit /b 0
+where curl >nul 2>nul
+if not errorlevel 1 (
+  curl -fsSL -H "User-Agent: SetupLauncher/1.0" -o "%~1" "https://raw.githubusercontent.com/MarsLuay/CheapestFlightPicker/main/install-node-lts.ps1"
+  if not errorlevel 1 if exist "%~1" exit /b 0
+)
+exit /b 1
 
 :write_embedded_node_resolve_ps1
 if not defined POWERSHELL_EXE call :resolve_powershell
-"%POWERSHELL_EXE%" -NoProfile -Command "$b='JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJwpbTmV0LlNlcnZpY2VQb2ludE1hbmFnZXJdOjpTZWN1cml0eVByb3RvY29sID0gW05ldC5TZWN1cml0eVByb3RvY29sVHlwZV06OlRsczEyCiRlbnRyaWVzID0gQChJbnZva2UtUmVzdE1ldGhvZCAtVXJpICdodHRwczovL25vZGVqcy5vcmcvZGlzdC9pbmRleC5qc29uJyAtVXNlckFnZW50ICdTZXR1cExhdW5jaGVyLzEuMCcpCiRsdHMgPSAkZW50cmllcyB8IFdoZXJlLU9iamVjdCB7ICRfLmx0cyAtbmUgJGZhbHNlIC1hbmQgJF8ubHRzIH0gfCBTZWxlY3QtT2JqZWN0IC1GaXJzdCAxCmlmICgtbm90ICRsdHMpIHsKICBleGl0IDEKfQpXcml0ZS1PdXRwdXQgJGx0cy52ZXJzaW9uCg=='; [IO.File]::WriteAllText('%~1', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)))"
-exit /b 0
-
+if exist "!LAUNCHER_DIR!\resolve-node-lts.ps1" (
+  copy /Y "!LAUNCHER_DIR!\resolve-node-lts.ps1" "%~1" >nul
+  exit /b 0
+)
+"%POWERSHELL_EXE%" -NoProfile -Command "$b='JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJw0KW05ldC5TZXJ2aWNlUG9pbnRNYW5hZ2VyXTo6U2VjdXJpdHlQcm90b2NvbCA9IFtOZXQuU2VjdXJpdHlQcm90b2NvbFR5cGVdOjpUbHMxMg0KDQpmdW5jdGlvbiBHZXQtTm9kZUx0c0VudHJ5IHsNCiAgcGFyYW0oDQogICAgW1BhcmFtZXRlcihNYW5kYXRvcnkgPSAkdHJ1ZSldDQogICAgW29iamVjdFtdXSRFbnRyaWVzDQogICkNCg0KICAkbHRzRW50cnkgPSAkRW50cmllcyB8DQogICAgV2hlcmUtT2JqZWN0IHsgJF8ubHRzIC1pcyBbc3RyaW5nXSAtYW5kICRfLmx0cy5UcmltKCkuTGVuZ3RoIC1ndCAwIH0gfA0KICAgIFNlbGVjdC1PYmplY3QgLUZpcnN0IDENCg0KICBpZiAoLW5vdCAkbHRzRW50cnkpIHsNCiAgICByZXR1cm4gJG51bGwNCiAgfQ0KDQogIHJldHVybiAkbHRzRW50cnkNCn0NCg0KJGVudHJpZXMgPSBAKEludm9rZS1SZXN0TWV0aG9kIC1VcmkgJ2h0dHBzOi8vbm9kZWpzLm9yZy9kaXN0L2luZGV4Lmpzb24nIC1Vc2VyQWdlbnQgJ1NldHVwTGF1bmNoZXIvMS4wJykNCiRsdHNFbnRyeSA9IEdldC1Ob2RlTHRzRW50cnkgLUVudHJpZXMgJGVudHJpZXMNCmlmICgkbHRzRW50cnkgLWFuZCAtbm90IFtzdHJpbmddOjpJc051bGxPcldoaXRlU3BhY2UoJGx0c0VudHJ5LnZlcnNpb24pKSB7DQogIFdyaXRlLU91dHB1dCAkbHRzRW50cnkudmVyc2lvbi5UcmltKCkNCiAgZXhpdCAwDQp9DQoNCldyaXRlLU91dHB1dCAndjI0LjE4LjAnDQo='; [IO.File]::WriteAllText('%~1', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)))"
+if exist "%~1" exit /b 0
+where curl >nul 2>nul
+if not errorlevel 1 (
+  curl -fsSL -H "User-Agent: SetupLauncher/1.0" -o "%~1" "https://raw.githubusercontent.com/MarsLuay/CheapestFlightPicker/main/resolve-node-lts.ps1"
+  if not errorlevel 1 if exist "%~1" exit /b 0
+)
+exit /b 1
 :add_known_tool_paths
 for %%P in (
   "%ProgramFiles%\Git\cmd"

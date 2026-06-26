@@ -1300,6 +1300,10 @@ export class FlightSearchService {
             .then((result) => {
               reportExactLookupComplete();
               return result;
+            })
+            .catch((error) => {
+              reportExactLookupComplete();
+              throw error;
             }),
           service.provider
             .searchExactFlights({
@@ -1319,6 +1323,10 @@ export class FlightSearchService {
             .then((result) => {
               reportExactLookupComplete();
               return result;
+            })
+            .catch((error) => {
+              reportExactLookupComplete();
+              throw error;
             }),
           service.provider
             .searchExactFlights({
@@ -1338,6 +1346,10 @@ export class FlightSearchService {
             .then((result) => {
               reportExactLookupComplete();
               return result;
+            })
+            .catch((error) => {
+              reportExactLookupComplete();
+              throw error;
             })
         ]);
 

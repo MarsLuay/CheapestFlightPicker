@@ -3,6 +3,8 @@ This parts the actual app.
 
 If you're trying to edit code, change the UI, mess with the search logic, it's all going to be in here. 
 
+The UI is **English-only by design** (no locale files yet).
+
 ## What lives in here
 
 - `src/core` is the main search/comparison logic
@@ -39,6 +41,15 @@ If something looks broken:
 - send it over
 
 Please for my mental sake send it alongside the issue report, I'll take it as an act of hatred otherwise
+
+## Privacy and data
+
+- Searches call **Google Flights** from your machine or the hosted API — route, date, and filter data are sent to Google for fare lookups.
+- The web UI can load bundled airport and airline catalogs from local CSV files before falling back to the API.
+- Saved search preferences may be stored in **browser local storage** on your device.
+- This project does not ship third-party analytics or advertising SDKs.
+
+See the root [README](../../README.md) for the full project overview.
 
 ## License
 

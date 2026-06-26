@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { JsonFileCache, stableSerialize } from "./cache";
 
@@ -17,6 +17,7 @@ function createTempDirectory(): string {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const directory of tempDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -52,6 +53,7 @@ describe("JsonFileCache", () => {
   });
 
   it("removes expired entries during a sweep", async () => {
+    vi.useFakeTimers();
     const directoryPath = createTempDirectory();
     const cache = new JsonFileCache<{ price: number }>({
       directoryPath,
@@ -60,7 +62,7 @@ describe("JsonFileCache", () => {
     });
 
     cache.set({ route: "SEA-PIT" }, { price: 123 });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await vi.advanceTimersByTimeAsync(25);
 
     expect(cache.get({ route: "SEA-PIT" })).toBeNull();
     expect(fs.readdirSync(directoryPath).length).toBe(0);

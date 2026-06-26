@@ -176,6 +176,7 @@ describe("runFlightSearch", () => {
   });
 
   it("aborts an in-flight search when the caller cancels it", async () => {
+    vi.useFakeTimers();
     globalThis.window = globalThis as typeof globalThis & Window;
 
     const request = buildRequest();
@@ -205,11 +206,12 @@ describe("runFlightSearch", () => {
       signal: controller.signal
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await vi.advanceTimersByTimeAsync(10);
     controller.abort();
 
     await expect(responsePromise).rejects.toThrow("Search canceled.");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it("emits the last failed-job preview before returning a rate-limit failure", async () => {

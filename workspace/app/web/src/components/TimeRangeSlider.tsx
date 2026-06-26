@@ -31,6 +31,7 @@ export function TimeRangeSlider({
       </div>
       <div className="range-stack">
         <input
+          aria-label={`${label} start`}
           type="range"
           min="0"
           max="24"
@@ -45,6 +46,7 @@ export function TimeRangeSlider({
           }}
         />
         <input
+          aria-label={`${label} end`}
           type="range"
           min="0"
           max="24"

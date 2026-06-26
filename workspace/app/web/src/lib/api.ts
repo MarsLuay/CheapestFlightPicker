@@ -275,7 +275,13 @@ export async function searchAirports(query: string): Promise<AirportRecord[]> {
 
   try {
     return await searchCatalogAirports(query);
-  } catch {}
+  } catch (error) {
+    addClientLog(
+      "warn",
+      "Local airport catalog lookup failed",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
 
   try {
     const data = await requestJson<{ airports: AirportRecord[] }>(
@@ -314,7 +320,13 @@ export async function fetchNearestAirport(
 export async function searchAirlines(query: string): Promise<AirlineRecord[]> {
   try {
     return await searchCatalogAirlines(query);
-  } catch {}
+  } catch (error) {
+    addClientLog(
+      "warn",
+      "Local airline catalog lookup failed",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
 
   try {
     const data = await requestJson<{ airlines: AirlineRecord[] }>(

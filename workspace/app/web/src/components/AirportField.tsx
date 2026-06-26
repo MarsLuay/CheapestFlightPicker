@@ -125,13 +125,14 @@ export function AirportField({
 
   return (
     <div className="field filter-field filter-field--airport">
-      <span>{label}</span>
+      <label className="field-label">{label}</label>
       <div
         className={`autocomplete-shell airport-autocomplete-shell ${
           multiple ? "airport-autocomplete-shell--multiple" : ""
         }`}
       >
         <input
+          aria-label={label}
           className={`airport-autocomplete-input ${
             multiple ? "airport-autocomplete-input--with-icon" : ""
           }`}

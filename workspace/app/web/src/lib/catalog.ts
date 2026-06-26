@@ -97,22 +97,32 @@ function parseAirlineRecord(line: string): AirlineRecord | null {
 }
 
 async function loadCatalogFile(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to load catalog data from ${url}.`);
-  }
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to load catalog data from ${url}.`);
+    }
 
-  return response.text();
+    return response.text();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(message);
+  }
 }
 
 async function loadAirportsCatalog(): Promise<AirportRecord[]> {
   if (!airportsPromise) {
-    airportsPromise = loadCatalogFile(airportsCsvUrl).then((contents) =>
-      contents
-        .split(/\r?\n/u)
-        .map(parseAirportRecord)
-        .filter((record): record is AirportRecord => record !== null)
-    );
+    airportsPromise = loadCatalogFile(airportsCsvUrl)
+      .then((contents) =>
+        contents
+          .split(/\r?\n/u)
+          .map(parseAirportRecord)
+          .filter((record): record is AirportRecord => record !== null)
+      )
+      .catch((error) => {
+        airportsPromise = null;
+        throw error;
+      });
   }
 
   return airportsPromise;
@@ -120,23 +130,28 @@ async function loadAirportsCatalog(): Promise<AirportRecord[]> {
 
 async function loadAirlinesCatalog(): Promise<AirlineRecord[]> {
   if (!airlinesPromise) {
-    airlinesPromise = loadCatalogFile(airlinesCsvUrl).then((contents) => {
-      const seen = new Set<string>();
+    airlinesPromise = loadCatalogFile(airlinesCsvUrl)
+      .then((contents) => {
+        const seen = new Set<string>();
 
-      return contents
-        .split(/\r?\n/u)
-        .map(parseAirlineRecord)
-        .filter((record): record is AirlineRecord => record !== null)
-        .filter((record) => {
-          if (!record.active || seen.has(record.iata)) {
-            return false;
-          }
+        return contents
+          .split(/\r?\n/u)
+          .map(parseAirlineRecord)
+          .filter((record): record is AirlineRecord => record !== null)
+          .filter((record) => {
+            if (!record.active || seen.has(record.iata)) {
+              return false;
+            }
 
-          seen.add(record.iata);
-          return true;
-        })
-        .sort((left, right) => left.iata.localeCompare(right.iata));
-    });
+            seen.add(record.iata);
+            return true;
+          })
+          .sort((left, right) => left.iata.localeCompare(right.iata));
+      })
+      .catch((error) => {
+        airlinesPromise = null;
+        throw error;
+      });
   }
 
   return airlinesPromise;

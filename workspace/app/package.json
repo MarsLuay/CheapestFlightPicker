@@ -1,7 +1,8 @@
 {
   "name": "cheapest-flight-picker",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
