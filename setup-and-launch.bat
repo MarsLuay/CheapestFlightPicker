@@ -129,15 +129,16 @@ exit /b 0
 
 :ensure_toolchain
 call :refresh_path
+call :bootstrap_windows_path
 call :add_known_tool_paths
 
 set "MISSING_GIT=0"
 set "MISSING_NODE=0"
-where git >nul 2>nul
+call :tool_available git
 if errorlevel 1 set "MISSING_GIT=1"
-where node >nul 2>nul
+call :tool_available node
 if errorlevel 1 set "MISSING_NODE=1"
-where npm >nul 2>nul
+call :tool_available npm
 if errorlevel 1 set "MISSING_NODE=1"
 
 if "!MISSING_GIT!"=="0" if "!MISSING_NODE!"=="0" exit /b 0
@@ -166,14 +167,15 @@ if "!MISSING_NODE!"=="1" (
 )
 
 call :refresh_path
+call :bootstrap_windows_path
 call :add_known_tool_paths
 
 set "MISSING_AFTER_INSTALL=0"
-where git >nul 2>nul
+call :tool_available git
 if errorlevel 1 set "MISSING_AFTER_INSTALL=1"
-where node >nul 2>nul
+call :tool_available node
 if errorlevel 1 set "MISSING_AFTER_INSTALL=1"
-where npm >nul 2>nul
+call :tool_available npm
 if errorlevel 1 set "MISSING_AFTER_INSTALL=1"
 
 if "!MISSING_AFTER_INSTALL!"=="0" exit /b 0
@@ -304,6 +306,26 @@ for %%P in (
 )
 
 exit /b 0
+
+:tool_available
+set "TOOL_NAME=%~1"
+where "%TOOL_NAME%" >nul 2>nul
+if not errorlevel 1 exit /b 0
+if /i "%TOOL_NAME%"=="git" (
+  if exist "%ProgramFiles%\Git\cmd\git.exe" exit /b 0
+  if exist "%ProgramFiles%\Git\bin\git.exe" exit /b 0
+  if exist "%LocalAppData%\Programs\Git\cmd\git.exe" exit /b 0
+  if exist "%LocalAppData%\Programs\Git\bin\git.exe" exit /b 0
+)
+if /i "%TOOL_NAME%"=="node" (
+  if exist "%ProgramFiles%\nodejs\node.exe" exit /b 0
+  if exist "%LocalAppData%\Programs\nodejs\node.exe" exit /b 0
+)
+if /i "%TOOL_NAME%"=="npm" (
+  if exist "%ProgramFiles%\nodejs\npm.cmd" exit /b 0
+  if exist "%LocalAppData%\Programs\nodejs\npm.cmd" exit /b 0
+)
+exit /b 1
 
 :bootstrap_windows_path
 if exist "%SystemRoot%\System32\" (
