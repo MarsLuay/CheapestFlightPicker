@@ -276,16 +276,54 @@ if not errorlevel 1 (
 )
 
 echo Downloading Node.js LTS installer from nodejs.org...
-call :run_powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $version=(Invoke-RestMethod 'https://nodejs.org/dist/index.json' | Where-Object { $_.lts -and $_.lts -ne $false } | Select-Object -First 1).version; $msiName=\"node-$version-x64.msi\"; $url=\"https://nodejs.org/dist/$version/$msiName\"; $installer=Join-Path $env:TEMP $msiName; Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', $installer, '/quiet', '/norestart' -Wait -PassThru; if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) { exit 1 }"
-if errorlevel 1 (
-  call :install_node_with_curl
-  if errorlevel 1 exit /b 1
-)
+call :install_node_direct
+if errorlevel 1 exit /b 1
+set "TOOLCHAIN_INSTALLED=1"
+exit /b 0
+
+:install_node_direct
+call :bootstrap_windows_path
+set "LAUNCHER_DIR=%~dp0"
+if "%LAUNCHER_DIR:~-1%"=="\" set "LAUNCHER_DIR=%LAUNCHER_DIR:~0,-1%"
+if not defined POWERSHELL_EXE call :resolve_powershell
+
+where curl >nul 2>nul
 if not errorlevel 1 (
-  set "TOOLCHAIN_INSTALLED=1"
+  call :resolve_node_lts_version
+  if defined NODE_VERSION (
+    set "NODE_MSI=%TEMP%\node-!NODE_VERSION!-x64.msi"
+    echo Downloading Node.js !NODE_VERSION! with curl...
+    curl -fsSL -H "User-Agent: SetupLauncher/1.0" -o "!NODE_MSI!" "https://nodejs.org/dist/!NODE_VERSION!/node-!NODE_VERSION!-x64.msi"
+    if not errorlevel 1 if exist "!NODE_MSI!" (
+      msiexec /i "!NODE_MSI!" /quiet /norestart
+      if errorlevel 3010 exit /b 0
+      if not errorlevel 1 exit /b 0
+    )
+  )
+)
+
+if not defined POWERSHELL_EXE (
+  echo PowerShell is required to install Node.js on this machine.
+  exit /b 1
+)
+
+if exist "!LAUNCHER_DIR!\install-node-lts.ps1" (
+  "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "!LAUNCHER_DIR!\install-node-lts.ps1"
+  exit /b %ERRORLEVEL%
+)
+
+echo install-node-lts.ps1 was not found next to this launcher.
+exit /b 1
+
+:resolve_node_lts_version
+set "NODE_VERSION="
+if not defined POWERSHELL_EXE exit /b 1
+if exist "!LAUNCHER_DIR!\resolve-node-lts.ps1" (
+  for /f "delims=" %%V in ('"%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "!LAUNCHER_DIR!\resolve-node-lts.ps1"') do set "NODE_VERSION=%%V"
   exit /b 0
 )
-exit /b 1
+for /f "delims=" %%V in ('"%POWERSHELL_EXE%" -NoProfile -Command "$e=@(Invoke-RestMethod -Uri ''https://nodejs.org/dist/index.json'' -UserAgent ''SetupLauncher/1.0''); ($e | Where-Object { $_.lts } | Select-Object -First 1).version"') do set "NODE_VERSION=%%V"
+exit /b 0
 
 :add_known_tool_paths
 for %%P in (
@@ -390,26 +428,6 @@ if not exist "!GIT_INSTALLER!" exit /b 1
 if errorlevel 1 exit /b 1
 exit /b 0
 
-:install_node_with_curl
-where curl >nul 2>nul
-if errorlevel 1 (
-  echo curl is required for direct downloads but was not found.
-  exit /b 1
-)
-set "NODE_VERSION=v22.14.0"
-if defined POWERSHELL_EXE (
-  for /f "usebackq delims=" %%V in (`"%POWERSHELL_EXE%" -NoProfile -Command "(Invoke-RestMethod 'https://nodejs.org/dist/index.json' | Where-Object { $_.lts } | Select-Object -First 1).version"`) do set "NODE_VERSION=%%V"
-) else (
-  for /f "usebackq delims=" %%V in (`curl -fsSL https://nodejs.org/dist/index.json ^| findstr /C:"\"lts\":" /C:"\"version\":"`) do set "NODE_JSON=%%V"
-)
-set "NODE_MSI=%TEMP%\node-!NODE_VERSION!-x64.msi"
-echo Downloading Node.js !NODE_VERSION! with curl...
-curl -fsSL -o "!NODE_MSI!" "https://nodejs.org/dist/!NODE_VERSION!/node-!NODE_VERSION!-x64.msi"
-if errorlevel 1 exit /b 1
-if not exist "!NODE_MSI!" exit /b 1
-msiexec /i "!NODE_MSI!" /quiet /norestart
-if errorlevel 3010 exit /b 0
-if errorlevel 1 exit /b 1
 exit /b 0
 
 :fail
