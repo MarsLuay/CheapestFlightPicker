@@ -247,6 +247,7 @@ This section is a map of the app by file.
 | File | Plain-English purpose |
 | --- | --- |
 | `README.md` | Top-level project intro. |
+| `setup-and-launch.sh` | Unix setup and launch helper for Terminal; standalone copies clone the repo beside the launcher. |
 | `setup-and-launch.bat` | Windows setup and launch helper; standalone copies clone the repo beside the launcher. |
 | `setup-and-launch.desktop` | Linux desktop setup and launch helper; standalone copies clone the repo beside the launcher. |
 | `setup-and-launch.app` | macOS app bundle that runs the setup and launch helper; standalone copies clone the repo beside the app. |

@@ -2,7 +2,14 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
+LAUNCHER_DIR="$(CDPATH= cd "$SCRIPT_DIR/../../.." && pwd)"
+ROOT_SCRIPT="$LAUNCHER_DIR/setup-and-launch.sh"
 RUNNER="$SCRIPT_DIR/../Resources/setup-and-launch.sh"
+
+if [ -f "$ROOT_SCRIPT" ]; then
+  chmod +x "$ROOT_SCRIPT"
+  RUNNER="$ROOT_SCRIPT"
+fi
 
 case "$(uname -s)" in
   Darwin*)

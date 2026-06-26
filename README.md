@@ -30,7 +30,7 @@ Here's what you get when you fire it up. Punch in a flexible range, hit the butt
 
 ## Easiest way to run it
 
-If you only download one launcher file, it will download the rest of the repo into a `CheapestFlightPicker` folder in the same directory before launching the app.
+If you only download one launcher file, it will download the rest of the repo into a `CheapestFlightPicker` folder in the same directory before launching the app. The launchers also try to install missing Git and Node.js automatically when your package manager or official installers are available.
 
 ### Windows
 
@@ -51,6 +51,13 @@ chmod +x setup-and-launch.desktop
 Then open or trust `setup-and-launch.desktop` from your file manager.
 
 Or run the launcher script directly from Terminal:
+
+```bash
+chmod +x setup-and-launch.sh
+./setup-and-launch.sh
+```
+
+You can also use the app bundle entry point:
 
 ```bash
 chmod +x setup-and-launch.app/Contents/MacOS/setup-and-launch
