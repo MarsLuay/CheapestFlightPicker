@@ -1,5 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
+call :bootstrap_windows_path
+call :resolve_powershell
 set "RELAUNCHED_AFTER_TOOLCHAIN=0"
 if /i "%~1"=="--after-toolchain-install" set "RELAUNCHED_AFTER_TOOLCHAIN=1"
 set "LAUNCHER_DIR=%~dp0"
@@ -101,17 +103,17 @@ if errorlevel 1 (
 )
 
 echo Checking for an existing app instance...
-powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1"
+call :run_powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1"
 if errorlevel 1 (
   echo Launching app...
   set "APP_LAUNCH_DIR=%CD%"
-  powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start' | Out-Null"
+  call :run_powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start' | Out-Null"
   if errorlevel 1 (
     call :fail 1
     exit /b 1
   )
 
-  powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $deadline=(Get-Date).AddSeconds(30); do { try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); exit 1"
+  call :run_powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $deadline=(Get-Date).AddSeconds(30); do { try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); exit 1"
   if errorlevel 1 (
     echo The server did not become ready within 30 seconds. Check the server window for errors.
     call :fail 1
@@ -225,7 +227,11 @@ if not errorlevel 1 (
 )
 
 echo Downloading Git for Windows installer from the official source...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $release=Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest'; $asset=$release.assets | Where-Object { $_.name -match '64-bit\.exe$' -and $_.name -notmatch 'Portable' } | Select-Object -First 1; if (-not $asset) { throw 'Could not find a Git for Windows installer.' }; $installer=Join-Path $env:TEMP $asset.name; Write-Host ('Downloading ' + $asset.browser_download_url); Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-' -Wait -PassThru; if ($proc.ExitCode -ne 0) { exit 1 }"
+call :run_powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $release=Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest'; $asset=$release.assets | Where-Object { $_.name -match '64-bit\.exe$' -and $_.name -notmatch 'Portable' } | Select-Object -First 1; if (-not $asset) { throw 'Could not find a Git for Windows installer.' }; $installer=Join-Path $env:TEMP $asset.name; Write-Host ('Downloading ' + $asset.browser_download_url); Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-' -Wait -PassThru; if ($proc.ExitCode -ne 0) { exit 1 }"
+if errorlevel 1 (
+  call :install_git_with_curl
+  if errorlevel 1 exit /b 1
+)
 if not errorlevel 1 (
   set "TOOLCHAIN_INSTALLED=1"
   exit /b 0
@@ -268,7 +274,11 @@ if not errorlevel 1 (
 )
 
 echo Downloading Node.js LTS installer from nodejs.org...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $version=(Invoke-RestMethod 'https://nodejs.org/dist/index.json' | Where-Object { $_.lts -and $_.lts -ne $false } | Select-Object -First 1).version; $msiName=\"node-$version-x64.msi\"; $url=\"https://nodejs.org/dist/$version/$msiName\"; $installer=Join-Path $env:TEMP $msiName; Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', $installer, '/quiet', '/norestart' -Wait -PassThru; if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) { exit 1 }"
+call :run_powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $version=(Invoke-RestMethod 'https://nodejs.org/dist/index.json' | Where-Object { $_.lts -and $_.lts -ne $false } | Select-Object -First 1).version; $msiName=\"node-$version-x64.msi\"; $url=\"https://nodejs.org/dist/$version/$msiName\"; $installer=Join-Path $env:TEMP $msiName; Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', $installer, '/quiet', '/norestart' -Wait -PassThru; if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) { exit 1 }"
+if errorlevel 1 (
+  call :install_node_with_curl
+  if errorlevel 1 exit /b 1
+)
 if not errorlevel 1 (
   set "TOOLCHAIN_INSTALLED=1"
   exit /b 0
@@ -293,6 +303,91 @@ for %%P in (
   )
 )
 
+exit /b 0
+
+:bootstrap_windows_path
+if exist "%SystemRoot%\System32\" (
+  set "PATH=%SystemRoot%\System32;%SystemRoot%\System32\WindowsPowerShell\v1.0;%PATH%"
+)
+if exist "%SystemRoot%\SysWOW64\" (
+  set "PATH=%SystemRoot%\SysWOW64;%PATH%"
+)
+exit /b 0
+
+:resolve_powershell
+set "POWERSHELL_EXE="
+if exist "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" (
+  set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+  exit /b 0
+)
+if exist "%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe" (
+  set "POWERSHELL_EXE=%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
+  exit /b 0
+)
+where powershell >nul 2>nul
+if not errorlevel 1 (
+  for /f "delims=" %%P in ('where powershell 2^>nul') do (
+    set "POWERSHELL_EXE=%%P"
+    exit /b 0
+  )
+)
+exit /b 0
+
+:run_powershell
+if not defined POWERSHELL_EXE (
+  echo PowerShell is required but was not found on this machine.
+  exit /b 1
+)
+"%POWERSHELL_EXE%" %*
+exit /b %ERRORLEVEL%
+
+:install_git_with_curl
+where curl >nul 2>nul
+if errorlevel 1 (
+  echo curl is required for direct downloads but was not found.
+  exit /b 1
+)
+set "GIT_RELEASE_JSON=%TEMP%\git-release.json"
+echo Resolving latest Git for Windows download with curl...
+curl -fsSL -H "User-Agent: CheapestFlightPicker" "https://api.github.com/repos/git-for-windows/git/releases/latest" -o "!GIT_RELEASE_JSON!"
+if errorlevel 1 exit /b 1
+set "GIT_URL="
+for /f "usebackq tokens=1,* delims=:" %%A in (`findstr /C:"browser_download_url" "!GIT_RELEASE_JSON!" ^| findstr /C:"64-bit.exe" ^| findstr /V /C:"Portable"`) do (
+  set "GIT_URL=%%B"
+)
+if not defined GIT_URL exit /b 1
+set "GIT_URL=!GIT_URL: =!"
+set "GIT_URL=!GIT_URL:"=!"
+set "GIT_URL=!GIT_URL:,=!"
+set "GIT_INSTALLER=%TEMP%\Git-64-bit-installer.exe"
+echo Downloading Git for Windows from !GIT_URL!
+curl -fsSL -L -o "!GIT_INSTALLER!" "!GIT_URL!"
+if errorlevel 1 exit /b 1
+if not exist "!GIT_INSTALLER!" exit /b 1
+"!GIT_INSTALLER!" /VERYSILENT /NORESTART /NOCANCEL /SP-
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:install_node_with_curl
+where curl >nul 2>nul
+if errorlevel 1 (
+  echo curl is required for direct downloads but was not found.
+  exit /b 1
+)
+set "NODE_VERSION=v22.14.0"
+if defined POWERSHELL_EXE (
+  for /f "usebackq delims=" %%V in (`"%POWERSHELL_EXE%" -NoProfile -Command "(Invoke-RestMethod 'https://nodejs.org/dist/index.json' | Where-Object { $_.lts } | Select-Object -First 1).version"`) do set "NODE_VERSION=%%V"
+) else (
+  for /f "usebackq delims=" %%V in (`curl -fsSL https://nodejs.org/dist/index.json ^| findstr /C:"\"lts\":" /C:"\"version\":"`) do set "NODE_JSON=%%V"
+)
+set "NODE_MSI=%TEMP%\node-!NODE_VERSION!-x64.msi"
+echo Downloading Node.js !NODE_VERSION! with curl...
+curl -fsSL -o "!NODE_MSI!" "https://nodejs.org/dist/!NODE_VERSION!/node-!NODE_VERSION!-x64.msi"
+if errorlevel 1 exit /b 1
+if not exist "!NODE_MSI!" exit /b 1
+msiexec /i "!NODE_MSI!" /quiet /norestart
+if errorlevel 3010 exit /b 0
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :fail
