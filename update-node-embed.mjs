@@ -12,11 +12,11 @@ const resolveB64 = Buffer.from(
 
 let bat = fs.readFileSync(batPath, 'utf8');
 bat = bat.replace(
-  /(:write_embedded_node_install_ps1[\s\S]*?\$b=')[^']+(')/,
+  /(:write_embedded_node_install_ps1[\s\S]*?set "NODE_EMBED_B64=)[^"]+(")/,
   `$1${installB64}$2`,
 );
 bat = bat.replace(
-  /(:write_embedded_node_resolve_ps1[\s\S]*?\$b=')[^']+(')/,
+  /(:write_embedded_node_resolve_ps1[\s\S]*?set "NODE_EMBED_B64=)[^"]+(")/,
   `$1${resolveB64}$2`,
 );
 fs.writeFileSync(batPath, bat);

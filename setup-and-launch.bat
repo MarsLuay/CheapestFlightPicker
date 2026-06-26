@@ -14,6 +14,11 @@ call :ensure_toolchain
 if errorlevel 2 exit /b 0
 if errorlevel 1 exit /b 1
 
+if exist "!LAUNCHER_DIR!\workspace\app\package.json" (
+  set "REPO_DIR=!LAUNCHER_DIR!"
+  goto :after_repo_setup
+)
+
 if exist "!REPO_DIR!\.git" (
   if not exist "!REPO_DIR!\workspace\app\package.json" (
     echo The repo metadata was found at "!REPO_DIR!", but workspace\app is missing.
@@ -45,6 +50,10 @@ if exist "!REPO_DIR!\.git" (
 )
 
 echo Checking for repo updates...
+if not exist "!REPO_DIR!\.git" (
+  echo Using local workspace without git metadata.
+  goto :after_repo_setup
+)
 git -C "!REPO_DIR!" status --porcelain --untracked-files=normal | findstr . >nul
 if errorlevel 1 (
   git -C "!REPO_DIR!" pull --ff-only origin main
@@ -57,6 +66,7 @@ if errorlevel 1 (
   echo Local changes detected. Skipping auto-update so your work stays untouched.
 )
 
+:after_repo_setup
 set "WORKSPACE_DIR=!REPO_DIR!\workspace"
 set "APP_DIR=!WORKSPACE_DIR!\app"
 
@@ -287,6 +297,7 @@ set "LAUNCHER_DIR=%~dp0"
 if "%LAUNCHER_DIR:~-1%"=="\" set "LAUNCHER_DIR=%LAUNCHER_DIR:~0,-1%"
 if not defined POWERSHELL_EXE call :resolve_powershell
 call :ensure_node_ps1_scripts
+if errorlevel 1 exit /b 1
 
 where curl >nul 2>nul
 if not errorlevel 1 (
@@ -344,7 +355,23 @@ mkdir "!NODE_SCRIPT_DIR!"
 set "NODE_INSTALL_PS1=!NODE_SCRIPT_DIR!\install-node-lts.ps1"
 set "NODE_RESOLVE_PS1=!NODE_SCRIPT_DIR!\resolve-node-lts.ps1"
 call :write_embedded_node_install_ps1 "!NODE_INSTALL_PS1!"
+if errorlevel 1 exit /b 1
 call :write_embedded_node_resolve_ps1 "!NODE_RESOLVE_PS1!"
+if errorlevel 1 exit /b 1
+if not exist "!NODE_INSTALL_PS1!" exit /b 1
+if not exist "!NODE_RESOLVE_PS1!" exit /b 1
+copy /Y "!NODE_INSTALL_PS1!" "!LAUNCHER_DIR!\install-node-lts.ps1" >nul 2>&1
+copy /Y "!NODE_RESOLVE_PS1!" "!LAUNCHER_DIR!\resolve-node-lts.ps1" >nul 2>&1
+exit /b 0
+
+:decode_embedded_ps1
+if not defined POWERSHELL_EXE call :resolve_powershell
+if not defined NODE_EMBED_B64 exit /b 1
+if "%~1"=="" exit /b 1
+set "NODE_DECODE_OUT=%~1"
+"%POWERSHELL_EXE%" -NoProfile -Command "& { [IO.File]::WriteAllText($env:NODE_DECODE_OUT, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:NODE_EMBED_B64))) }"
+if errorlevel 1 exit /b 1
+if not exist "%~1" exit /b 1
 exit /b 0
 
 :write_embedded_node_install_ps1
@@ -353,12 +380,13 @@ if exist "!LAUNCHER_DIR!\install-node-lts.ps1" (
   copy /Y "!LAUNCHER_DIR!\install-node-lts.ps1" "%~1" >nul
   exit /b 0
 )
-"%POWERSHELL_EXE%" -NoProfile -Command "$b='JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJw0KW05ldC5TZXJ2aWNlUG9pbnRNYW5hZ2VyXTo6U2VjdXJpdHlQcm90b2NvbCA9IFtOZXQuU2VjdXJpdHlQcm90b2NvbFR5cGVdOjpUbHMxMg0KJHVzZXJBZ2VudCA9ICdNb3ppbGxhLzUuMCAoY29tcGF0aWJsZTsgU2V0dXBMYXVuY2hlci8xLjApJw0KDQpmdW5jdGlvbiBHZXQtTm9kZUx0c0VudHJ5IHsNCiAgcGFyYW0oDQogICAgW1BhcmFtZXRlcihNYW5kYXRvcnkgPSAkdHJ1ZSldDQogICAgW29iamVjdFtdXSRFbnRyaWVzDQogICkNCg0KICAkbHRzRW50cnkgPSAkRW50cmllcyB8DQogICAgV2hlcmUtT2JqZWN0IHsgJF8ubHRzIC1pcyBbc3RyaW5nXSAtYW5kICRfLmx0cy5UcmltKCkuTGVuZ3RoIC1ndCAwIH0gfA0KICAgIFNlbGVjdC1PYmplY3QgLUZpcnN0IDENCg0KICBpZiAoLW5vdCAkbHRzRW50cnkpIHsNCiAgICByZXR1cm4gJG51bGwNCiAgfQ0KDQogIHJldHVybiAkbHRzRW50cnkNCn0NCg0KZnVuY3Rpb24gR2V0LU5vZGVXaW5kb3dzQXJjaCB7DQogIGlmIChbRW52aXJvbm1lbnRdOjpJczY0Qml0T3BlcmF0aW5nU3lzdGVtKSB7DQogICAgaWYgKCRlbnY6UFJPQ0VTU09SX0FSQ0hJVEVDVFVSRSAtbWF0Y2ggJ0FSTTY0JyAtb3IgJGVudjpQUk9DRVNTT1JfQVJDSElURVc2NDMyIC1tYXRjaCAnQVJNNjQnKSB7DQogICAgICByZXR1cm4gJ2FybTY0Jw0KICAgIH0NCg0KICAgIHJldHVybiAneDY0Jw0KICB9DQoNCiAgcmV0dXJuICd4ODYnDQp9DQoNCmZ1bmN0aW9uIFJlc29sdmUtTm9kZUx0c1ZlcnNpb24gew0KICBwYXJhbSgNCiAgICBbUGFyYW1ldGVyKE1hbmRhdG9yeSA9ICR0cnVlKV0NCiAgICBbb2JqZWN0W11dJEVudHJpZXMNCiAgKQ0KDQogICRsdHNFbnRyeSA9IEdldC1Ob2RlTHRzRW50cnkgLUVudHJpZXMgJEVudHJpZXMNCiAgaWYgKCRsdHNFbnRyeSAtYW5kIC1ub3QgW3N0cmluZ106OklzTnVsbE9yV2hpdGVTcGFjZSgkbHRzRW50cnkudmVyc2lvbikpIHsNCiAgICByZXR1cm4gJGx0c0VudHJ5LnZlcnNpb24uVHJpbSgpDQogIH0NCg0KICByZXR1cm4gJ3YyNC4xOC4wJw0KfQ0KDQokZW50cmllcyA9IEAoSW52b2tlLVJlc3RNZXRob2QgLVVyaSAnaHR0cHM6Ly9ub2RlanMub3JnL2Rpc3QvaW5kZXguanNvbicgLVVzZXJBZ2VudCAkdXNlckFnZW50KQ0KJHZlcnNpb24gPSBSZXNvbHZlLU5vZGVMdHNWZXJzaW9uIC1FbnRyaWVzICRlbnRyaWVzDQppZiAoW3N0cmluZ106OklzTnVsbE9yV2hpdGVTcGFjZSgkdmVyc2lvbikpIHsNCiAgdGhyb3cgJ0NvdWxkIG5vdCByZXNvbHZlIE5vZGUuanMgTFRTIHZlcnNpb24uJw0KfQ0KDQokYXJjaCA9IEdldC1Ob2RlV2luZG93c0FyY2gNCiRtc2lOYW1lID0gIm5vZGUtJHZlcnNpb24tJGFyY2gubXNpIg0KJHVybCA9ICJodHRwczovL25vZGVqcy5vcmcvZGlzdC8kdmVyc2lvbi8kbXNpTmFtZSINCiRpbnN0YWxsZXIgPSBKb2luLVBhdGggJGVudjpURU1QICRtc2lOYW1lDQoNCldyaXRlLUhvc3QgIkRvd25sb2FkaW5nICR1cmwiDQpJbnZva2UtV2ViUmVxdWVzdCAtVXJpICR1cmwgLU91dEZpbGUgJGluc3RhbGxlciAtVXNlQmFzaWNQYXJzaW5nIC1Vc2VyQWdlbnQgJHVzZXJBZ2VudA0KDQppZiAoLW5vdCAoVGVzdC1QYXRoIC1MaXRlcmFsUGF0aCAkaW5zdGFsbGVyKSkgew0KICB0aHJvdyAiTm9kZS5qcyBpbnN0YWxsZXIgd2FzIG5vdCBkb3dubG9hZGVkOiAkaW5zdGFsbGVyIg0KfQ0KDQokcHJvYyA9IFN0YXJ0LVByb2Nlc3MgLUZpbGVQYXRoICdtc2lleGVjLmV4ZScgLUFyZ3VtZW50TGlzdCBAKCcvaScsICRpbnN0YWxsZXIsICcvcXVpZXQnLCAnL25vcmVzdGFydCcpIC1XYWl0IC1QYXNzVGhydQ0KaWYgKCRwcm9jLkV4aXRDb2RlIC1uZSAwIC1hbmQgJHByb2MuRXhpdENvZGUgLW5lIDMwMTApIHsNCiAgZXhpdCAxDQp9DQo='; [IO.File]::WriteAllText('%~1', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)))"
-if exist "%~1" exit /b 0
+set "NODE_EMBED_B64=JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJwpbTmV0LlNlcnZpY2VQb2ludE1hbmFnZXJdOjpTZWN1cml0eVByb3RvY29sID0gW05ldC5TZWN1cml0eVByb3RvY29sVHlwZV06OlRsczEyCiR1c2VyQWdlbnQgPSAnTW96aWxsYS81LjAgKGNvbXBhdGlibGU7IFNldHVwTGF1bmNoZXIvMS4wKScKCmZ1bmN0aW9uIEdldC1Ob2RlTHRzRW50cnkgewogIHBhcmFtKAogICAgW1BhcmFtZXRlcihNYW5kYXRvcnkgPSAkdHJ1ZSldCiAgICBbb2JqZWN0W11dJEVudHJpZXMKICApCgogICRsdHNFbnRyeSA9ICRFbnRyaWVzIHwKICAgIFdoZXJlLU9iamVjdCB7ICRfLmx0cyAtaXMgW3N0cmluZ10gLWFuZCAkXy5sdHMuVHJpbSgpLkxlbmd0aCAtZ3QgMCB9IHwKICAgIFNlbGVjdC1PYmplY3QgLUZpcnN0IDEKCiAgaWYgKC1ub3QgJGx0c0VudHJ5KSB7CiAgICByZXR1cm4gJG51bGwKICB9CgogIHJldHVybiAkbHRzRW50cnkKfQoKZnVuY3Rpb24gR2V0LU5vZGVXaW5kb3dzQXJjaCB7CiAgaWYgKFtFbnZpcm9ubWVudF06OklzNjRCaXRPcGVyYXRpbmdTeXN0ZW0pIHsKICAgIGlmICgkZW52OlBST0NFU1NPUl9BUkNISVRFQ1RVUkUgLW1hdGNoICdBUk02NCcgLW9yICRlbnY6UFJPQ0VTU09SX0FSQ0hJVEVXNjQzMiAtbWF0Y2ggJ0FSTTY0JykgewogICAgICByZXR1cm4gJ2FybTY0JwogICAgfQoKICAgIHJldHVybiAneDY0JwogIH0KCiAgcmV0dXJuICd4ODYnCn0KCmZ1bmN0aW9uIFJlc29sdmUtTm9kZUx0c1ZlcnNpb24gewogIHBhcmFtKAogICAgW1BhcmFtZXRlcihNYW5kYXRvcnkgPSAkdHJ1ZSldCiAgICBbb2JqZWN0W11dJEVudHJpZXMKICApCgogICRsdHNFbnRyeSA9IEdldC1Ob2RlTHRzRW50cnkgLUVudHJpZXMgJEVudHJpZXMKICBpZiAoJGx0c0VudHJ5IC1hbmQgLW5vdCBbc3RyaW5nXTo6SXNOdWxsT3JXaGl0ZVNwYWNlKCRsdHNFbnRyeS52ZXJzaW9uKSkgewogICAgcmV0dXJuICRsdHNFbnRyeS52ZXJzaW9uLlRyaW0oKQogIH0KCiAgcmV0dXJuICd2MjQuMTguMCcKfQoKJGVudHJpZXMgPSBAKEludm9rZS1SZXN0TWV0aG9kIC1VcmkgJ2h0dHBzOi8vbm9kZWpzLm9yZy9kaXN0L2luZGV4Lmpzb24nIC1Vc2VyQWdlbnQgJHVzZXJBZ2VudCkKJHZlcnNpb24gPSBSZXNvbHZlLU5vZGVMdHNWZXJzaW9uIC1FbnRyaWVzICRlbnRyaWVzCmlmIChbc3RyaW5nXTo6SXNOdWxsT3JXaGl0ZVNwYWNlKCR2ZXJzaW9uKSkgewogIHRocm93ICdDb3VsZCBub3QgcmVzb2x2ZSBOb2RlLmpzIExUUyB2ZXJzaW9uLicKfQoKJGFyY2ggPSBHZXQtTm9kZVdpbmRvd3NBcmNoCiRtc2lOYW1lID0gIm5vZGUtJHZlcnNpb24tJGFyY2gubXNpIgokdXJsID0gImh0dHBzOi8vbm9kZWpzLm9yZy9kaXN0LyR2ZXJzaW9uLyRtc2lOYW1lIgokaW5zdGFsbGVyID0gSm9pbi1QYXRoICRlbnY6VEVNUCAkbXNpTmFtZQoKV3JpdGUtSG9zdCAiRG93bmxvYWRpbmcgJHVybCIKSW52b2tlLVdlYlJlcXVlc3QgLVVyaSAkdXJsIC1PdXRGaWxlICRpbnN0YWxsZXIgLVVzZUJhc2ljUGFyc2luZyAtVXNlckFnZW50ICR1c2VyQWdlbnQKCmlmICgtbm90IChUZXN0LVBhdGggLUxpdGVyYWxQYXRoICRpbnN0YWxsZXIpKSB7CiAgdGhyb3cgIk5vZGUuanMgaW5zdGFsbGVyIHdhcyBub3QgZG93bmxvYWRlZDogJGluc3RhbGxlciIKfQoKJHByb2MgPSBTdGFydC1Qcm9jZXNzIC1GaWxlUGF0aCAnbXNpZXhlYy5leGUnIC1Bcmd1bWVudExpc3QgQCgnL2knLCAkaW5zdGFsbGVyLCAnL3F1aWV0JywgJy9ub3Jlc3RhcnQnKSAtV2FpdCAtUGFzc1RocnUKaWYgKCRwcm9jLkV4aXRDb2RlIC1uZSAwIC1hbmQgJHByb2MuRXhpdENvZGUgLW5lIDMwMTApIHsKICBleGl0IDEKfQo="
+call :decode_embedded_ps1 "%~1"
+findstr /C:"Get-NodeLtsEntry" "%~1" >nul 2>&1 && exit /b 0
 where curl >nul 2>nul
 if not errorlevel 1 (
   curl -fsSL -H "User-Agent: SetupLauncher/1.0" -o "%~1" "https://raw.githubusercontent.com/MarsLuay/CheapestFlightPicker/main/install-node-lts.ps1"
-  if not errorlevel 1 if exist "%~1" exit /b 0
+  if not errorlevel 1 if exist "%~1" findstr /C:"Get-NodeLtsEntry" "%~1" >nul 2>&1 && exit /b 0
 )
 exit /b 1
 
@@ -368,12 +396,13 @@ if exist "!LAUNCHER_DIR!\resolve-node-lts.ps1" (
   copy /Y "!LAUNCHER_DIR!\resolve-node-lts.ps1" "%~1" >nul
   exit /b 0
 )
-"%POWERSHELL_EXE%" -NoProfile -Command "$b='JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJw0KW05ldC5TZXJ2aWNlUG9pbnRNYW5hZ2VyXTo6U2VjdXJpdHlQcm90b2NvbCA9IFtOZXQuU2VjdXJpdHlQcm90b2NvbFR5cGVdOjpUbHMxMg0KDQpmdW5jdGlvbiBHZXQtTm9kZUx0c0VudHJ5IHsNCiAgcGFyYW0oDQogICAgW1BhcmFtZXRlcihNYW5kYXRvcnkgPSAkdHJ1ZSldDQogICAgW29iamVjdFtdXSRFbnRyaWVzDQogICkNCg0KICAkbHRzRW50cnkgPSAkRW50cmllcyB8DQogICAgV2hlcmUtT2JqZWN0IHsgJF8ubHRzIC1pcyBbc3RyaW5nXSAtYW5kICRfLmx0cy5UcmltKCkuTGVuZ3RoIC1ndCAwIH0gfA0KICAgIFNlbGVjdC1PYmplY3QgLUZpcnN0IDENCg0KICBpZiAoLW5vdCAkbHRzRW50cnkpIHsNCiAgICByZXR1cm4gJG51bGwNCiAgfQ0KDQogIHJldHVybiAkbHRzRW50cnkNCn0NCg0KJGVudHJpZXMgPSBAKEludm9rZS1SZXN0TWV0aG9kIC1VcmkgJ2h0dHBzOi8vbm9kZWpzLm9yZy9kaXN0L2luZGV4Lmpzb24nIC1Vc2VyQWdlbnQgJ1NldHVwTGF1bmNoZXIvMS4wJykNCiRsdHNFbnRyeSA9IEdldC1Ob2RlTHRzRW50cnkgLUVudHJpZXMgJGVudHJpZXMNCmlmICgkbHRzRW50cnkgLWFuZCAtbm90IFtzdHJpbmddOjpJc051bGxPcldoaXRlU3BhY2UoJGx0c0VudHJ5LnZlcnNpb24pKSB7DQogIFdyaXRlLU91dHB1dCAkbHRzRW50cnkudmVyc2lvbi5UcmltKCkNCiAgZXhpdCAwDQp9DQoNCldyaXRlLU91dHB1dCAndjI0LjE4LjAnDQo='; [IO.File]::WriteAllText('%~1', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)))"
-if exist "%~1" exit /b 0
+set "NODE_EMBED_B64=JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdTdG9wJwpbTmV0LlNlcnZpY2VQb2ludE1hbmFnZXJdOjpTZWN1cml0eVByb3RvY29sID0gW05ldC5TZWN1cml0eVByb3RvY29sVHlwZV06OlRsczEyCgpmdW5jdGlvbiBHZXQtTm9kZUx0c0VudHJ5IHsKICBwYXJhbSgKICAgIFtQYXJhbWV0ZXIoTWFuZGF0b3J5ID0gJHRydWUpXQogICAgW29iamVjdFtdXSRFbnRyaWVzCiAgKQoKICAkbHRzRW50cnkgPSAkRW50cmllcyB8CiAgICBXaGVyZS1PYmplY3QgeyAkXy5sdHMgLWlzIFtzdHJpbmddIC1hbmQgJF8ubHRzLlRyaW0oKS5MZW5ndGggLWd0IDAgfSB8CiAgICBTZWxlY3QtT2JqZWN0IC1GaXJzdCAxCgogIGlmICgtbm90ICRsdHNFbnRyeSkgewogICAgcmV0dXJuICRudWxsCiAgfQoKICByZXR1cm4gJGx0c0VudHJ5Cn0KCiRlbnRyaWVzID0gQChJbnZva2UtUmVzdE1ldGhvZCAtVXJpICdodHRwczovL25vZGVqcy5vcmcvZGlzdC9pbmRleC5qc29uJyAtVXNlckFnZW50ICdTZXR1cExhdW5jaGVyLzEuMCcpCiRsdHNFbnRyeSA9IEdldC1Ob2RlTHRzRW50cnkgLUVudHJpZXMgJGVudHJpZXMKaWYgKCRsdHNFbnRyeSAtYW5kIC1ub3QgW3N0cmluZ106OklzTnVsbE9yV2hpdGVTcGFjZSgkbHRzRW50cnkudmVyc2lvbikpIHsKICBXcml0ZS1PdXRwdXQgJGx0c0VudHJ5LnZlcnNpb24uVHJpbSgpCiAgZXhpdCAwCn0KCldyaXRlLU91dHB1dCAndjI0LjE4LjAnCg=="
+call :decode_embedded_ps1 "%~1"
+findstr /C:"Get-NodeLtsEntry" "%~1" >nul 2>&1 && exit /b 0
 where curl >nul 2>nul
 if not errorlevel 1 (
   curl -fsSL -H "User-Agent: SetupLauncher/1.0" -o "%~1" "https://raw.githubusercontent.com/MarsLuay/CheapestFlightPicker/main/resolve-node-lts.ps1"
-  if not errorlevel 1 if exist "%~1" exit /b 0
+  if not errorlevel 1 if exist "%~1" findstr /C:"Get-NodeLtsEntry" "%~1" >nul 2>&1 && exit /b 0
 )
 exit /b 1
 :add_known_tool_paths
