@@ -141,38 +141,26 @@ if errorlevel 1 set "MISSING_NODE=1"
 if "!MISSING_GIT!"=="0" if "!MISSING_NODE!"=="0" exit /b 0
 
 echo Missing setup tools were detected.
-where winget >nul 2>nul
-if errorlevel 1 (
-  echo winget is not available on this machine, so Git and Node.js could not be installed automatically.
-  echo Install Git and Node.js LTS, then run this launcher again.
-  call :fail 1
-  exit /b 1
-)
-
 set "TOOLCHAIN_INSTALLED=0"
 
 if "!MISSING_GIT!"=="1" (
-  echo Git was not found. Installing Git with winget...
-  winget install --id "Git.Git" --exact --accept-package-agreements --accept-source-agreements --silent
+  call :install_git
   if errorlevel 1 (
     echo Failed to install Git automatically.
     echo Install Git, then run this launcher again.
     call :fail 1
     exit /b 1
   )
-  set "TOOLCHAIN_INSTALLED=1"
 )
 
 if "!MISSING_NODE!"=="1" (
-  echo Node.js or npm was not found. Installing Node.js LTS with winget...
-  winget install --id "OpenJS.NodeJS.LTS" --exact --accept-package-agreements --accept-source-agreements --silent
+  call :install_node
   if errorlevel 1 (
     echo Failed to install Node.js LTS automatically.
     echo Install Node.js LTS, then run this launcher again.
     call :fail 1
     exit /b 1
   )
-  set "TOOLCHAIN_INSTALLED=1"
 )
 
 call :refresh_path
@@ -201,14 +189,104 @@ echo Close this window, open a new Command Prompt, and run setup-and-launch.bat 
 call :fail 1
 exit /b 1
 
+:install_git
+echo Git was not found. Trying to install it automatically...
+where winget >nul 2>nul
+if not errorlevel 1 (
+  echo Trying winget...
+  winget install --id "Git.Git" --exact --accept-package-agreements --accept-source-agreements --silent
+  if not errorlevel 1 (
+    set "TOOLCHAIN_INSTALLED=1"
+    exit /b 0
+  )
+  echo winget install failed.
+)
+
+where choco >nul 2>nul
+if not errorlevel 1 (
+  echo Trying Chocolatey...
+  choco install git -y --no-progress
+  if not errorlevel 1 (
+    set "TOOLCHAIN_INSTALLED=1"
+    exit /b 0
+  )
+  echo Chocolatey install failed.
+)
+
+where scoop >nul 2>nul
+if not errorlevel 1 (
+  echo Trying Scoop...
+  scoop install git
+  if not errorlevel 1 (
+    set "TOOLCHAIN_INSTALLED=1"
+    exit /b 0
+  )
+  echo Scoop install failed.
+)
+
+echo Downloading Git for Windows installer from the official source...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $release=Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest'; $asset=$release.assets | Where-Object { $_.name -match '64-bit\.exe$' -and $_.name -notmatch 'Portable' } | Select-Object -First 1; if (-not $asset) { throw 'Could not find a Git for Windows installer.' }; $installer=Join-Path $env:TEMP $asset.name; Write-Host ('Downloading ' + $asset.browser_download_url); Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-' -Wait -PassThru; if ($proc.ExitCode -ne 0) { exit 1 }"
+if not errorlevel 1 (
+  set "TOOLCHAIN_INSTALLED=1"
+  exit /b 0
+)
+exit /b 1
+
+:install_node
+echo Node.js or npm was not found. Trying to install Node.js LTS automatically...
+where winget >nul 2>nul
+if not errorlevel 1 (
+  echo Trying winget...
+  winget install --id "OpenJS.NodeJS.LTS" --exact --accept-package-agreements --accept-source-agreements --silent
+  if not errorlevel 1 (
+    set "TOOLCHAIN_INSTALLED=1"
+    exit /b 0
+  )
+  echo winget install failed.
+)
+
+where choco >nul 2>nul
+if not errorlevel 1 (
+  echo Trying Chocolatey...
+  choco install nodejs-lts -y --no-progress
+  if not errorlevel 1 (
+    set "TOOLCHAIN_INSTALLED=1"
+    exit /b 0
+  )
+  echo Chocolatey install failed.
+)
+
+where scoop >nul 2>nul
+if not errorlevel 1 (
+  echo Trying Scoop...
+  scoop install nodejs-lts
+  if not errorlevel 1 (
+    set "TOOLCHAIN_INSTALLED=1"
+    exit /b 0
+  )
+  echo Scoop install failed.
+)
+
+echo Downloading Node.js LTS installer from nodejs.org...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $version=(Invoke-RestMethod 'https://nodejs.org/dist/index.json' | Where-Object { $_.lts -and $_.lts -ne $false } | Select-Object -First 1).version; $msiName=\"node-$version-x64.msi\"; $url=\"https://nodejs.org/dist/$version/$msiName\"; $installer=Join-Path $env:TEMP $msiName; Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', $installer, '/quiet', '/norestart' -Wait -PassThru; if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) { exit 1 }"
+if not errorlevel 1 (
+  set "TOOLCHAIN_INSTALLED=1"
+  exit /b 0
+)
+exit /b 1
+
 :add_known_tool_paths
 for %%P in (
   "%ProgramFiles%\Git\cmd"
   "%ProgramFiles%\Git\bin"
   "%ProgramFiles%\nodejs"
+  "%ProgramData%\chocolatey\bin"
   "%LocalAppData%\Programs\Git\cmd"
   "%LocalAppData%\Programs\Git\bin"
   "%LocalAppData%\Programs\nodejs"
+  "%USERPROFILE%\scoop\shims"
+  "%USERPROFILE%\scoop\apps\git\current\cmd"
+  "%USERPROFILE%\scoop\apps\git\current\bin"
 ) do (
   if exist "%%~P" (
     set "PATH=%%~P;!PATH!"
