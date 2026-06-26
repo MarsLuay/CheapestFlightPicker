@@ -40,14 +40,67 @@ add_common_tool_paths() {
   for candidate in \
     "$LOCAL_NODE_ROOT/current/bin" \
     "$HOME/.local/bin" \
-    /opt/homebrew/bin \
-    /opt/homebrew/sbin \
+    /usr/bin \
+    /bin \
     /usr/local/bin \
-    /usr/local/sbin; do
+    /usr/local/sbin \
+    /opt/homebrew/bin \
+    /opt/homebrew/sbin; do
     if [[ -d "$candidate" ]]; then
       PATH="$candidate:$PATH"
     fi
   done
+}
+
+tool_available() {
+  local tool="$1"
+
+  if command -v "$tool" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  case "$tool" in
+    git)
+      for candidate in \
+        /usr/bin/git \
+        /usr/local/bin/git \
+        /opt/homebrew/bin/git \
+        "$HOME/.local/bin/git"; do
+        if [[ -x "$candidate" ]]; then
+          PATH="$(dirname "$candidate"):$PATH"
+          return 0
+        fi
+      done
+      ;;
+    node)
+      for candidate in \
+        /usr/bin/node \
+        /usr/local/bin/node \
+        /opt/homebrew/bin/node \
+        "$LOCAL_NODE_ROOT/current/bin/node" \
+        "$HOME/.local/bin/node"; do
+        if [[ -x "$candidate" ]]; then
+          PATH="$(dirname "$candidate"):$PATH"
+          return 0
+        fi
+      done
+      ;;
+    npm)
+      for candidate in \
+        /usr/bin/npm \
+        /usr/local/bin/npm \
+        /opt/homebrew/bin/npm \
+        "$LOCAL_NODE_ROOT/current/bin/npm" \
+        "$HOME/.local/bin/npm"; do
+        if [[ -x "$candidate" ]]; then
+          PATH="$(dirname "$candidate"):$PATH"
+          return 0
+        fi
+      done
+      ;;
+  esac
+
+  return 1
 }
 
 activate_homebrew() {
@@ -345,7 +398,7 @@ PY
 }
 
 install_git() {
-  if command -v git >/dev/null 2>&1; then
+  if tool_available git; then
     return 0
   fi
 
@@ -363,7 +416,7 @@ install_git() {
 }
 
 install_node() {
-  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+  if tool_available node && tool_available npm; then
     return 0
   fi
 
@@ -387,9 +440,12 @@ ensure_toolchain() {
   local missing_git=0
   local missing_node=0
 
-  command -v git >/dev/null 2>&1 || missing_git=1
-  command -v node >/dev/null 2>&1 || missing_node=1
-  command -v npm >/dev/null 2>&1 || missing_node=1
+  if ! tool_available git; then
+    missing_git=1
+  fi
+  if ! tool_available node || ! tool_available npm; then
+    missing_node=1
+  fi
 
   if [[ "$missing_git" -eq 0 && "$missing_node" -eq 0 ]]; then
     return 0
@@ -416,7 +472,7 @@ ensure_toolchain() {
   add_common_tool_paths
   hash -r
 
-  if ! command -v git >/dev/null 2>&1 || ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  if ! tool_available git || ! tool_available node || ! tool_available npm; then
     echo "Git, Node.js, or npm is still not available on PATH."
     if [[ "$TOOLCHAIN_INSTALLED" -eq 1 ]]; then
       echo "Close this terminal, open a new one, and run this launcher again."
