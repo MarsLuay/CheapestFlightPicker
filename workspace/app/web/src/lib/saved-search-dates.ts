@@ -1,10 +1,12 @@
 import type { SearchRequest } from "./types";
 
 import { formatDateForInput } from "./date-input";
+import {
+  getBrowserStorage,
+  persistJsonToStorage,
+} from "./browser-storage";
 
 const savedSearchDatesStorageKey = "cheapest-flight-picker.saved-search-dates";
-
-type StorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
 export type SavedSearchDates = {
   departureDateFrom: SearchRequest["departureDateFrom"];
@@ -12,18 +14,6 @@ export type SavedSearchDates = {
   returnDateFrom: NonNullable<SearchRequest["returnDateFrom"]>;
   returnDateTo: NonNullable<SearchRequest["returnDateTo"]>;
 };
-
-function getBrowserStorage(): StorageLike | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 function normalizeDateInput(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -114,12 +104,5 @@ export function saveSavedSearchDates(
     return;
   }
 
-  try {
-    storage.setItem(
-      savedSearchDatesStorageKey,
-      JSON.stringify(normalizedDates)
-    );
-  } catch {
-    // Ignore persistence failures so the UI still works normally.
-  }
+  persistJsonToStorage(storage, savedSearchDatesStorageKey, normalizedDates);
 }

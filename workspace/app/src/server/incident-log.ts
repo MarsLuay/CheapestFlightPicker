@@ -16,6 +16,8 @@ export type IncidentLogEntry = {
   details?: Record<string, unknown>;
 };
 
+export const INCIDENT_LOG_RETENTION_MS = 1000 * 60 * 60 * 24 * 30;
+
 type WriteIncidentLogOptions = {
   directoryPath?: string;
   timestamp?: Date;
@@ -35,9 +37,40 @@ function sanitizeFileSegment(value: string): string {
   return sanitized || "incident";
 }
 
-function getIncidentLogDirectory(directoryPath?: string): string {
+function pruneIncidentLogs(directoryPath: string, now: Date): void {
+  const cutoffTime = now.getTime() - INCIDENT_LOG_RETENTION_MS;
+  let fileNames: string[] = [];
+
+  try {
+    fileNames = fs.readdirSync(directoryPath);
+  } catch {
+    return;
+  }
+
+  for (const fileName of fileNames) {
+    if (!fileName.endsWith(".json")) {
+      continue;
+    }
+
+    const filePath = path.join(directoryPath, fileName);
+
+    try {
+      const stats = fs.statSync(filePath);
+      if (stats.mtimeMs < cutoffTime) {
+        fs.rmSync(filePath, {
+          force: true
+        });
+      }
+    } catch {
+      // Ignore unreadable log files so new incidents can still be recorded.
+    }
+  }
+}
+
+function getIncidentLogDirectory(directoryPath?: string, now = new Date()): string {
   const resolvedDirectory = directoryPath ?? resolveRuntimeDataPath("logs");
   fs.mkdirSync(resolvedDirectory, { recursive: true });
+  pruneIncidentLogs(resolvedDirectory, now);
   return resolvedDirectory;
 }
 
@@ -64,13 +97,14 @@ export function writeIncidentLog(
     timestamp: timestamp.toISOString(),
     ...input
   };
-  const directoryPath = getIncidentLogDirectory(options?.directoryPath);
+  const directoryPath = getIncidentLogDirectory(options?.directoryPath, timestamp);
   const filePath = path.join(
     directoryPath,
     buildIncidentLogFileName(timestamp, entry.source, entry.message)
   );
 
   fs.writeFileSync(filePath, `${JSON.stringify(entry, null, 2)}\n`, "utf8");
+  fs.utimesSync(filePath, timestamp, timestamp);
 
   return { entry, filePath };
 }

@@ -614,7 +614,7 @@ export function ResultsView({
         <p>
           {isSearching
             ? "The cards will start filling in as soon as the first live fare checks finish."
-            : "The search did not return a usable result summary. Try adjusting your filters or check the error banner above."}
+            : "No results to show yet. The search did not return a usable result summary. Try adjusting your filters or check the error banner above."}
         </p>
       </section>
     );

@@ -59,3 +59,7 @@ Same deal as the root repo:
 - commercial use needs a separate license from me
 
 See the root [LICENSE](../../LICENSE) for the real legal text.
+
+## Code analysis — wont-fix
+
+- **Graph-analysis:** `workspace/app` mixes the local Node server, CLI entrypoints, and Vite web app in one package. The graph checker stays advisory here when type-resolution coverage is degraded, while release confidence comes from the passing build, check, test, and e2e pipeline steps.

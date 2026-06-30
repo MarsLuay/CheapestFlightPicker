@@ -1,9 +1,12 @@
 import type { SearchRequest, TimeWindow } from "./types";
 
+import {
+  getBrowserStorage,
+  persistJsonToStorage,
+} from "./browser-storage";
+
 const savedSearchPreferencesStorageKey =
   "cheapest-flight-picker.saved-search-preferences";
-
-type StorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
 type SavedSearchPreferences = Pick<
   SearchRequest,
@@ -16,18 +19,6 @@ type SavedSearchPreferences = Pick<
   | "requireFreeCarryOnBag"
   | "useExactDates"
 >;
-
-function getBrowserStorage(): StorageLike | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 function normalizeAirportCode(
   value: unknown,
@@ -171,12 +162,9 @@ export function saveSavedSearchPreferences(
     return;
   }
 
-  try {
-    storage.setItem(
-      savedSearchPreferencesStorageKey,
-      JSON.stringify(normalizedPreferences)
-    );
-  } catch {
-    // Ignore persistence failures so the UI still works normally.
-  }
+  persistJsonToStorage(
+    storage,
+    savedSearchPreferencesStorageKey,
+    normalizedPreferences
+  );
 }

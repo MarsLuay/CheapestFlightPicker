@@ -1633,7 +1633,7 @@ export default function App() {
     <div className="app-shell">
       <div className="background-veil" />
       <AdminPanel uiSnapshot={adminUiSnapshot} />
-      <main className="page">
+      <div className="page">
         <section className="hero-card">
           <h1>Cheapest Flight Picker</h1>
           <p className="hero-copy">
@@ -1669,6 +1669,7 @@ export default function App() {
               >
                 <label className="settings-toggle">
                   <input
+                    aria-label="Multiple airport selection"
                     type="checkbox"
                     checked={useMultipleAirports}
                     onChange={(event) =>
@@ -1702,6 +1703,7 @@ export default function App() {
                         : "Add at least one valid origin and destination to check airport combinations."}
                     </p>
                     <button
+                      aria-label="Clear extra airports"
                       className="secondary-action secondary-action--compact"
                       disabled={!hasAdditionalAirportSelections}
                       onClick={clearAdditionalAirports}
@@ -1742,6 +1744,7 @@ export default function App() {
                     ].map((option) => (
                       <button
                         key={option.value}
+                        aria-label={option.label}
                         className={`toggle-pill ${
                           request.tripType === option.value ? "is-active" : ""
                         }`}
@@ -1784,6 +1787,7 @@ export default function App() {
                 <label className="field filter-field">
                   <span>Cabin</span>
                   <select
+                    aria-label="Cabin"
                     value={request.cabinClass}
                     onChange={(event) =>
                       updateRequest((currentRequest) => ({
@@ -1802,6 +1806,7 @@ export default function App() {
                 <label className="field filter-field">
                   <span>Stops</span>
                   <select
+                    aria-label="Stops"
                     value={request.stopsFilter}
                     onChange={(event) =>
                       updateRequest((currentRequest) => ({
@@ -1819,6 +1824,7 @@ export default function App() {
 
                 <label className="checkbox-field filter-field">
                   <input
+                    aria-label="Require 1 free carry-on bag"
                     className="checkbox-field__input"
                     type="checkbox"
                     checked={request.requireFreeCarryOnBag ?? true}
@@ -1843,6 +1849,7 @@ export default function App() {
                 <label className="field filter-field">
                   <span>Search Intelligence</span>
                   <input
+                    aria-label="Search Intelligence"
                     type="number"
                     min="1"
                     max="12"
@@ -1870,6 +1877,7 @@ export default function App() {
                 <div className="form-grid">
                 <label className="checkbox-field filter-field">
                   <input
+                    aria-label="Use exact dates"
                     className="checkbox-field__input"
                     type="checkbox"
                     checked={useExactDates}
@@ -1890,6 +1898,7 @@ export default function App() {
 
                 <label className="checkbox-field filter-field">
                   <input
+                    aria-label="Prefer direct booking only"
                     className="checkbox-field__input"
                     type="checkbox"
                     checked={request.preferDirectBookingOnly}
@@ -1939,6 +1948,7 @@ export default function App() {
                     <label className="field">
                       <span>Earliest departure</span>
                       <input
+                        aria-label="Earliest departure"
                         type="date"
                         min={todayDateInput}
                         value={request.departureDateFrom}
@@ -1951,6 +1961,7 @@ export default function App() {
                     <label className="field">
                       <span>Latest departure</span>
                       <input
+                        aria-label="Latest departure"
                         type="date"
                         value={request.departureDateTo}
                         min={minimumDepartureDateTo}
@@ -1973,6 +1984,7 @@ export default function App() {
                       <label className="field">
                         <span>Earliest return</span>
                         <input
+                          aria-label="Earliest return"
                           type="date"
                           value={request.returnDateFrom ?? ""}
                           min={earliestAllowedReturnDate ?? todayDateInput}
@@ -1985,6 +1997,7 @@ export default function App() {
                       <label className="field">
                         <span>Latest return</span>
                         <input
+                          aria-label="Latest return"
                           type="date"
                           value={request.returnDateTo ?? ""}
                           min={minimumReturnDateTo ?? todayDateInput}
@@ -1997,6 +2010,7 @@ export default function App() {
                       <label className="field">
                         <span>Minimum trip length</span>
                       <input
+                        aria-label="Minimum trip length"
                         type="number"
                         min="0"
                         max="180"
@@ -2013,6 +2027,7 @@ export default function App() {
                       <label className="field">
                         <span>Maximum trip length</span>
                       <input
+                        aria-label="Maximum trip length"
                         type="number"
                         min="0"
                         max="180"
@@ -2096,6 +2111,11 @@ export default function App() {
             <div className="action-row">
               <div className="action-buttons">
                 <button
+                  aria-label={
+                    isSearching
+                      ? "Searching live fares"
+                      : "Find cheapest flights"
+                  }
                   className="primary-action"
                   type="submit"
                   disabled={isSearching}
@@ -2106,6 +2126,7 @@ export default function App() {
                 </button>
                 {isSearching ? (
                   <button
+                    aria-label="Cancel live fare search"
                     className="secondary-action secondary-action--danger"
                     type="button"
                     onClick={handleCancelSearch}
@@ -2163,6 +2184,11 @@ export default function App() {
                       searching again.
                     </p>
                     <button
+                      aria-label={
+                        canResumeSearch
+                          ? "Resume search"
+                          : `Resume in ${resumeCooldownSeconds} seconds`
+                      }
                       className="secondary-action secondary-action--compact"
                       type="button"
                       disabled={!canResumeSearch}
@@ -2209,8 +2235,19 @@ export default function App() {
             </a>
             .
           </p>
+          <p className="app-footer__legal">
+            <a className="app-footer__link" href="/privacy-policy.html">
+              Privacy Policy
+            </a>
+            <span className="app-footer__separator" aria-hidden="true">
+              •
+            </span>
+            <a className="app-footer__link" href="/terms-of-service.html">
+              Terms of Service
+            </a>
+          </p>
         </footer>
-      </main>
+      </div>
     </div>
   );
 }

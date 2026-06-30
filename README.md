@@ -103,3 +103,15 @@ Feel free to contact me here at
 `https://github.com/MarsLuay` or at [marwanluay2005@gmail.com](mailto:marwanluay2005@gmail.com)
 
 See [LICENSE](LICENSE) for the actual license text.
+
+## Legal
+
+- [Privacy Policy](docs/privacy-policy.md)
+- [Terms of Service](docs/terms-of-service.md)
+
+## Code analysis — wont-fix
+
+- **Mobile-web device testing:** Responsive layout is checked statically; verifying on real phones and narrow viewports remains manual QA before you ship a public deployment.
+- **UX silent-catch on built assets:** The static UX checker flags empty `catch` blocks inside minified React vendor code in `public/assets/`. That is third-party bundle noise, not app source.
+- **esbuild GHSA-g7r4-m6w7-qqqr:** Low-severity advisory affecting the Windows **development** server only; production `npm start` does not expose it. Tracked via Dependabot on `workspace/app`.
+- **Clone analysis info duplication:** Info-level clone groups are mostly intentional parallel server/web modules or repeated UI branches; deduplicating them would be a large refactor with no user-facing benefit.

@@ -479,12 +479,18 @@ export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
           {statusMessage ? <p className="admin-status-copy">{statusMessage}</p> : null}
         </div>
         <div className="admin-panel__actions">
-          <button type="button" className="admin-button" onClick={() => void refreshPanel()}>
+          <button
+            type="button"
+            className="admin-button"
+            aria-label="Refresh logs"
+            onClick={() => void refreshPanel()}
+          >
             Refresh logs
           </button>
           <button
             type="button"
             className="admin-button"
+            aria-label="Copy report"
             onClick={() => void handleCopy("diagnostics report", diagnosticsReport)}
           >
             Copy report
@@ -492,6 +498,7 @@ export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
           <button
             type="button"
             className="admin-button"
+            aria-label="Copy client logs"
             onClick={() => void handleCopy("client logs", clientLogText)}
           >
             Copy client logs
@@ -499,16 +506,23 @@ export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
           <button
             type="button"
             className="admin-button"
+            aria-label="Copy server logs"
             onClick={() => void handleCopy("server logs", serverLogText)}
           >
             Copy server logs
           </button>
-          <button type="button" className="admin-button" onClick={clearClientLogs}>
+          <button
+            type="button"
+            className="admin-button"
+            aria-label="Clear client logs"
+            onClick={clearClientLogs}
+          >
             Clear client logs
           </button>
           <button
             type="button"
             className="admin-button"
+            aria-label="Clear server logs"
             onClick={() => {
               void clearServerLogsRequest().then(() => {
                 setServerLogs([]);
@@ -519,7 +533,12 @@ export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
           >
             Clear server logs
           </button>
-          <button type="button" className="admin-button" onClick={() => setIsOpen(false)}>
+          <button
+            type="button"
+            className="admin-button"
+            aria-label="Close admin panel"
+            onClick={() => setIsOpen(false)}
+          >
             Close
           </button>
         </div>

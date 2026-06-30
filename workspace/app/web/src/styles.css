@@ -1546,6 +1546,8 @@ select {
 
 .app-footer {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
   justify-content: center;
   margin-top: 20px;
   padding: 0 8px 8px;
@@ -1574,6 +1576,16 @@ select {
   text-decoration: underline;
   text-decoration-color: rgba(241, 190, 132, 0.9);
   text-underline-offset: 3px;
+}
+
+.app-footer__legal {
+  color: rgba(247, 242, 233, 0.62);
+  margin: 0;
+  text-align: center;
+}
+
+.app-footer__separator {
+  margin: 0 8px;
 }
 
 @keyframes cheapest-overall-aurora {

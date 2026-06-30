@@ -4,6 +4,8 @@ import axios, {
   type AxiosResponse
 } from "axios";
 
+import { sleep } from "../../core/sleep";
+
 const googleFlightsRequestTimeoutMs = 1000 * 45;
 const defaultGoogleFlightsRateLimitRetries = 2;
 const defaultGoogleFlightsRetryDelayMs = 800;
@@ -39,32 +41,6 @@ function isGoogleFlightsRateLimited(error: unknown): boolean {
   }
 
   return /rate.?limit|too many requests|status code 429/iu.test(error.message);
-}
-
-function sleep(delayMs: number, signal?: AbortSignal): Promise<void> {
-  if (delayMs <= 0) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", handleAbort);
-      resolve();
-    }, delayMs);
-
-    function handleAbort() {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", handleAbort);
-      reject(new DOMException("Aborted", "AbortError"));
-    }
-
-    if (signal?.aborted) {
-      handleAbort();
-      return;
-    }
-
-    signal?.addEventListener("abort", handleAbort, { once: true });
-  });
 }
 
 export class GoogleFlightsClient {

@@ -4,7 +4,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { writeIncidentLog } from "./incident-log";
+import {
+  INCIDENT_LOG_RETENTION_MS,
+  writeIncidentLog,
+} from "./incident-log";
 
 const temporaryDirectories: string[] = [];
 
@@ -60,5 +63,40 @@ describe("writeIncidentLog", () => {
     expect(fileContents.level).toBe("error");
     expect(fileContents.message).toBe("POST /api/search failed");
     expect(fileContents.details?.route).toBe("SEA -> JFK");
+  });
+
+  it("prunes incident files older than the retention window", () => {
+    const directoryPath = createTemporaryDirectory();
+    const now = new Date("2026-06-27T12:00:00.000Z");
+    const staleTimestamp = new Date(now.getTime() - INCIDENT_LOG_RETENTION_MS - 1000);
+
+    writeIncidentLog(
+      {
+        source: "server",
+        level: "error",
+        message: "Old incident"
+      },
+      {
+        directoryPath,
+        timestamp: staleTimestamp
+      }
+    );
+
+    const recentResult = writeIncidentLog(
+      {
+        source: "client",
+        level: "error",
+        message: "Fresh incident"
+      },
+      {
+        directoryPath,
+        timestamp: now
+      }
+    );
+
+    const files = fs.readdirSync(directoryPath);
+    expect(files).toHaveLength(1);
+    expect(path.basename(recentResult.filePath)).toContain("fresh-incident");
+    expect(files[0]).toContain("fresh-incident");
   });
 });

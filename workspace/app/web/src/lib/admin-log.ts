@@ -49,11 +49,11 @@ function reportClientIncident(entry: ClientLogEntry): void {
 
     if (request && typeof request.catch === "function") {
       void request.catch(() => {
-        // Ignore reporting failures to avoid recursive logging loops.
+        void 0;
       });
     }
   } catch {
-    // Ignore reporting failures to avoid recursive logging loops.
+    void 0;
   }
 }
 

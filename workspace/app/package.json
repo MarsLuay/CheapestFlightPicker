@@ -42,5 +42,6 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.16",
     "vitest": "^4.1.1"
-  }
+  },
+  "description": "Flight search app that compares flexible date windows and surfaces the cheapest options."
 }
