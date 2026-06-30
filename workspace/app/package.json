@@ -27,6 +27,7 @@
     "zod": "^4.3.6"
   },
   "overrides": {
+    "esbuild": "0.28.1",
     "path-to-regexp": "8.4.0"
   },
   "devDependencies": {
@@ -38,9 +39,9 @@
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^10.0.3",
     "tsup": "^8.5.0",
-    "tsx": "^4.20.5",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.2",
-    "vite": "^8.0.16",
+    "vite": "^8.1.0",
     "vitest": "^4.1.1"
   },
   "description": "Flight search app that compares flexible date windows and surfaces the cheapest options."
