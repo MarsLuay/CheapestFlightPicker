@@ -140,7 +140,7 @@ export function getBookingSourceSupplementReasons(
   return reasons;
 }
 
-export function shouldAttemptBookingSourceSupplement(
+function shouldAttemptBookingSourceSupplement(
   option: FlightOption | null,
   request: SearchRequest
 ): option is FlightOption {

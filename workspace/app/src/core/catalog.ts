@@ -101,7 +101,7 @@ function parseAirlineRecord(line: string): AirlineRecord | null {
   };
 }
 
-export function loadAirports(): AirportRecord[] {
+function loadAirports(): AirportRecord[] {
   if (airportCache) {
     return airportCache;
   }
@@ -115,7 +115,7 @@ export function loadAirports(): AirportRecord[] {
   return airportCache;
 }
 
-export function loadAirlines(): AirlineRecord[] {
+function loadAirlines(): AirlineRecord[] {
   if (airlineCache) {
     return airlineCache;
   }

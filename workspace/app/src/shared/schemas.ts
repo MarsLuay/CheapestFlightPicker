@@ -263,5 +263,3 @@ export const searchRequestSchema = z
       }
     }
   });
-
-export type SearchRequestInput = z.input<typeof searchRequestSchema>;

@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "code-analysis",
+          "informationUri": "https://github.com/analysis-tools-dev/static-analysis",
+          "rules": [
+            {
+              "id": "accessibility.wcag-target",
+              "name": "accessibility.wcag-target",
+              "shortDescription": {
+                "text": "No obvious static accessibility gaps detected. Continue manual WCAG 2.2 Level AA testing (keyboard, screen reader, contrast). Public sites should also consider ADA obligations; government sites may need Title II WCAG 2.1 coverage."
+              },
+              "properties": {
+                "category": "accessibility",
+                "confidence": "medium",
+                "fixSafety": "review"
+              }
+            },
+            {
+              "id": "ux-check.clean-pass",
+              "name": "ux-check.clean-pass",
+              "shortDescription": {
+                "text": "No obvious UX copy, settings-label, error-message, or duplicate hover-tip issues detected."
+              },
+              "properties": {
+                "category": "ux",
+                "confidence": "medium",
+                "fixSafety": "review"
+              }
+            },
+            {
+              "id": "security-scan.clean-pass",
+              "name": "security-scan.clean-pass",
+              "shortDescription": {
+                "text": "No dependency vulnerabilities or OWASP/secrets Semgrep findings detected."
+              },
+              "properties": {
+                "category": "security",
+                "confidence": "medium",
+                "fixSafety": "manual"
+              }
+            },
+            {
+              "id": "mobile-web.responsive-ok",
+              "name": "mobile-web.responsive-ok",
+              "shortDescription": {
+                "text": "No obvious static mobile-web issues detected. Verify on real devices and narrow viewports."
+              },
+              "properties": {
+                "category": "mobile-web",
+                "confidence": "medium",
+                "fixSafety": "review"
+              }
+            }
+          ]
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "endTimeUtc": "2026-07-12T04:21:27.572Z"
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "accessibility.wcag-target",
+          "level": "note",
+          "message": {
+            "text": "No obvious static accessibility gaps detected. Continue manual WCAG 2.2 Level AA testing (keyboard, screen reader, contrast). Public sites should also consider ADA obligations; government sites may need Title II WCAG 2.1 coverage."
+          },
+          "fingerprints": {
+            "finding/v2": "fp1-2cab3b0c7405c29bf0c03a61",
+            "finding/id": "finding-5d4591b621f63ca8"
+          },
+          "properties": {
+            "tool": "accessibility-check",
+            "category": "accessibility",
+            "confidence": "medium",
+            "lifecycleStatus": "active",
+            "fixSafety": "review",
+            "provenance": {
+              "kind": "exact",
+              "source": "check-accessibility.mjs",
+              "tool": "accessibility-check"
+            }
+          }
+        },
+        {
+          "ruleId": "ux-check.clean-pass",
+          "level": "note",
+          "message": {
+            "text": "No obvious UX copy, settings-label, error-message, or duplicate hover-tip issues detected."
+          },
+          "fingerprints": {
+            "finding/v2": "fp1-493ade4e86e099ddaaaae1c4",
+            "finding/id": "finding-ab0be63eea4a095a"
+          },
+          "properties": {
+            "tool": "ux-check",
+            "category": "ux",
+            "confidence": "medium",
+            "lifecycleStatus": "active",
+            "fixSafety": "review",
+            "provenance": {
+              "kind": "exact",
+              "source": "check-ux.mjs",
+              "tool": "ux-check"
+            }
+          }
+        },
+        {
+          "ruleId": "security-scan.clean-pass",
+          "level": "note",
+          "message": {
+            "text": "No dependency vulnerabilities or OWASP/secrets Semgrep findings detected."
+          },
+          "fingerprints": {
+            "finding/v2": "fp1-ce1ee4b08ffce1fcc8fd9d1a",
+            "finding/id": "finding-f770140a278cf70d"
+          },
+          "properties": {
+            "tool": "security-scan",
+            "category": "security",
+            "confidence": "medium",
+            "lifecycleStatus": "active",
+            "fixSafety": "manual",
+            "provenance": {
+              "kind": "external",
+              "source": "run-security-scan.mjs",
+              "tool": "security-scan"
+            }
+          }
+        },
+        {
+          "ruleId": "mobile-web.responsive-ok",
+          "level": "note",
+          "message": {
+            "text": "No obvious static mobile-web issues detected. Verify on real devices and narrow viewports."
+          },
+          "fingerprints": {
+            "finding/v2": "fp1-f6a55265a74a9a0782dcd4cc",
+            "finding/id": "finding-9041dc514cd1a44a"
+          },
+          "properties": {
+            "tool": "mobile-web-check",
+            "category": "mobile-web",
+            "confidence": "medium",
+            "lifecycleStatus": "active",
+            "fixSafety": "review",
+            "provenance": {
+              "kind": "exact",
+              "source": "check-mobile-web.mjs",
+              "tool": "mobile-web-check"
+            }
+          }
+        }
+      ],
+      "automationDetails": {
+        "description": {
+          "text": "Code analysis report for website-app"
+        }
+      }
+    }
+  ]
+}

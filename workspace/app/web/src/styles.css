@@ -1561,12 +1561,19 @@ select {
 }
 
 .app-footer__link {
+  align-items: center;
   color: #f5d5ad;
+  display: inline-flex;
   font-weight: 600;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 10px 6px;
   text-decoration: none;
   transition:
     color 180ms ease,
     text-decoration-color 180ms ease;
+  vertical-align: middle;
 }
 
 .app-footer__link:hover,

@@ -1,0 +1,114 @@
+{
+  "label": "website-app",
+  "generatedAt": "2026-07-12T04:21:27.572Z",
+  "summary": {
+    "total": 4,
+    "errors": 0,
+    "warnings": 0,
+    "info": 4,
+    "byTool": {
+      "accessibility-check": 1,
+      "mobile-web-check": 1,
+      "security-scan": 1,
+      "ux-check": 1
+    }
+  },
+  "findings": [
+    {
+      "schemaVersion": 2,
+      "id": "finding-5d4591b621f63ca8",
+      "fingerprint": "fp1-2cab3b0c7405c29bf0c03a61",
+      "tool": "accessibility-check",
+      "severity": "info",
+      "message": "No obvious static accessibility gaps detected. Continue manual WCAG 2.2 Level AA testing (keyboard, screen reader, contrast). Public sites should also consider ADA obligations; government sites may need Title II WCAG 2.1 coverage.",
+      "rule": "accessibility.wcag-target",
+      "category": "accessibility",
+      "confidence": "medium",
+      "cwe": null,
+      "provenance": {
+        "kind": "exact",
+        "source": "check-accessibility.mjs",
+        "tool": "accessibility-check"
+      },
+      "symbol": null,
+      "range": null,
+      "evidence": [],
+      "help": null,
+      "fixSafety": "review",
+      "tags": [],
+      "lifecycleStatus": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "finding-ab0be63eea4a095a",
+      "fingerprint": "fp1-493ade4e86e099ddaaaae1c4",
+      "tool": "ux-check",
+      "severity": "info",
+      "message": "No obvious UX copy, settings-label, error-message, or duplicate hover-tip issues detected.",
+      "rule": "ux-check.clean-pass",
+      "category": "ux",
+      "confidence": "medium",
+      "cwe": null,
+      "provenance": {
+        "kind": "exact",
+        "source": "check-ux.mjs",
+        "tool": "ux-check"
+      },
+      "symbol": null,
+      "range": null,
+      "evidence": [],
+      "help": null,
+      "fixSafety": "review",
+      "tags": [],
+      "lifecycleStatus": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "finding-f770140a278cf70d",
+      "fingerprint": "fp1-ce1ee4b08ffce1fcc8fd9d1a",
+      "tool": "security-scan",
+      "severity": "info",
+      "message": "No dependency vulnerabilities or OWASP/secrets Semgrep findings detected.",
+      "rule": "security-scan.clean-pass",
+      "category": "security",
+      "confidence": "medium",
+      "cwe": null,
+      "provenance": {
+        "kind": "external",
+        "source": "run-security-scan.mjs",
+        "tool": "security-scan"
+      },
+      "symbol": null,
+      "range": null,
+      "evidence": [],
+      "help": null,
+      "fixSafety": "manual",
+      "tags": [],
+      "lifecycleStatus": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "finding-9041dc514cd1a44a",
+      "fingerprint": "fp1-f6a55265a74a9a0782dcd4cc",
+      "tool": "mobile-web-check",
+      "severity": "info",
+      "message": "No obvious static mobile-web issues detected. Verify on real devices and narrow viewports.",
+      "rule": "mobile-web.responsive-ok",
+      "category": "mobile-web",
+      "confidence": "medium",
+      "cwe": null,
+      "provenance": {
+        "kind": "exact",
+        "source": "check-mobile-web.mjs",
+        "tool": "mobile-web-check"
+      },
+      "symbol": null,
+      "range": null,
+      "evidence": [],
+      "help": null,
+      "fixSafety": "review",
+      "tags": [],
+      "lifecycleStatus": "active"
+    }
+  ]
+}
