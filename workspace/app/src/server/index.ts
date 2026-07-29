@@ -22,10 +22,13 @@ import { ensureIncidentLogDirectory } from "./incident-log";
 import { getSearchFailureResponse } from "./search-errors";
 import { FlightSearchService } from "../core/search";
 import {
+  cancelSearchJob,
   completeSearchJob,
   createSearchJob,
   failSearchJob,
   getSearchJob,
+  getSearchJobAbortSignal,
+  getSearchJobWithCheckpoint,
   updateSearchJobResumeCheckpoint,
   updateSearchJobProgress
 } from "./search-jobs";
@@ -386,7 +389,7 @@ app.post("/api/search/jobs", (request, response) => {
   const requestSummary = summarizeSearchRequest(jobPayload.requestInput);
   const job = createSearchJob();
   const resumeSourceJob = jobPayload.resumeFromJobId
-    ? getSearchJob(jobPayload.resumeFromJobId)
+    ? getSearchJobWithCheckpoint(jobPayload.resumeFromJobId)
     : null;
   const resumeCheckpoint =
     resumeSourceJob?.resumeCheckpoint &&
@@ -415,9 +418,13 @@ app.post("/api/search/jobs", (request, response) => {
           checkpointReporter(checkpoint) {
             updateSearchJobResumeCheckpoint(job.id, checkpoint);
           },
-          resumeCheckpoint
+          resumeCheckpoint,
+          signal: getSearchJobAbortSignal(job.id) ?? undefined
         }
       );
+      if (getSearchJob(job.id)?.status === "failed") {
+        return;
+      }
       completeSearchJob(job.id, summary);
       appendServerLog("info", "POST /api/search/jobs completed", {
         jobId: job.id,
@@ -427,20 +434,48 @@ app.post("/api/search/jobs", (request, response) => {
         ...summarizeSearchSummary(summary)
       });
     } catch (error) {
+      if (getSearchJob(job.id)?.error === "Search canceled.") {
+        appendServerLog("info", "POST /api/search/jobs canceled", {
+          jobId: job.id,
+          ...requestSummary
+        });
+        return;
+      }
       const failure = getSearchFailureResponse(error);
-      failSearchJob(job.id, failure.message);
+      const isAbort =
+        error instanceof Error &&
+        (error.name === "AbortError" || /aborted|canceled/iu.test(error.message));
+      failSearchJob(
+        job.id,
+        isAbort ? "Search canceled." : failure.message
+      );
       appendServerLog("error", "POST /api/search/jobs failed", {
         jobId: job.id,
         ...requestSummary,
-        error: failure.message,
+        error: isAbort ? "Search canceled." : failure.message,
         stack: error instanceof Error ? error.stack ?? null : null
       }, {
-        persist: true
+        persist: !isAbort
       });
     }
   })();
 
   response.status(202).json({ jobId: job.id });
+});
+
+app.delete("/api/search/jobs/:id", (request, response) => {
+  const job = cancelSearchJob(request.params.id);
+  if (!job) {
+    response.status(404).json({
+      error: "Search job not found"
+    });
+    return;
+  }
+
+  appendServerLog("info", "DELETE /api/search/jobs canceled", {
+    jobId: job.id
+  });
+  response.json(job);
 });
 
 app.get("/api/search/jobs/:id", (request, response) => {

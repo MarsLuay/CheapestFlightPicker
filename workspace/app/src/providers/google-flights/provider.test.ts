@@ -91,102 +91,42 @@ function wrapShoppingResponse(entries: unknown[][]): string {
   return `)]}'${JSON.stringify([[null, null, JSON.stringify(decoded)]])}`;
 }
 
-describe("GoogleFlightsProvider date price timing enrichment", () => {
-  it("adds exact departure and arrival times to ranked calendar date prices", async () => {
+describe("GoogleFlightsProvider round-trip outbound follow-up cap", () => {
+  it("keeps only the cheapest unique outbounds up to the follow-up limit", () => {
     const provider = new GoogleFlightsProvider() as unknown as {
-      annotateDatePricesWithExactTimes: (
-        params: {
-          origin: string;
-          destination: string;
-          fromDate: string;
-          toDate: string;
-          travelDate: string;
-          cabinClass: string;
-          stopsFilter: string;
-          requireFreeCarryOnBag?: boolean;
-          airlines: string[];
-          passengers: {
-            adults: number;
-            children: number;
-            infantsInSeat: number;
-            infantsOnLap: number;
-          };
-        },
-        datePrices: Array<{ date: string; price: number }>
-      ) => Promise<Array<{ date: string; price: number; departureDateTime?: string; arrivalDateTime?: string }>>;
-      searchExactFlights: (params: { departureDate: string }) => Promise<FlightOption[]>;
+      getRoundTripOutboundCandidates: (
+        results: Array<{
+          price: number;
+          legs: Array<{
+            departureAirportCode: string;
+            arrivalAirportCode: string;
+            airlineCode: string;
+            flightNumber: string;
+            departureDateTime: string;
+            arrivalDateTime: string;
+          }>;
+        }>,
+        origin: string
+      ) => Array<{ price: number }>;
     };
 
-    provider.searchExactFlights = vi.fn(async (params) => [
-      {
-        ...buildOption({
-          type: "direct_airline",
-          label: "Direct with Alaska",
-          sellerName: "Alaska",
-          detected: true
-        }),
-        totalPrice: params.departureDate === "2026-06-02" ? 80 : 120,
-        slices: [
-          {
-            durationMinutes: 120,
-            stops: 0,
-            legs: [
-              {
-                airlineCode: "AS",
-                airlineName: "Alaska",
-                flightNumber: "100",
-                departureAirportCode: "SEA",
-                departureAirportName: "Seattle-Tacoma International Airport",
-                departureDateTime: `${params.departureDate}T09:30:00`,
-                arrivalAirportCode: "JFK",
-                arrivalAirportName: "John F. Kennedy International Airport",
-                arrivalDateTime: `${params.departureDate}T17:45:00`,
-                durationMinutes: 120
-              }
-            ]
-          }
-        ]
-      }
-    ]);
-
-    const annotated = await provider.annotateDatePricesWithExactTimes(
-      {
-        origin: "SEA",
-        destination: "JFK",
-        fromDate: "2026-06-01",
-        toDate: "2026-06-02",
-        travelDate: "2026-06-01",
-        cabinClass: "economy",
-        stopsFilter: "any",
-        requireFreeCarryOnBag: true,
-        airlines: [],
-        passengers: {
-          adults: 1,
-          children: 0,
-          infantsInSeat: 0,
-          infantsOnLap: 0
+    const results = Array.from({ length: 8 }, (_, index) => ({
+      price: 100 + index,
+      legs: [
+        {
+          departureAirportCode: "SEA",
+          arrivalAirportCode: "JFK",
+          airlineCode: "AS",
+          flightNumber: String(100 + index),
+          departureDateTime: `2026-06-01T0${index}:00:00`,
+          arrivalDateTime: `2026-06-01T1${index}:00:00`
         }
-      },
-      [
-        { date: "2026-06-01", price: 120 },
-        { date: "2026-06-02", price: 80 }
       ]
-    );
+    }));
 
-    expect(annotated).toEqual([
-      {
-        date: "2026-06-01",
-        price: 120,
-        departureDateTime: "2026-06-01T09:30:00",
-        arrivalDateTime: "2026-06-01T17:45:00"
-      },
-      {
-        date: "2026-06-02",
-        price: 80,
-        departureDateTime: "2026-06-02T09:30:00",
-        arrivalDateTime: "2026-06-02T17:45:00"
-      }
-    ]);
+    const capped = provider.getRoundTripOutboundCandidates(results, "SEA");
+    expect(capped).toHaveLength(5);
+    expect(capped.map((entry) => entry.price)).toEqual([100, 101, 102, 103, 104]);
   });
 });
 

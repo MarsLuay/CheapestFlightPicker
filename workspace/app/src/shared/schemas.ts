@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   cabinClassValues,
+  maxSearchResults,
   stopsFilterValues,
   tripTypeValues
 } from "./types";
@@ -119,7 +120,7 @@ export const searchRequestSchema = z
         infantsInSeat: 0,
         infantsOnLap: 0
       }),
-    maxResults: z.number().int().min(1).max(20).default(5)
+    maxResults: z.number().int().min(1).max(20).default(maxSearchResults)
   })
   .superRefine((value, ctx) => {
     if (value.origin === value.destination) {

@@ -1,3 +1,6 @@
+/** Fixed search depth for the web app (former Search Intelligence max). */
+export const maxSearchResults = 12;
+
 export const cabinClassValues = [
   "economy",
   "premium_economy",

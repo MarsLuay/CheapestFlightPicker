@@ -17,6 +17,16 @@ type AirportFieldProps = {
   selectedCodes?: string[];
 };
 
+/** Accept a raw typed IATA code (blur/Enter) without requiring a suggestion click. */
+export function parseTypedAirportCode(query: string): string | null {
+  const trimmed = query.trim();
+  if (!/^[A-Za-z]{3}$/u.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed.toUpperCase();
+}
+
 export function AirportField({
   label,
   multiple = false,
@@ -78,12 +88,12 @@ export function AirportField({
     onSelect(airport.iata);
   }
 
-  function commitTypedAirportCode(): boolean {
-    if (!/^[A-Za-z]{3}$/u.test(trimmedQuery)) {
+  function commitTypedAirportCode(rawQuery = trimmedQuery): boolean {
+    const code = parseTypedAirportCode(rawQuery);
+    if (!code) {
       return false;
     }
 
-    const code = trimmedQuery.toUpperCase();
     setQuery(multiple ? "" : code);
     setActiveIndex(0);
     setHasCommittedSelection(true);
@@ -139,8 +149,15 @@ export function AirportField({
           value={inputValue}
           onBlur={() => {
             setIsFocused(false);
+            // Commit before submit/click handlers run so typed IATA codes
+            // (e.g. "PIT" then "Find cheapest flights") update parent state.
+            const committed = commitTypedAirportCode();
             if (multiple) {
-              setQuery("");
+              if (!committed) {
+                setQuery("");
+              }
+            } else if (!committed) {
+              setQuery(value);
             }
             setHasCommittedSelection(false);
           }}

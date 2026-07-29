@@ -48,7 +48,8 @@ describe("adjacent cabin helpers", () => {
   it("builds an adjacent-cabin search request without changing other filters", () => {
     expect(buildAdjacentCabinSearchRequest(buildRequest("economy"))).toEqual({
       ...buildRequest("economy"),
-      cabinClass: "premium_economy"
+      cabinClass: "premium_economy",
+      maxResults: 3
     });
     expect(buildAdjacentCabinSearchRequest(buildRequest("first"))).toBeNull();
   });

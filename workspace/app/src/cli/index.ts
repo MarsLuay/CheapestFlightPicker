@@ -108,7 +108,7 @@ program
   .option(
     "--max-results <count>",
     "How many top date candidates to inspect",
-    "5"
+    "12"
   )
   .action(async (options) => {
     const request: SearchRequest = {

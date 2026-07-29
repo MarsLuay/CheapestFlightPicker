@@ -43,11 +43,12 @@ import {
   inferOriginFromTimeZone
 } from "./lib/timezone-origin";
 import { isHostedApiModeEnabled } from "./lib/runtime-mode";
-import type {
-  SearchProgress,
-  SearchRequest,
-  SearchSummary,
-  UpgradeFareCardState
+import {
+  maxSearchResults,
+  type SearchProgress,
+  type SearchRequest,
+  type SearchSummary,
+  type UpgradeFareCardState
 } from "./lib/types";
 import { AdminPanel } from "./components/AdminPanel";
 import { AirlinePicker } from "./components/AirlinePicker";
@@ -203,7 +204,7 @@ function createInitialRequest(
       infantsInSeat: 0,
       infantsOnLap: 0
     },
-    maxResults: 12
+    maxResults: maxSearchResults
   };
 }
 
@@ -958,6 +959,7 @@ export default function App() {
     upgradeSearchAbortControllerRef.current = controller;
 
     void runFlightSearch(upgradeSearchRequest, {
+      maxResults: upgradeSearchRequest.maxResults,
       onProgress(progress) {
         if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
           return;
@@ -1513,7 +1515,7 @@ export default function App() {
       destination: request.destination,
       destinationState: request.destination ? "selected" : "empty",
       useExactDates,
-      searchIntelligence: request.maxResults,
+      searchIntelligence: maxSearchResults,
       cabinClass: request.cabinClass,
       stopsFilter: request.stopsFilter,
       preferDirectBookingOnly: request.preferDirectBookingOnly,
@@ -1846,26 +1848,6 @@ export default function App() {
                   </div>
                 </label>
 
-                <label className="field filter-field">
-                  <span>Search Intelligence</span>
-                  <input
-                    aria-label="Search Intelligence"
-                    type="number"
-                    min="1"
-                    max="12"
-                    value={request.maxResults}
-                    onChange={(event) =>
-                      updateRequest((currentRequest) => ({
-                        ...currentRequest,
-                        maxResults: Number.parseInt(event.target.value, 10) || 5
-                      }))
-                    }
-                  />
-                  <p className="field-help">
-                    Choose a value from 1 to 12. Higher values make the search
-                    smarter, while lower values make it faster.
-                  </p>
-                </label>
                 </div>
               </div>
 

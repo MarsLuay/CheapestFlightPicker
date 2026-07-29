@@ -7,6 +7,7 @@ import type {
   SearchResponse,
   ServerLogEntry
 } from "./types";
+import { maxSearchResults } from "./types";
 import { addClientLog } from "./admin-log";
 import { searchCatalogAirlines, searchCatalogAirports } from "./catalog";
 import { isHostedApiModeEnabled } from "./runtime-mode";
@@ -23,6 +24,8 @@ type RequestJsonOptions<T> = {
 type RunFlightSearchOptions = {
   onJobCreated?: (jobId: string) => void;
   onProgress?: (progress: SearchProgress) => void;
+  /** When set, overrides the web default maxSearchResults for this call. */
+  maxResults?: number;
   resumeFromJobId?: string;
   signal?: AbortSignal;
 };
@@ -346,7 +349,11 @@ export async function runFlightSearch(
     typeof optionsOrProgress === "function"
       ? { onProgress: optionsOrProgress }
       : optionsOrProgress ?? {};
-  const requestDetails = buildSearchRequestDetails(request);
+  const searchRequest: SearchRequest = {
+    ...request,
+    maxResults: options.maxResults ?? maxSearchResults
+  };
+  const requestDetails = buildSearchRequestDetails(searchRequest);
 
   if (isHostedApiModeEnabled()) {
     options.onProgress?.({
@@ -360,7 +367,7 @@ export async function runFlightSearch(
     return requestJson<SearchResponse>(
       "/api/search",
       {
-        body: JSON.stringify(request),
+        body: JSON.stringify(searchRequest),
         headers: {
           "content-type": "application/json"
         },
@@ -388,10 +395,10 @@ export async function runFlightSearch(
         body: JSON.stringify(
           options.resumeFromJobId
             ? {
-                request,
+                request: searchRequest,
                 resumeFromJobId: options.resumeFromJobId
               }
-            : request
+            : searchRequest
         ),
         headers: {
           "content-type": "application/json"
@@ -407,12 +414,26 @@ export async function runFlightSearch(
 
   try {
     let job = await createSearchJob();
+    let activeJobId = job.jobId;
     options.onJobCreated?.(job.jobId);
+
+    const cancelActiveJob = () => {
+      void Promise.resolve(
+        fetch(`/api/search/jobs/${activeJobId}`, { method: "DELETE" })
+      ).catch(() => undefined);
+    };
+    if (options.signal) {
+      if (options.signal.aborted) {
+        cancelActiveJob();
+        throw new Error("Search canceled.");
+      }
+      options.signal.addEventListener("abort", cancelActiveJob, { once: true });
+    }
 
     while (true) {
       if (performance.now() - searchStartedAt > searchJobTimeoutMs) {
         throw new Error(
-          "Search took too long to finish. Try narrowing the date window or lowering candidate depth."
+          "Search took too long to finish. Try narrowing the date window."
         );
       }
 
@@ -451,6 +472,7 @@ export async function runFlightSearch(
             percent: 0
           });
           job = await createSearchJob();
+          activeJobId = job.jobId;
           options.onJobCreated?.(job.jobId);
           continue;
         }

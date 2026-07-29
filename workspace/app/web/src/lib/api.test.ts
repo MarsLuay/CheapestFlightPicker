@@ -7,6 +7,7 @@ import type {
   SearchRequest,
   SearchSummary
 } from "./types";
+import { maxSearchResults } from "./types";
 
 function buildRequest(): SearchRequest {
   return {
@@ -31,7 +32,7 @@ function buildRequest(): SearchRequest {
       infantsInSeat: 0,
       infantsOnLap: 0
     },
-    maxResults: 10
+    maxResults: maxSearchResults
   };
 }
 
@@ -210,7 +211,9 @@ describe("runFlightSearch", () => {
     controller.abort();
 
     await expect(responsePromise).rejects.toThrow("Search canceled.");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/search/jobs/running-job");
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: "DELETE" });
     vi.useRealTimers();
   });
 

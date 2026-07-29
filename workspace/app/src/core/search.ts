@@ -14,6 +14,7 @@ import {
   isLikelyDirectAirlineBookingOption,
   mapWithConcurrency
 } from "./utils";
+import { runWithSearchAbortSignal } from "../providers/google-flights/abort-context";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   DatePrice,
@@ -30,6 +31,7 @@ import type {
 type CandidatePair = {
   departureDate: string;
   returnDate?: string;
+  estimatedTotalPrice?: number;
 };
 
 type ScoredCandidatePair = CandidatePair & {
@@ -55,6 +57,7 @@ type SearchProgressReporter = (progress: SearchProgress) => void;
 type SearchRunOptions = {
   checkpointReporter?: (checkpoint: SearchResumeCheckpoint) => void;
   resumeCheckpoint?: SearchResumeCheckpoint | null;
+  signal?: AbortSignal;
 };
 
 function toPreviewSummary(
@@ -510,10 +513,8 @@ export class FlightSearchService {
         passengers: request.passengers,
         departureTimeWindow: request.departureTimeWindow ?? undefined,
         arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-      },
-      {
-        bypassCache: true
       }
+      // Prefer provider exact cache (soft TTL) over forced refresh.
     );
     const refinedOptions = await this.refineOptionsForDirectBookingPreference(
       freshOptions,
@@ -568,10 +569,8 @@ export class FlightSearchService {
           passengers: request.passengers,
           departureTimeWindow: request.departureTimeWindow ?? undefined,
           arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-        },
-        {
-          bypassCache: true
         }
+        // Prefer provider exact cache (soft TTL) over forced refresh.
       );
       const refinedOptions = await this.refineOptionsForDirectBookingPreference(
         freshOptions,
@@ -669,14 +668,16 @@ export class FlightSearchService {
     progressReporter?: SearchProgressReporter,
     options?: SearchRunOptions
   ): Promise<SearchSummary> {
-    const request = searchRequestSchema.parse(input);
-    this.ensureReferenceDataExists(request);
+    return runWithSearchAbortSignal(options?.signal, () => {
+      const request = searchRequestSchema.parse(input);
+      this.ensureReferenceDataExists(request);
 
-    if (request.tripType === "one_way") {
-      return this.searchOneWay(request, progressReporter, options);
-    }
+      if (request.tripType === "one_way") {
+        return this.searchOneWay(request, progressReporter, options);
+      }
 
-    return this.searchRoundTrip(request, progressReporter, options);
+      return this.searchRoundTrip(request, progressReporter, options);
+    });
   }
 
   private async searchOneWay(
@@ -900,7 +901,10 @@ export class FlightSearchService {
         );
         completedResults.push({
           departureDate: entry.date,
-          options
+          options: sortFlightOptionsByPrice(options).slice(
+            0,
+            Math.max(request.maxResults, 1)
+          )
         });
         reportCheckpoint();
         return options;
@@ -1185,9 +1189,27 @@ export class FlightSearchService {
       request.minimumTripDays ?? 0,
       request.maximumTripDays ?? 14
     );
-    const totalExactLookups = candidatePairs.length * 3;
+    const pendingPairs = candidatePairs.filter(
+      (pair) => !resumedResultByPair.has(pairKey(pair))
+    );
+    const uniqueOutboundDates = [
+      ...new Set(pendingPairs.map((pair) => pair.departureDate))
+    ];
+    const uniqueInboundDates = [
+      ...new Set(
+        pendingPairs
+          .map((pair) => pair.returnDate)
+          .filter((date): date is string => Boolean(date))
+      )
+    ];
+    const totalExactLookups =
+      uniqueOutboundDates.length +
+      uniqueInboundDates.length +
+      pendingPairs.length;
     tracker.setTotalSteps(
-      3 + totalExactLookups,
+      3 +
+        initialCompletedPairs * 3 +
+        totalExactLookups,
       candidatePairs.length > 0
         ? `Inspecting ${candidatePairs.length} date combinations`
         : "No valid departure and return pairs matched the filters"
@@ -1196,11 +1218,14 @@ export class FlightSearchService {
     let completedLookups = 0;
     let completedPairEvaluations = 0;
     let previewInspectedOptions = 0;
+    let bestFoundPrice: number | null = null;
     const previewRoundTripOptions: FlightOption[] = [];
     const previewTwoOneWayOptions: FlightOption[] = [];
     const previewNonstopOptions: FlightOption[] = [];
     const previewEvaluatedDatePairs: CandidatePair[] = [];
     const evaluatedByPair = new Map<string, SearchResumeRoundTripResult>();
+    const outboundOptionsByDate = new Map<string, FlightOption[]>();
+    const inboundOptionsByDate = new Map<string, FlightOption[]>();
 
     function applyRoundTripResult(result: SearchResumeRoundTripResult): void {
       evaluatedByPair.set(pairKey(result), result);
@@ -1220,6 +1245,18 @@ export class FlightSearchService {
       });
       previewInspectedOptions += result.inspectedOptions;
       completedPairEvaluations += 1;
+
+      const pairBest = findCheapest(
+        [result.cheapestRoundTrip, result.cheapestTwoOneWays].filter(
+          (entry): entry is FlightOption => entry !== null
+        )
+      );
+      if (
+        pairBest &&
+        (bestFoundPrice === null || pairBest.totalPrice < bestFoundPrice)
+      ) {
+        bestFoundPrice = pairBest.totalPrice;
+      }
     }
 
     for (const pair of candidatePairs) {
@@ -1268,90 +1305,122 @@ export class FlightSearchService {
     reportCheckpoint();
 
     function reportExactLookupComplete(): void {
+      if (options?.signal?.aborted) {
+        throw new DOMException("Search canceled.", "AbortError");
+      }
       completedLookups += 1;
       tracker.completeStep(
         "Checking exact flight options",
-        `${completedLookups} of ${totalExactLookups} exact fare lookups finished`
+        `${completedLookups} of ${initialCompletedPairs * 3 + totalExactLookups} exact fare lookups finished`
       );
     }
+
+    async function loadOneWayExact(
+      service: FlightSearchService,
+      origin: string,
+      destination: string,
+      departureDate: string
+    ): Promise<FlightOption[]> {
+      try {
+        const options = await service.provider.searchExactFlights({
+          tripType: "one_way",
+          origin,
+          destination,
+          departureDate,
+          cabinClass: request.cabinClass,
+          stopsFilter: request.stopsFilter,
+          preferDirectBookingOnly: request.preferDirectBookingOnly,
+          requireFreeCarryOnBag: request.requireFreeCarryOnBag,
+          airlines: request.airlines,
+          passengers: request.passengers,
+          departureTimeWindow: request.departureTimeWindow ?? undefined,
+          arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
+        });
+        reportExactLookupComplete();
+        return options;
+      } catch (error) {
+        reportExactLookupComplete();
+        throw error;
+      }
+    }
+
+    if (uniqueOutboundDates.length > 0 || uniqueInboundDates.length > 0) {
+      tracker.setStage(
+        "Checking exact flight options",
+        "Loading shared one-way fares for the candidate dates"
+      );
+    }
+
+    await mapWithConcurrency(uniqueOutboundDates, 2, async (departureDate) => {
+      const options = await loadOneWayExact(
+        this,
+        request.origin,
+        request.destination,
+        departureDate
+      );
+      outboundOptionsByDate.set(departureDate, options);
+      return options;
+    });
+    await mapWithConcurrency(uniqueInboundDates, 2, async (returnDate) => {
+      const options = await loadOneWayExact(
+        this,
+        request.destination,
+        request.origin,
+        returnDate
+      );
+      inboundOptionsByDate.set(returnDate, options);
+      return options;
+    });
 
     async function evaluateCandidatePair(
       pair: CandidatePair,
       service: FlightSearchService
     ): Promise<SearchResumeRoundTripResult> {
-      const [roundTripOptions, outboundOptions, inboundOptions] =
-        await Promise.all([
-          service.provider
-            .searchExactFlights({
-              tripType: "round_trip",
-              origin: request.origin,
-              destination: request.destination,
-              departureDate: pair.departureDate,
-              returnDate: pair.returnDate,
-              cabinClass: request.cabinClass,
-              stopsFilter: request.stopsFilter,
-              preferDirectBookingOnly: request.preferDirectBookingOnly,
-              requireFreeCarryOnBag: request.requireFreeCarryOnBag,
-              airlines: request.airlines,
-              passengers: request.passengers,
-              departureTimeWindow: request.departureTimeWindow ?? undefined,
-              arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-            })
-            .then((result) => {
-              reportExactLookupComplete();
-              return result;
-            })
-            .catch((error) => {
-              reportExactLookupComplete();
-              throw error;
-            }),
-          service.provider
-            .searchExactFlights({
-              tripType: "one_way",
-              origin: request.origin,
-              destination: request.destination,
-              departureDate: pair.departureDate,
-              cabinClass: request.cabinClass,
-              stopsFilter: request.stopsFilter,
-              preferDirectBookingOnly: request.preferDirectBookingOnly,
-              requireFreeCarryOnBag: request.requireFreeCarryOnBag,
-              airlines: request.airlines,
-              passengers: request.passengers,
-              departureTimeWindow: request.departureTimeWindow ?? undefined,
-              arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-            })
-            .then((result) => {
-              reportExactLookupComplete();
-              return result;
-            })
-            .catch((error) => {
-              reportExactLookupComplete();
-              throw error;
-            }),
-          service.provider
-            .searchExactFlights({
-              tripType: "one_way",
-              origin: request.destination,
-              destination: request.origin,
-              departureDate: pair.returnDate ?? pair.departureDate,
-              cabinClass: request.cabinClass,
-              stopsFilter: request.stopsFilter,
-              preferDirectBookingOnly: request.preferDirectBookingOnly,
-              requireFreeCarryOnBag: request.requireFreeCarryOnBag,
-              airlines: request.airlines,
-              passengers: request.passengers,
-              departureTimeWindow: request.departureTimeWindow ?? undefined,
-              arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
-            })
-            .then((result) => {
-              reportExactLookupComplete();
-              return result;
-            })
-            .catch((error) => {
-              reportExactLookupComplete();
-              throw error;
-            })
-        ]);
+      const estimated = pair.estimatedTotalPrice;
+      if (
+        bestFoundPrice !== null &&
+        estimated !== undefined &&
+        estimated > bestFoundPrice * 1.35
+      ) {
+        reportExactLookupComplete();
+        return {
+          departureDate: pair.departureDate,
+          returnDate: pair.returnDate,
+          cheapestRoundTrip: null,
+          cheapestTwoOneWays: null,
+          cheapestNonstop: null,
+          inspectedOptions: 0
+        };
+      }
+
+      let roundTripOptions: FlightOption[];
+      try {
+        roundTripOptions = await service.provider.searchExactFlights({
+          tripType: "round_trip",
+          origin: request.origin,
+          destination: request.destination,
+          departureDate: pair.departureDate,
+          returnDate: pair.returnDate,
+          cabinClass: request.cabinClass,
+          stopsFilter: request.stopsFilter,
+          preferDirectBookingOnly: request.preferDirectBookingOnly,
+          requireFreeCarryOnBag: request.requireFreeCarryOnBag,
+          airlines: request.airlines,
+          passengers: request.passengers,
+          departureTimeWindow: request.departureTimeWindow ?? undefined,
+          arrivalTimeWindow: request.arrivalTimeWindow ?? undefined
+        });
+        reportExactLookupComplete();
+      } catch (error) {
+        reportExactLookupComplete();
+        throw error;
+      }
+
+      const outboundOptions =
+        outboundOptionsByDate.get(pair.departureDate) ?? [];
+      const inboundOptions = pair.returnDate
+        ? inboundOptionsByDate.get(pair.returnDate) ?? []
+        : [];
 
       const refinedRoundTripOptions =
         await service.refineOptionsForDirectBookingPreference(
@@ -1427,41 +1496,37 @@ export class FlightSearchService {
       };
     }
 
-    await mapWithConcurrency(
-      candidatePairs.filter((pair) => !resumedResultByPair.has(pairKey(pair))),
-      2,
-      async (pair) => {
-        const result = await evaluateCandidatePair(pair, this);
-        applyRoundTripResult(result);
-        const previewCheapestOverall = findCheapest([
-          ...previewRoundTripOptions,
-          ...previewTwoOneWayOptions
-        ]);
-        tracker.setPreviewSummary(
-          toPreviewSummary({
-            departureDatePrices,
-            returnDatePrices,
-            cheapestOverall: previewCheapestOverall,
-            cheapestRoundTrip: findCheapest(previewRoundTripOptions),
-            cheapestTwoOneWays: findCheapest(previewTwoOneWayOptions),
-            cheapestNonstop: findCheapest(previewNonstopOptions),
-            cheapestMultiStop: findCheapestMultiStop([
-              ...previewRoundTripOptions,
-              ...previewTwoOneWayOptions
-            ]),
-            evaluatedDatePairs: [...previewEvaluatedDatePairs],
-            inspectedOptions: previewInspectedOptions
-          }),
-          false
-        );
-        tracker.setPreviewCheapestOverall(
-          previewCheapestOverall,
-          completedPairEvaluations
-        );
-        reportCheckpoint();
-        return result;
-      }
-    );
+    await mapWithConcurrency(pendingPairs, 2, async (pair) => {
+      const result = await evaluateCandidatePair(pair, this);
+      applyRoundTripResult(result);
+      const previewCheapestOverall = findCheapest([
+        ...previewRoundTripOptions,
+        ...previewTwoOneWayOptions
+      ]);
+      tracker.setPreviewSummary(
+        toPreviewSummary({
+          departureDatePrices,
+          returnDatePrices,
+          cheapestOverall: previewCheapestOverall,
+          cheapestRoundTrip: findCheapest(previewRoundTripOptions),
+          cheapestTwoOneWays: findCheapest(previewTwoOneWayOptions),
+          cheapestNonstop: findCheapest(previewNonstopOptions),
+          cheapestMultiStop: findCheapestMultiStop([
+            ...previewRoundTripOptions,
+            ...previewTwoOneWayOptions
+          ]),
+          evaluatedDatePairs: [...previewEvaluatedDatePairs],
+          inspectedOptions: previewInspectedOptions
+        }),
+        false
+      );
+      tracker.setPreviewCheapestOverall(
+        previewCheapestOverall,
+        completedPairEvaluations
+      );
+      reportCheckpoint();
+      return result;
+    });
 
     const evaluated = candidatePairs
       .map((pair) => evaluatedByPair.get(pairKey(pair)))
@@ -1555,7 +1620,10 @@ export class FlightSearchService {
           ...roundTripOptions,
           ...twoOneWayOptions
         ]),
-        evaluatedDatePairs: candidatePairs,
+        evaluatedDatePairs: candidatePairs.map((pair) => ({
+          departureDate: pair.departureDate,
+          returnDate: pair.returnDate
+        })),
         inspectedOptions
       }),
       false
@@ -1578,7 +1646,10 @@ export class FlightSearchService {
         ...roundTripOptions,
         ...twoOneWayOptions
       ]),
-      evaluatedDatePairs: candidatePairs,
+      evaluatedDatePairs: candidatePairs.map((pair) => ({
+        departureDate: pair.departureDate,
+        returnDate: pair.returnDate
+      })),
       inspectedOptions,
       timingGuidance: null,
       priceAlert: null,
@@ -1671,7 +1742,8 @@ export class FlightSearchService {
 
       return scoredPairs.slice(0, targetPairCount).map((pair) => ({
         departureDate: pair.departureDate,
-        returnDate: pair.returnDate
+        returnDate: pair.returnDate,
+        estimatedTotalPrice: pair.estimatedTotalPrice
       }));
     }
 
@@ -1713,7 +1785,8 @@ export class FlightSearchService {
 
     return scoredPairs.slice(0, targetPairCount).map((pair) => ({
       departureDate: pair.departureDate,
-      returnDate: pair.returnDate
+      returnDate: pair.returnDate,
+      estimatedTotalPrice: pair.estimatedTotalPrice
     }));
   }
 

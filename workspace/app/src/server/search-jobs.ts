@@ -9,6 +9,7 @@ import type {
 
 const jobRetentionMs = 1000 * 60 * 30;
 const jobs = new Map<string, SearchJobStatus>();
+const jobAbortControllers = new Map<string, AbortController>();
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -43,10 +44,58 @@ export function createSearchJob(): SearchJobStatus {
   };
 
   jobs.set(job.id, job);
+  jobAbortControllers.set(job.id, new AbortController());
   return job;
 }
 
+export function getSearchJobAbortSignal(id: string): AbortSignal | null {
+  return jobAbortControllers.get(id)?.signal ?? null;
+}
+
+export function cancelSearchJob(id: string): SearchJobStatus | null {
+  const job = jobs.get(id);
+  if (!job) {
+    return null;
+  }
+
+  if (job.status === "completed" || job.status === "failed") {
+    const { resumeCheckpoint: _resumeCheckpoint, ...publicJob } = job;
+    return { ...publicJob };
+  }
+
+  jobAbortControllers.get(id)?.abort();
+  jobAbortControllers.delete(id);
+
+  const updatedJob: SearchJobStatus = {
+    ...job,
+    status: "failed",
+    updatedAt: nowIso(),
+    error: "Search canceled.",
+    progress: {
+      ...job.progress,
+      stage: "Canceled",
+      detail: "Search canceled.",
+      percent: Math.min(job.progress.percent, 99)
+    }
+  };
+  jobs.set(id, updatedJob);
+  const { resumeCheckpoint: _resumeCheckpoint, ...publicJob } = updatedJob;
+  return { ...publicJob };
+}
+
 export function getSearchJob(id: string): SearchJobStatus | null {
+  pruneJobs();
+  const job = jobs.get(id);
+  if (!job) {
+    return null;
+  }
+
+  // Poll clients do not need the growing resume checkpoint payload.
+  const { resumeCheckpoint: _resumeCheckpoint, ...publicJob } = job;
+  return { ...publicJob };
+}
+
+export function getSearchJobWithCheckpoint(id: string): SearchJobStatus | null {
   pruneJobs();
   const job = jobs.get(id);
   return job ? { ...job } : null;
@@ -57,8 +106,8 @@ export function updateSearchJobProgress(
   progress: SearchProgress
 ): SearchJobStatus | null {
   const job = jobs.get(id);
-  if (!job) {
-    return null;
+  if (!job || job.status === "completed" || job.status === "failed") {
+    return job ? { ...job } : null;
   }
 
   const updatedJob: SearchJobStatus = {
@@ -114,6 +163,7 @@ export function completeSearchJob(
     }
   };
   jobs.set(id, updatedJob);
+  jobAbortControllers.delete(id);
   return { ...updatedJob };
 }
 
@@ -124,6 +174,10 @@ export function failSearchJob(
   const job = jobs.get(id);
   if (!job) {
     return null;
+  }
+
+  if (job.status === "failed" || job.status === "completed") {
+    return { ...job };
   }
 
   const updatedJob: SearchJobStatus = {
@@ -139,5 +193,6 @@ export function failSearchJob(
     }
   };
   jobs.set(id, updatedJob);
+  jobAbortControllers.delete(id);
   return { ...updatedJob };
 }

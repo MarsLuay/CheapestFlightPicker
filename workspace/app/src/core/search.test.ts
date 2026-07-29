@@ -252,15 +252,18 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(pairs).toEqual([
       {
         departureDate: "2026-05-01",
-        returnDate: "2026-05-08"
+        returnDate: "2026-05-08",
+        estimatedTotalPrice: 230
       },
       {
         departureDate: "2026-05-01",
-        returnDate: "2026-05-10"
+        returnDate: "2026-05-10",
+        estimatedTotalPrice: 240
       },
       {
         departureDate: "2026-05-03",
-        returnDate: "2026-05-10"
+        returnDate: "2026-05-10",
+        estimatedTotalPrice: 250
       }
     ]);
   });
@@ -322,7 +325,8 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(pairs).toHaveLength(8);
     expect(pairs[0]).toEqual({
       departureDate: "2026-05-02",
-      returnDate: "2026-05-05"
+      returnDate: "2026-05-05",
+      estimatedTotalPrice: 210
     });
   });
 
@@ -382,15 +386,18 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(pairs).toEqual([
       {
         departureDate: "2026-05-02",
-        returnDate: "2026-05-09"
+        returnDate: "2026-05-09",
+        estimatedTotalPrice: 200
       },
       {
         departureDate: "2026-05-01",
-        returnDate: "2026-05-08"
+        returnDate: "2026-05-08",
+        estimatedTotalPrice: 220
       },
       {
         departureDate: "2026-05-03",
-        returnDate: "2026-05-10"
+        returnDate: "2026-05-10",
+        estimatedTotalPrice: 280
       }
     ]);
   });
@@ -671,7 +678,7 @@ describe("FlightSearchService round-trip pairing", () => {
       }
     );
 
-    expect(normalExactDates).toEqual(["2026-05-09"]);
+    expect(normalExactDates).toEqual(["2026-05-09", "2026-05-09"]);
     expect(progressUpdates[0]?.stage).toBe("Resuming search");
     expect(progressUpdates[0]?.completedSteps).toBeGreaterThan(0);
     expect(summary.evaluatedDatePairs).toEqual([
@@ -1305,6 +1312,8 @@ describe("FlightSearchService round-trip pairing", () => {
     );
 
     expect(normalExactKeys).toEqual([
+      "one_way:SEA:2026-05-09:",
+      "one_way:PIT:2026-05-16:",
       "round_trip:SEA:2026-05-09:2026-05-16",
       "one_way:SEA:2026-05-09:",
       "one_way:PIT:2026-05-16:"
@@ -1406,7 +1415,7 @@ describe("FlightSearchService round-trip pairing", () => {
     );
   });
 
-  it("reprices the top itinerary before timing guidance is attached", async () => {
+  it("reprices the top itinerary from cached exacts before timing guidance is attached", async () => {
     const service = new FlightSearchService();
     const serviceWithMocks = service as unknown as {
       bookingSourceSupplementService: {
@@ -1438,6 +1447,7 @@ describe("FlightSearchService round-trip pairing", () => {
           return [];
         }
 
+        // Soft-TTL reprice uses cache (no bypass). Stale bypass path unused.
         return runtimeOptions?.bypassCache
           ? [buildDatedOneWayOption(330, "2026-05-08")]
           : [buildDatedOneWayOption(305, "2026-05-08")];
@@ -1471,11 +1481,11 @@ describe("FlightSearchService round-trip pairing", () => {
       maxResults: 1
     });
 
-    expect(summary.cheapestOverall?.totalPrice).toBe(330);
-    expect(summary.timingGuidance?.currentBestPrice).toBe(330);
+    expect(summary.cheapestOverall?.totalPrice).toBe(305);
+    expect(summary.timingGuidance?.currentBestPrice).toBe(305);
   });
 
-  it("drops a vanished repriced one-way fare and falls back to the next matching itinerary", async () => {
+  it("falls back when a cached reprice no longer includes the winning itinerary", async () => {
     const service = new FlightSearchService();
     const serviceWithMocks = service as unknown as {
       bookingSourceSupplementService: {
@@ -1498,23 +1508,26 @@ describe("FlightSearchService round-trip pairing", () => {
       };
     };
 
+    let exactCalls = 0;
     serviceWithMocks.provider = {
       async searchOneWayWithinWindow() {
         return [{ date: "2026-05-08", price: 120 }];
       },
-      async searchExactFlights(input, runtimeOptions) {
+      async searchExactFlights(input) {
         if (input.tripType !== "one_way") {
           return [];
         }
 
-        if (runtimeOptions?.bypassCache) {
-          return [];
+        exactCalls += 1;
+        if (exactCalls === 1) {
+          return [
+            buildDatedOneWayOption(305, "2026-05-08"),
+            buildDatedOneWayOption(320, "2026-05-08")
+          ];
         }
 
-        return [
-          buildDatedOneWayOption(305, "2026-05-08"),
-          buildDatedOneWayOption(320, "2026-05-08")
-        ];
+        // Reprice cache miss for the prior winner — only the next fare remains.
+        return [buildDatedOneWayOption(320, "2026-05-08")];
       }
     };
     serviceWithMocks.bookingSourceSupplementService = {

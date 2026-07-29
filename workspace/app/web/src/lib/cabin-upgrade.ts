@@ -37,7 +37,8 @@ export function buildAdjacentCabinSearchRequest(
 
   return {
     ...request,
-    cabinClass: nextCabinClass
+    cabinClass: nextCabinClass,
+    maxResults: 3
   };
 }
 

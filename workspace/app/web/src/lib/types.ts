@@ -30,6 +30,8 @@ export type {
   SearchResponse
 } from "../../../src/shared/types";
 
+export { maxSearchResults } from "../../../src/shared/types";
+
 export type UpgradeFareCardState = {
   title: string;
   targetCabinClass: SearchRequest["cabinClass"];
