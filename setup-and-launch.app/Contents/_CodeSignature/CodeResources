@@ -4,18 +4,29 @@
 <dict>
 	<key>files</key>
 	<dict>
+		<key>Resources/AppIcon.icns</key>
+		<data>
+		WbvCiCcXgVuSL3WtVA56P4uwcus=
+		</data>
 		<key>Resources/setup-and-launch.sh</key>
 		<data>
-		k2nRbufjCuWzAnWCsOavwAfORhM=
+		jdMGjTX9zgTyv938+4Irmcl3QqM=
 		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
+		<key>Resources/AppIcon.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			J+ln6Fs1+Q9TKsDjxHP2pqMrfAzNhBNb3R0tJaFD8mg=
+			</data>
+		</dict>
 		<key>Resources/setup-and-launch.sh</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			XeKhWC2lbDm6//fW8cuoOXQnma9GKpJqxqJeft53BZ4=
+			gwycs/UZ3hAzVbDJCMdI8ELFnvnhi8y6kY4xoviSlt0=
 			</data>
 		</dict>
 	</dict>
