@@ -28,6 +28,7 @@ export type ExactFlightSearchParams = {
   cabinClass: string;
   stopsFilter: string;
   preferDirectBookingOnly?: boolean;
+  prioritizeMileFlights?: boolean;
   requireFreeCarryOnBag?: boolean;
   airlines: string[];
   passengers: PassengerCounts;

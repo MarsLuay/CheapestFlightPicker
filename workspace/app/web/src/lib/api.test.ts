@@ -25,6 +25,7 @@ function buildRequest(): SearchRequest {
     cabinClass: "economy",
     stopsFilter: "any",
     preferDirectBookingOnly: false,
+    prioritizeMileFlights: true,
     airlines: [],
     passengers: {
       adults: 1,

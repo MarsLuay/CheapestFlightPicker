@@ -41,8 +41,8 @@ CLI (`src/cli/index.ts`) calls `FlightSearchService` directly (no HTTP).
 3. Annotate cheapest calendar dates with exact one-way timing (nested shopping calls).
 4. Build scored date pairs (`buildCandidatePairs`); depth `max(maxResults*2, 8)`.
 5. Per pair (concurrency 2): exact RT + OW outbound + OW inbound (`Promise.all`).
-6. RT exact expands to **unbounded outbound follow-ups** (shopping per unique outbound).
-7. Rank cheapest overall / RT / two-OW / nonstop / multi-stop; reprice winners with `bypassCache`.
+6. RT exact follows up on at most the five cheapest unique outbounds; equal-price outbounds use estimated flown miles as a tie-break only when `prioritizeMileFlights` is enabled.
+7. Rank cheapest overall / RT / two-OW / nonstop / multi-stop; lower price always wins, while enabled mileage preference breaks exact price ties by total great-circle miles across all legs. Reprice the winner through the provider's normal exact-cache path.
 8. Annotate timing guidance + price alert from local watch history.
 9. Web may run a **second full search** for adjacent cabin upgrade.
 

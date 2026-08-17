@@ -9,8 +9,8 @@ Source roots: `workspace/app/src/providers/google-flights/`
 | `GoogleFlightsClient.post` | `client.ts` | `(url, data, signal?) => Promise<string>` | POST + 429 retry | `GoogleFlightsRateLimitError`; AbortSignal |
 | `createGoogleFlightsClient` | `client.ts` | `() => GoogleFlightsClient` | Factory | — |
 | `GoogleFlightsProvider.searchDatePrices` | `provider.ts` | `(params) => Promise<DatePrice[]>` | Calendar + timing annotate | Cache + HTTP |
-| `GoogleFlightsProvider.searchExactFlights` | `provider.ts` | `(params, {bypassCache?}?) => Promise<FlightOption[]>` | OW/RT exact (+ unbounded RT follow-ups) | Cache + HTTP + filters |
+| `GoogleFlightsProvider.searchExactFlights` | `provider.ts` | `(params, {bypassCache?}?) => Promise<FlightOption[]>` | OW/RT exact; RT follows up on at most five unique outbounds | Cache + HTTP + filters |
 | `GoogleFlightsProvider.searchOneWayWithinWindow` | `provider.ts` | `(request, o, d, from, to) => Promise<DatePrice[]>` | Calendar wrapper for core | Forwards `requireFreeCarryOnBag` into `searchDatePrices` (C001 fixed) |
-| `getRoundTripOutboundCandidates` | `provider.ts` | private | Dedupe/sort outbounds | No count cap |
-| `annotateDatePricesWithExactTimes` | `provider.ts` | private | Exact times for top-12 dates | Nested exacts |
+| `getRoundTripOutboundCandidates` | `provider.ts` | private | Dedupe/sort outbounds, optionally breaking price ties by miles | Five-candidate cap |
+| `toSlice` | `provider.ts` | private | Map provider legs and estimate each leg's great-circle miles | Catalog lookups |
 | `applyDirectBookingPreference` / `applyFreeCarryOnRequirement` | `provider.ts` | private | Post-filters | — |

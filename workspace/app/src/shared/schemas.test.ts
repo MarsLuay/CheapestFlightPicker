@@ -27,6 +27,7 @@ describe("searchRequestSchema", () => {
     expect(request.airlines).toEqual(["DL"]);
     expect(request.minimumTripDays).toBe(0);
     expect(request.maximumTripDays).toBe(14);
+    expect(request.prioritizeMileFlights).toBe(false);
     expect(request.requireFreeCarryOnBag).toBe(true);
   });
 
@@ -40,6 +41,7 @@ describe("searchRequestSchema", () => {
       departureDateTo: "2026-04-18",
       cabinClass: "economy",
       stopsFilter: "any",
+      prioritizeMileFlights: true,
       requireFreeCarryOnBag: true,
       airlines: [],
       passengers: {
@@ -51,6 +53,7 @@ describe("searchRequestSchema", () => {
       maxResults: 5
     });
 
+    expect(request.prioritizeMileFlights).toBe(true);
     expect(request.requireFreeCarryOnBag).toBe(true);
   });
 

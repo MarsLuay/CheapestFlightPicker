@@ -4,9 +4,50 @@ import {
   clampTimeWindow,
   combineBookingSources,
   combineTwoOneWays,
+  findCheapest,
+  getFlightMiles,
   isLikelyDirectAirlineBookingOption,
   stopFilterToGoogleValue
 } from "./utils";
+import type { FlightOption } from "../shared/types";
+
+function buildMileageOption(
+  totalPrice: number,
+  distanceMiles: number,
+  flightNumber: string
+): FlightOption {
+  return {
+    bookingSource: {
+      type: "direct_airline",
+      label: "Direct with Test Air",
+      detected: true
+    },
+    currency: "USD",
+    slices: [
+      {
+        durationMinutes: 120,
+        stops: 0,
+        legs: [
+          {
+            airlineCode: "TA",
+            airlineName: "Test Air",
+            flightNumber,
+            departureAirportCode: "SEA",
+            departureAirportName: "Seattle-Tacoma International Airport",
+            departureDateTime: "2026-06-01T10:00:00",
+            arrivalAirportCode: "PIT",
+            arrivalAirportName: "Pittsburgh International Airport",
+            arrivalDateTime: "2026-06-01T18:00:00",
+            durationMinutes: 120,
+            distanceMiles
+          }
+        ]
+      }
+    ],
+    source: "google_one_way",
+    totalPrice
+  };
+}
 
 describe("core utils", () => {
   it("normalizes reversed time windows", () => {
@@ -29,6 +70,22 @@ describe("core utils", () => {
     expect(stopFilterToGoogleValue("nonstop")).toBe(1);
     expect(stopFilterToGoogleValue("max_1_stop")).toBe(2);
     expect(stopFilterToGoogleValue("max_2_stops")).toBe(3);
+  });
+
+  it("prefers more flown miles only when equal-price ranking is enabled", () => {
+    const shorterFlight = buildMileageOption(200, 900, "100");
+    const longerFlight = buildMileageOption(200, 1_800, "200");
+
+    expect(findCheapest([shorterFlight, longerFlight])).toBe(shorterFlight);
+    expect(findCheapest([shorterFlight, longerFlight], true)).toBe(longerFlight);
+    expect(getFlightMiles(longerFlight)).toBe(1_800);
+  });
+
+  it("never lets miles outrank a lower fare", () => {
+    const cheaperFlight = buildMileageOption(199, 900, "100");
+    const longerFlight = buildMileageOption(200, 1_800, "200");
+
+    expect(findCheapest([longerFlight, cheaperFlight], true)).toBe(cheaperFlight);
   });
 
   it("combines two one-way options into one round-trip style result", () => {

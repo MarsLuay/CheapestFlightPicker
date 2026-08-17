@@ -1,6 +1,10 @@
 import fs from "node:fs";
 
-import type { AirlineRecord, AirportRecord } from "../shared/types";
+import type {
+  AirlineRecord,
+  AirportRecord,
+  FlightLeg
+} from "../shared/types";
 import { resolveAppPath } from "./project-paths";
 
 const airportsPath = resolveAppPath("data", "airports.csv");
@@ -147,6 +151,43 @@ function loadAirlines(): AirlineRecord[] {
 export function findAirportByCode(code: string): AirportRecord | undefined {
   const normalized = code.toUpperCase();
   return loadAirports().find((airport) => airport.iata === normalized);
+}
+
+/**
+ * Estimate miles flown by summing great-circle distances for each flight leg.
+ * A leg's stored distance is reused when available so cached/provider results
+ * and ranking use the same value.
+ */
+export function calculateFlightDistanceMiles(
+  legs: Array<
+    Pick<FlightLeg, "departureAirportCode" | "arrivalAirportCode"> & {
+      distanceMiles?: number;
+    }
+  >
+): number {
+  return legs.reduce((total, leg) => {
+    if (Number.isFinite(leg.distanceMiles)) {
+      return total + (leg.distanceMiles ?? 0);
+    }
+
+    const departureAirport = findAirportByCode(leg.departureAirportCode);
+    const arrivalAirport = findAirportByCode(leg.arrivalAirportCode);
+    if (!departureAirport || !arrivalAirport) {
+      return total;
+    }
+
+    return (
+      total +
+      Math.round(
+        calculateGreatCircleDistance(
+          departureAirport.latitude,
+          departureAirport.longitude,
+          arrivalAirport.latitude,
+          arrivalAirport.longitude
+        ) * 0.621371
+      )
+    );
+  }, 0);
 }
 
 export function findClosestAirport(

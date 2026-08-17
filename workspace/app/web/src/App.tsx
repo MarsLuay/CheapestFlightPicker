@@ -45,6 +45,7 @@ import {
 import { isHostedApiModeEnabled } from "./lib/runtime-mode";
 import {
   maxSearchResults,
+  type FlightOption,
   type SearchProgress,
   type SearchRequest,
   type SearchSummary,
@@ -196,6 +197,7 @@ function createInitialRequest(
     cabinClass: "economy",
     stopsFilter: "any",
     preferDirectBookingOnly: false,
+    prioritizeMileFlights: savedPreferences?.prioritizeMileFlights ?? false,
     requireFreeCarryOnBag: savedPreferences?.requireFreeCarryOnBag ?? true,
     airlines: [],
     passengers: {
@@ -425,6 +427,14 @@ function getSummaryBestPrice(summary: SearchSummary): number {
   return summary.cheapestOverall?.totalPrice ?? Number.POSITIVE_INFINITY;
 }
 
+function getFlightMiles(option: FlightOption | null): number {
+  return (
+    option?.slices
+      .flatMap((slice) => slice.legs)
+      .reduce((total, leg) => total + (leg.distanceMiles ?? 0), 0) ?? 0
+  );
+}
+
 function pickBetterSummary(
   currentSummary: SearchSummary | null,
   nextSummary: SearchSummary
@@ -437,6 +447,15 @@ function pickBetterSummary(
   const nextBestPrice = getSummaryBestPrice(nextSummary);
 
   if (nextBestPrice < currentBestPrice) {
+    return nextSummary;
+  }
+
+  if (
+    nextBestPrice === currentBestPrice &&
+    (nextSummary.request.prioritizeMileFlights ?? false) &&
+    getFlightMiles(nextSummary.cheapestOverall) >
+      getFlightMiles(currentSummary.cheapestOverall)
+  ) {
     return nextSummary;
   }
 
@@ -631,6 +650,7 @@ export default function App() {
         from: 0,
         to: 24
       },
+      prioritizeMileFlights: nextRequest.prioritizeMileFlights ?? false,
       requireFreeCarryOnBag: nextRequest.requireFreeCarryOnBag ?? true
     });
   }
@@ -1519,6 +1539,7 @@ export default function App() {
       cabinClass: request.cabinClass,
       stopsFilter: request.stopsFilter,
       preferDirectBookingOnly: request.preferDirectBookingOnly,
+      prioritizeMileFlights: request.prioritizeMileFlights ?? false,
       requireFreeCarryOnBag: request.requireFreeCarryOnBag ?? true,
       airlines: request.airlines,
       passengers: request.passengers
@@ -1900,6 +1921,31 @@ export default function App() {
                       If Google can tell who is selling the ticket,
                       travel-agency fares are removed. If Google cannot tell,
                       the fare may still show up.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="checkbox-field filter-field">
+                  <input
+                    aria-label="Prioritize mile flights"
+                    className="checkbox-field__input"
+                    type="checkbox"
+                    checked={request.prioritizeMileFlights ?? false}
+                    onChange={(event) =>
+                      updateRequest((currentRequest) => ({
+                        ...currentRequest,
+                        prioritizeMileFlights: event.target.checked
+                      }))
+                    }
+                  />
+                  <span className="checkbox-field__switch" aria-hidden="true">
+                    <span className="checkbox-field__knob" />
+                  </span>
+                  <div>
+                    <span>Prioritize mile flights</span>
+                    <p className="field-help">
+                      When fares tie, prefer the itinerary with more estimated
+                      miles flown.
                     </p>
                   </div>
                 </label>

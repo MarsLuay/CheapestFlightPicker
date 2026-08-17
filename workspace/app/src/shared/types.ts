@@ -63,6 +63,7 @@ export type SearchRequest = {
   cabinClass: CabinClass;
   stopsFilter: StopsFilter;
   preferDirectBookingOnly: boolean;
+  prioritizeMileFlights?: boolean;
   requireFreeCarryOnBag?: boolean;
   airlines: string[];
   passengers: PassengerCounts;
@@ -107,6 +108,8 @@ export type FlightLeg = {
   arrivalAirportName: string;
   arrivalDateTime: string;
   durationMinutes: number;
+  /** Estimated great-circle miles between the departure and arrival airports. */
+  distanceMiles?: number;
 };
 
 export type FlightSlice = {

@@ -7,6 +7,7 @@
 | `maxSearchResults = 12` | `src/shared/types.ts` | Web `runFlightSearch` always forces this |
 | Schema `maxResults` | `src/shared/schemas.ts` | int 1–20, default `maxSearchResults` |
 | `requireFreeCarryOnBag` | schema default **true** | Post-filter in provider (not encoded to Google) |
+| `prioritizeMileFlights` | schema default **false** | Equal-price tie-break only; sums estimated great-circle miles across every leg |
 | Carry-on denylist | `src/core/fare-characteristics.ts` | Economy ULCC heuristic |
 
 ## Persistence
@@ -24,12 +25,11 @@
 | Layer | Cap |
 | --- | --- |
 | OW date exacts / RT pairs | `mapWithConcurrency(..., 2)` |
-| RT outbound follow-ups | concurrency 2, **no candidate count cap** |
-| Calendar timing annotation | concurrency 2, top 12 dates |
+| RT outbound follow-ups | concurrency 2, top 5 unique outbounds |
 | Booking supplement | concurrency 2 (providers usually empty) |
-| Global Google HTTP limit | **None** — layers stack |
+| Global Google HTTP posts | semaphore cap 3 |
 
-Client 429: max 2 retries, ~800ms × attempt. AbortSignal supported on client `post` but provider rarely wires cancel from jobs.
+Client 429: max 2 retries, ~800ms × attempt. AbortSignal is propagated from the active search context into Google HTTP posts.
 
 ## Errors
 

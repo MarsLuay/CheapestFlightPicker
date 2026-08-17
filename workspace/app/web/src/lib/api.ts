@@ -119,6 +119,7 @@ function buildSearchRequestDetails(request: SearchRequest): string {
       cabinClass: request.cabinClass,
       stopsFilter: request.stopsFilter,
       preferDirectBookingOnly: request.preferDirectBookingOnly,
+      prioritizeMileFlights: request.prioritizeMileFlights ?? false,
       requireFreeCarryOnBag: request.requireFreeCarryOnBag ?? true,
       airlines: request.airlines,
       passengers: request.passengers,

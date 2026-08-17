@@ -61,6 +61,45 @@ function buildDatedOneWayOption(totalPrice: number, outboundDate: string): Fligh
   };
 }
 
+function buildMileageOneWayOption(
+  distanceMiles: number,
+  flightNumber: string
+): FlightOption {
+  return {
+    currency: "USD",
+    slices: [
+      {
+        durationMinutes: 120,
+        legs: [
+          {
+            airlineCode: "TA",
+            airlineName: "Test Air",
+            flightNumber,
+            departureAirportCode: "SEA",
+            departureAirportName: "Seattle-Tacoma International Airport",
+            departureDateTime: "2026-05-08T08:00:00",
+            arrivalAirportCode: "PIT",
+            arrivalAirportName: "Pittsburgh International Airport",
+            arrivalDateTime: "2026-05-08T16:00:00",
+            durationMinutes: 120,
+            distanceMiles
+          }
+        ],
+        stops: 0
+      }
+    ],
+    bookingSource: {
+      type: "direct_airline",
+      label: "Direct with Test Air",
+      sellerName: "Test Air",
+      detected: true
+    },
+    source: "google_one_way",
+    totalPrice: 200,
+    outboundDate: "2026-05-08"
+  };
+}
+
 function buildTimedOneWayOption({
   totalPrice,
   outboundDate,
@@ -925,6 +964,66 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(summary.cheapestOverall?.totalPrice).toBe(120);
     expect(summary.inspectedOptions).toBe(5);
     expect(summary.timingGuidance?.currentBestPrice).toBe(120);
+  });
+
+  it("prefers the higher-mile itinerary when one-way fares tie and the switch is on", async () => {
+    const service = new FlightSearchService();
+    const serviceWithMocks = service as unknown as {
+      bookingSourceSupplementService: {
+        supplementOptions: (options: FlightOption[]) => Promise<FlightOption[]>;
+        supplementSummary: <T>(summary: T) => Promise<T>;
+      };
+      provider: {
+        searchExactFlights: () => Promise<FlightOption[]>;
+        searchOneWayWithinWindow: () => Promise<Array<{ date: string; price: number }>>;
+      };
+    };
+    const shorterFlight = buildMileageOneWayOption(900, "100");
+    const longerFlight = buildMileageOneWayOption(1_800, "200");
+
+    serviceWithMocks.provider = {
+      async searchOneWayWithinWindow() {
+        return [{ date: "2026-05-08", price: 200 }];
+      },
+      async searchExactFlights() {
+        return [shorterFlight, longerFlight];
+      }
+    };
+    serviceWithMocks.bookingSourceSupplementService = {
+      async supplementOptions(options) {
+        return options;
+      },
+      async supplementSummary(summary) {
+        return summary;
+      }
+    };
+
+    const summary = await service.search({
+      tripType: "one_way",
+      origin: "SEA",
+      destination: "PIT",
+      departureDateFrom: "2026-05-08",
+      departureDateTo: "2026-05-08",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      preferDirectBookingOnly: false,
+      prioritizeMileFlights: true,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      },
+      maxResults: 2
+    });
+
+    expect(summary.cheapestOverall?.slices[0]?.legs[0]?.flightNumber).toBe(
+      "200"
+    );
+    expect(summary.cheapestOverall?.slices[0]?.legs[0]?.distanceMiles).toBe(
+      1_800
+    );
   });
 
   it("streams live round-trip preview summaries while date pairs are still being compared", async () => {

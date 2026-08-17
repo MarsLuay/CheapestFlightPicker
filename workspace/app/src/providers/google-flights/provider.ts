@@ -1,5 +1,9 @@
 import { JsonFileCache } from "../../core/cache";
-import { findAirlineByCode, findAirportByCode } from "../../core/catalog";
+import {
+  calculateFlightDistanceMiles,
+  findAirlineByCode,
+  findAirportByCode
+} from "../../core/catalog";
 import { optionAppearsToIncludeFreeCarryOnBag } from "../../core/fare-characteristics";
 import {
   clampTimeWindow,
@@ -50,7 +54,7 @@ export class GoogleFlightsProvider {
     ttlMs: 1000 * 60 * 20,
     maxEntries: 800,
     sweepIntervalMs: 1000 * 60 * 2,
-    version: 8
+    version: 9
   });
 
   constructor() {
@@ -120,7 +124,8 @@ export class GoogleFlightsProvider {
 
     const outboundCandidates = this.getRoundTripOutboundCandidates(
       results,
-      normalizedParams.origin
+      normalizedParams.origin,
+      normalizedParams.prioritizeMileFlights
     );
 
     const followUps = await mapWithConcurrency(
@@ -168,13 +173,27 @@ export class GoogleFlightsProvider {
 
   private getRoundTripOutboundCandidates(
     results: GoogleFlightResult[],
-    origin: string
+    origin: string,
+    prioritizeMileFlights = false
   ): GoogleFlightResult[] {
     const seen = new Set<string>();
 
     return [...results]
       .filter((result) => result.legs[0]?.departureAirportCode === origin)
-      .sort((left, right) => left.price - right.price)
+      .sort((left, right) => {
+        if (left.price !== right.price) {
+          return left.price - right.price;
+        }
+
+        if (prioritizeMileFlights) {
+          return (
+            calculateFlightDistanceMiles(right.legs) -
+            calculateFlightDistanceMiles(left.legs)
+          );
+        }
+
+        return 0;
+      })
       .filter((result) => {
         const key = result.legs
           .map((leg) =>
@@ -296,6 +315,7 @@ export class GoogleFlightsProvider {
         const airline = findAirlineByCode(leg.airlineCode);
         const departureAirport = findAirportByCode(leg.departureAirportCode);
         const arrivalAirport = findAirportByCode(leg.arrivalAirportCode);
+        const distanceMiles = calculateFlightDistanceMiles([leg]);
 
         return {
           airlineCode: leg.airlineCode,
@@ -308,7 +328,8 @@ export class GoogleFlightsProvider {
           arrivalAirportCode: leg.arrivalAirportCode,
           arrivalAirportName: arrivalAirport?.name ?? leg.arrivalAirportCode,
           arrivalDateTime: leg.arrivalDateTime,
-          durationMinutes: leg.durationMinutes
+          durationMinutes: leg.durationMinutes,
+          distanceMiles
         };
       })
     };

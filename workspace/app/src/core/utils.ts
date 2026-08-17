@@ -1,3 +1,4 @@
+import { calculateFlightDistanceMiles } from "./catalog";
 import type {
   BookingSource,
   FlightOption,
@@ -194,31 +195,65 @@ export function combineTwoOneWays(
   };
 }
 
-export function findCheapest(options: FlightOption[]): FlightOption | null {
+export function getFlightMiles(option: FlightOption): number {
+  return calculateFlightDistanceMiles(
+    option.slices.flatMap((slice) => slice.legs)
+  );
+}
+
+export function compareFlightOptions(
+  left: FlightOption,
+  right: FlightOption,
+  prioritizeMileFlights = false
+): number {
+  if (left.totalPrice !== right.totalPrice) {
+    return left.totalPrice - right.totalPrice;
+  }
+
+  if (prioritizeMileFlights) {
+    const milesDifference = getFlightMiles(right) - getFlightMiles(left);
+    if (milesDifference !== 0) {
+      return milesDifference;
+    }
+  }
+
+  return 0;
+}
+
+export function findCheapest(
+  options: FlightOption[],
+  prioritizeMileFlights = false
+): FlightOption | null {
   if (options.length === 0) {
     return null;
   }
 
   return options.reduce((best, current) => {
-    return current.totalPrice < best.totalPrice ? current : best;
+    return compareFlightOptions(current, best, prioritizeMileFlights) < 0
+      ? current
+      : best;
   });
 }
 
-export function findCheapestNonstop(options: FlightOption[]): FlightOption | null {
+export function findCheapestNonstop(
+  options: FlightOption[],
+  prioritizeMileFlights = false
+): FlightOption | null {
   const matches = options.filter(
     (option) => option.slices.length > 0 && option.slices.every((slice) => slice.stops === 0)
   );
-  return findCheapest(matches);
+  return findCheapest(matches, prioritizeMileFlights);
 }
 
 export function findCheapestMultiStop(
-  options: FlightOption[]
+  options: FlightOption[],
+  prioritizeMileFlights = false
 ): FlightOption | null {
   const matches = options.filter((option) =>
     option.slices.some((slice) => slice.stops > 0)
   );
 
-  return findCheapest(matches);
+  return findCheapest(matches, prioritizeMileFlights);
 }
 
 export function summarizeSlice(slice: FlightSlice): string {

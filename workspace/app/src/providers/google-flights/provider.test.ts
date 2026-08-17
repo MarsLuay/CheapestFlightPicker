@@ -128,6 +128,59 @@ describe("GoogleFlightsProvider round-trip outbound follow-up cap", () => {
     expect(capped).toHaveLength(5);
     expect(capped.map((entry) => entry.price)).toEqual([100, 101, 102, 103, 104]);
   });
+
+  it("uses outbound miles to break equal-price ties when requested", () => {
+    const provider = new GoogleFlightsProvider() as unknown as {
+      getRoundTripOutboundCandidates: (
+        results: Array<{
+          price: number;
+          legs: Array<{
+            departureAirportCode: string;
+            arrivalAirportCode: string;
+            airlineCode: string;
+            flightNumber: string;
+            departureDateTime: string;
+            arrivalDateTime: string;
+          }>;
+        }>,
+        origin: string,
+        prioritizeMileFlights?: boolean
+      ) => Array<{ legs: Array<{ flightNumber: string }> }>;
+    };
+    const sharedLeg = {
+      departureAirportCode: "SEA",
+      airlineCode: "AS",
+      departureDateTime: "2026-06-01T08:00:00",
+      arrivalDateTime: "2026-06-01T16:00:00"
+    };
+    const results = [
+      {
+        price: 200,
+        legs: [
+          {
+            ...sharedLeg,
+            arrivalAirportCode: "PDX",
+            flightNumber: "short"
+          }
+        ]
+      },
+      {
+        price: 200,
+        legs: [
+          {
+            ...sharedLeg,
+            arrivalAirportCode: "JFK",
+            flightNumber: "long"
+          }
+        ]
+      }
+    ];
+
+    expect(
+      provider.getRoundTripOutboundCandidates(results, "SEA", true)[0]?.legs[0]
+        ?.flightNumber
+    ).toBe("long");
+  });
 });
 
 describe("GoogleFlightsProvider direct booking preference", () => {
