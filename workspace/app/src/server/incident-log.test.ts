@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  ensureIncidentLogDirectory,
   INCIDENT_LOG_RETENTION_MS,
   writeIncidentLog,
 } from "./incident-log";
@@ -26,6 +27,39 @@ afterEach(() => {
       recursive: true
     });
   }
+});
+
+describe("ensureIncidentLogDirectory", () => {
+  it("creates and returns the specified directory path", () => {
+    const baseDirectory = createTemporaryDirectory();
+    const targetDirectory = path.join(baseDirectory, "nested", "logs");
+
+    expect(fs.existsSync(targetDirectory)).toBe(false);
+
+    const result = ensureIncidentLogDirectory(targetDirectory);
+
+    expect(result).toBe(targetDirectory);
+    expect(fs.existsSync(targetDirectory)).toBe(true);
+  });
+
+  it("uses the default path based on runtime configuration if no path is provided", () => {
+    const originalEnv = process.env.CHEAPEST_FLIGHT_PICKER_RUNTIME_DIR;
+    const testRuntimeDir = createTemporaryDirectory();
+    process.env.CHEAPEST_FLIGHT_PICKER_RUNTIME_DIR = testRuntimeDir;
+
+    try {
+      const result = ensureIncidentLogDirectory();
+
+      expect(result).toBe(path.join(testRuntimeDir, "logs"));
+      expect(fs.existsSync(result)).toBe(true);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.CHEAPEST_FLIGHT_PICKER_RUNTIME_DIR;
+      } else {
+        process.env.CHEAPEST_FLIGHT_PICKER_RUNTIME_DIR = originalEnv;
+      }
+    }
+  });
 });
 
 describe("writeIncidentLog", () => {
