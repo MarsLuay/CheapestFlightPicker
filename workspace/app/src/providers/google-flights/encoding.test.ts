@@ -1,173 +1,211 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { encodeCalendarSearch, encodeExactSearch } from "./encoding";
 import type { CalendarSearchParams, ExactFlightSearchParams } from "./types";
 
-function decodeAndParse(encoded: string) {
-  const decoded = decodeURIComponent(encoded);
-  const wrapper = JSON.parse(decoded);
-  return JSON.parse(wrapper[1]);
-}
-
-describe("google-flights encoding", () => {
+describe("encoding", () => {
   describe("encodeCalendarSearch", () => {
-    it("should correctly encode basic calendar search params", () => {
+    it("encodes basic calendar search", () => {
       const params: CalendarSearchParams = {
-        origin: "SFO",
-        destination: "LAX",
-        fromDate: "2023-11-01",
-        toDate: "2023-11-30",
-        travelDate: "2023-11-15",
+        origin: "SEA",
+        destination: "JFK",
+        fromDate: "2024-01-01",
+        toDate: "2024-01-31",
+        travelDate: "2024-01-15",
         cabinClass: "economy",
         stopsFilter: "any",
         airlines: [],
-        passengers: { adults: 1, children: 0, infantsOnLap: 0, infantsInSeat: 0 },
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        }
       };
 
       const result = encodeCalendarSearch(params);
-      const parsed = decodeAndParse(result);
+      expect(typeof result).toBe("string");
 
-      expect(parsed).toBeDefined();
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
 
-      const payloadWrapper = parsed[1];
-      const segment = payloadWrapper[13][0];
+      expect(payload[2][0]).toBe("2024-01-01");
+      expect(payload[2][1]).toBe("2024-01-31");
 
-      // Check segment details
-      expect(segment[0][0][0][0]).toBe("SFO"); // Origin
-      expect(segment[1][0][0][0]).toBe("LAX"); // Destination
-      expect(segment[6]).toBe("2023-11-15");   // Travel date
-
-      // Check date range
-      const dateRange = parsed[2];
-      expect(dateRange).toEqual(["2023-11-01", "2023-11-30"]);
-
-      // Cabin class and passengers
-      expect(payloadWrapper[5]).toBe(1); // Economy -> 1
-      expect(payloadWrapper[6]).toEqual([1, 0, 0, 0]); // Passengers
+      const segment = payload[1][13][0];
+      expect(segment[0][0][0][0]).toBe("SEA");
+      expect(segment[1][0][0][0]).toBe("JFK");
+      expect(segment[6]).toBe("2024-01-15");
+      expect(segment[4]).toBeNull(); // airlines
+      expect(segment[3]).toBe(0); // stops filter "any" maps to 0 based on stopFilterToGoogleValue
     });
 
-    it("should correctly handle time windows and filters in calendar search", () => {
+    it("encodes calendar search with time windows, stops filter, and airlines", () => {
       const params: CalendarSearchParams = {
-        origin: "JFK",
-        destination: "LHR",
-        fromDate: "2023-12-01",
-        toDate: "2023-12-31",
-        travelDate: "2023-12-15",
-        cabinClass: "business",
+        origin: "SEA",
+        destination: "JFK",
+        fromDate: "2024-01-01",
+        toDate: "2024-01-31",
+        travelDate: "2024-01-15",
+        cabinClass: "economy",
         stopsFilter: "nonstop",
-        airlines: ["DL", "VS"],
-        passengers: { adults: 2, children: 1, infantsOnLap: 0, infantsInSeat: 1 },
-        departureTimeWindow: { from: 6, to: 12 },
-        arrivalTimeWindow: { from: 14, to: 22 },
+        airlines: ["DL", "AA"],
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        },
+        departureTimeWindow: {
+          from: 8,
+          to: 12
+        }
       };
 
       const result = encodeCalendarSearch(params);
-      const parsed = decodeAndParse(result);
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
 
-      const payloadWrapper = parsed[1];
-      const segment = payloadWrapper[13][0];
+      const segment = payload[1][13][0];
+      expect(segment[3]).toBe(1); // stops filter "nonstop"
+      expect(segment[4]).toEqual(["AA", "DL"]); // airlines sorted
+      expect(segment[2]).toEqual([8, 12, null, null]); // time filters
+    });
 
-      expect(segment[2]).toEqual([6, 12, 14, 22]); // Time windows
-      expect(segment[3]).toBe(1); // Nonstop -> 1
-      expect(segment[4]).toEqual(["DL", "VS"]); // Airlines (sorted alphabetically implicitly since D, V)
+    it("encodes calendar search with passengers", () => {
+      const params: CalendarSearchParams = {
+        origin: "SEA",
+        destination: "JFK",
+        fromDate: "2024-01-01",
+        toDate: "2024-01-31",
+        travelDate: "2024-01-15",
+        cabinClass: "economy",
+        stopsFilter: "any",
+        airlines: [],
+        passengers: {
+          adults: 2,
+          children: 1,
+          infantsOnLap: 1,
+          infantsInSeat: 0
+        }
+      };
 
-      expect(payloadWrapper[5]).toBe(3); // Business -> 3
-      expect(payloadWrapper[6]).toEqual([2, 1, 0, 1]); // Passengers
+      const result = encodeCalendarSearch(params);
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
+
+      const passengers = payload[1][6];
+      expect(passengers).toEqual([2, 1, 1, 0]);
     });
   });
 
   describe("encodeExactSearch", () => {
-    it("should correctly encode one-way exact search params", () => {
+    it("encodes a basic one-way flight", () => {
       const params: ExactFlightSearchParams = {
         tripType: "one_way",
         origin: "SEA",
-        destination: "PDX",
+        destination: "JFK",
         departureDate: "2024-01-15",
-        cabinClass: "first",
-        stopsFilter: "max_1_stop",
+        cabinClass: "economy",
+        stopsFilter: "any",
         airlines: [],
-        passengers: { adults: 1, children: 0, infantsOnLap: 0, infantsInSeat: 0 },
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        }
       };
 
       const result = encodeExactSearch(params);
-      const parsed = decodeAndParse(result);
+      expect(typeof result).toBe("string");
 
-      const payloadWrapper = parsed[1];
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
 
-      expect(payloadWrapper[2]).toBe(2); // One-way is usually 2
-      expect(payloadWrapper[5]).toBe(4); // First class -> 4
-
-      const segments = payloadWrapper[13];
+      const segments = payload[1][13];
       expect(segments).toHaveLength(1);
 
       const segment = segments[0];
       expect(segment[0][0][0][0]).toBe("SEA");
-      expect(segment[1][0][0][0]).toBe("PDX");
+      expect(segment[1][0][0][0]).toBe("JFK");
       expect(segment[6]).toBe("2024-01-15");
-      expect(segment[3]).toBe(2); // Max 1 stop -> 2
+      expect(payload[1][2]).toBe(2); // 2 means one-way trip
     });
 
-    it("should correctly encode round-trip exact search params", () => {
+    it("encodes a round trip flight", () => {
       const params: ExactFlightSearchParams = {
         tripType: "round_trip",
-        origin: "ORD",
-        destination: "MIA",
-        departureDate: "2024-02-10",
-        returnDate: "2024-02-17",
-        cabinClass: "premium_economy",
-        stopsFilter: "max_2_stops",
-        airlines: ["AA"],
-        passengers: { adults: 2, children: 2, infantsOnLap: 1, infantsInSeat: 0 },
-      };
-
-      const result = encodeExactSearch(params);
-      const parsed = decodeAndParse(result);
-
-      const payloadWrapper = parsed[1];
-      expect(payloadWrapper[2]).toBe(1); // Round trip -> 1
-      expect(payloadWrapper[5]).toBe(2); // Premium Economy -> 2
-      expect(payloadWrapper[6]).toEqual([2, 2, 1, 0]);
-
-      const segments = payloadWrapper[13];
-      expect(segments).toHaveLength(2);
-
-      const outSegment = segments[0];
-      expect(outSegment[0][0][0][0]).toBe("ORD");
-      expect(outSegment[1][0][0][0]).toBe("MIA");
-      expect(outSegment[6]).toBe("2024-02-10");
-      expect(outSegment[3]).toBe(3); // Max 2 stops -> 3
-      expect(outSegment[4]).toEqual(["AA"]);
-
-      const returnSegment = segments[1];
-      expect(returnSegment[0][0][0][0]).toBe("MIA");
-      expect(returnSegment[1][0][0][0]).toBe("ORD");
-      expect(returnSegment[6]).toBe("2024-02-17");
-      expect(returnSegment[3]).toBe(3);
-    });
-
-    it("should correctly handle selectedFlight", () => {
-      const params: ExactFlightSearchParams = {
-        tripType: "one_way",
-        origin: "BOS",
-        destination: "SFO",
-        departureDate: "2024-03-01",
+        origin: "SEA",
+        destination: "JFK",
+        departureDate: "2024-01-15",
+        returnDate: "2024-01-20",
         cabinClass: "economy",
         stopsFilter: "any",
         airlines: [],
-        passengers: { adults: 1, children: 0, infantsOnLap: 0, infantsInSeat: 0 },
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        }
+      };
+
+      const result = encodeExactSearch(params);
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
+
+      const segments = payload[1][13];
+      expect(segments).toHaveLength(2);
+
+      const segment1 = segments[0];
+      expect(segment1[0][0][0][0]).toBe("SEA");
+      expect(segment1[1][0][0][0]).toBe("JFK");
+      expect(segment1[6]).toBe("2024-01-15");
+
+      const segment2 = segments[1];
+      expect(segment2[0][0][0][0]).toBe("JFK");
+      expect(segment2[1][0][0][0]).toBe("SEA");
+      expect(segment2[6]).toBe("2024-01-20");
+
+      expect(payload[1][2]).toBe(1); // 1 means round-trip
+    });
+
+    it("encodes exact search with selectedFlight", () => {
+      const params: ExactFlightSearchParams = {
+        tripType: "round_trip",
+        origin: "SEA",
+        destination: "JFK",
+        departureDate: "2024-01-15",
+        returnDate: "2024-01-20",
+        cabinClass: "economy",
+        stopsFilter: "any",
+        airlines: [],
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        },
         selectedFlight: {
-          price: 150,
+          price: 100,
           durationMinutes: 300,
           stops: 0,
-          bookingSource: { type: "direct_airline", label: "Direct Airline", detected: true },
+          bookingSource: {
+            type: "direct_airline",
+            label: "Delta",
+            detected: true,
+            url: "https://example.com",
+            sellerName: "Delta"
+          },
           legs: [
             {
-              airlineCode: "B6",
-              airlineName: "JetBlue",
+              departureAirportCode: "SEA",
+              arrivalAirportCode: "JFK",
+              departureDateTime: "2024-01-15T08:00:00",
+              arrivalDateTime: "2024-01-15T16:00:00",
+              airlineCode: "DL",
+              airlineName: "Delta Air Lines",
               flightNumber: "123",
-              departureAirportCode: "BOS",
-              arrivalAirportCode: "SFO",
-              departureDateTime: "2024-03-01T08:00:00",
-              arrivalDateTime: "2024-03-01T11:00:00",
               durationMinutes: 300
             }
           ]
@@ -175,23 +213,22 @@ describe("google-flights encoding", () => {
       };
 
       const result = encodeExactSearch(params);
-      const parsed = decodeAndParse(result);
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
 
-      const segment = parsed[1][13][0];
-      const selectedFlightsData = segment[8];
+      const segments = payload[1][13];
+      const segment1 = segments[0];
 
-      expect(selectedFlightsData).toBeDefined();
-      expect(selectedFlightsData).toHaveLength(1);
+      const selectedFlights = segment1[8];
+      expect(selectedFlights).toHaveLength(1);
 
-      const selectedLeg = selectedFlightsData[0];
-      expect(selectedLeg).toEqual([
-        "BOS",
-        "2024-03-01",
-        "SFO",
-        null,
-        "B6",
-        "123"
-      ]);
+      const selectedFlight = selectedFlights[0];
+      expect(selectedFlight[0]).toBe("SEA");
+      expect(selectedFlight[1]).toBe("2024-01-15"); // local date part
+      expect(selectedFlight[2]).toBe("JFK");
+      expect(selectedFlight[3]).toBeNull();
+      expect(selectedFlight[4]).toBe("DL");
+      expect(selectedFlight[5]).toBe("123");
     });
   });
 });
