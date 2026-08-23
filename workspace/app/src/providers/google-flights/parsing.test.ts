@@ -1,126 +1,318 @@
 import { describe, expect, it } from "vitest";
-import { parseCalendarResponse, parseExactSearchResponse } from "./parsing";
 
-describe("parseCalendarResponse", () => {
-  it("should parse valid responses with number and string prices", () => {
-    const input = `)]}'\n[[null, null, "[\\"foo\\", [ [\\"2023-10-16\\", null, [[null, 500]]], [\\"2023-10-15\\", null, [[null, \\"450.5\\"]]] ] ]"]]`;
-    const result = parseCalendarResponse(input);
-    expect(result).toEqual([
-      { date: "2023-10-15", price: 450.5 },
-      { date: "2023-10-16", price: 500 }
-    ]);
-  });
+import {
+  parseCalendarResponse,
+  parseExactSearchResponse
+} from "./parsing";
 
-  it("should handle empty or invalid JSON gracefully", () => {
-    expect(() => parseCalendarResponse("")).toThrow(SyntaxError);
-    expect(parseCalendarResponse(")]}'\n[[null, null, null]]")).toEqual([]);
-    expect(parseCalendarResponse(")]}'\n[[null, null, \"[]\"]]")).toEqual([]);
-    expect(parseCalendarResponse(")]}'\n[[null, null, \"[null]\"]]")).toEqual([]);
-  });
+describe("Google Flights Parsing", () => {
+  describe("parseCalendarResponse", () => {
+    it("handles empty or invalid inputs", () => {
+      expect(() => parseCalendarResponse("")).toThrow();
+      expect(parseCalendarResponse(")]}'\n[]")).toEqual([]);
+      expect(parseCalendarResponse(")]}'\n[[null, null, null]]")).toEqual([]);
+      expect(
+        parseCalendarResponse(`)]}'\n[[null, null, ${JSON.stringify(JSON.stringify({}))}]]`)
+      ).toEqual([]);
+      expect(
+        parseCalendarResponse(`)]}'\n[[null, null, ${JSON.stringify(JSON.stringify([]))}]]`)
+      ).toEqual([]);
+    });
 
-  it("should filter out entries with invalid prices or dates", () => {
-    const input = `)]}'\n[[null, null, "[\\"foo\\", [ [null, null, [[null, 500]]], [\\"2023-10-15\\", null, [[null, null]]], [\\"2023-10-16\\", null, [[null, \\"invalid\\"]]] ] ]"]]`;
-    const result = parseCalendarResponse(input);
-    expect(result).toEqual([]);
-  });
-});
-
-describe("parseExactSearchResponse", () => {
-  const getFlightInput = (sellerCode: string | null, sellerName: string, sellerUrl: string) => {
-    const parsedObj = [
-      null, null,
-      [
+    it("parses valid calendar response and extracts prices", () => {
+      const decoded = [
         [
+          ["2025-01-01", null, [[null, 100]]],
+          ["2025-01-02", null, [[null, "150.5"]]],
+          ["2025-01-03", null, [[null, null]]],
+          "not an array"
+        ]
+      ];
+      const parsed = JSON.stringify(decoded);
+      const payload = `)]}'\n[[null, null, ${JSON.stringify(parsed)}]]`;
+
+      const result = parseCalendarResponse(payload);
+
+      expect(result).toEqual([
+        { date: "2025-01-01", price: 100 },
+        { date: "2025-01-02", price: 150.5 }
+      ]);
+    });
+
+    it("sorts entries by date", () => {
+      const decoded = [
+        [
+          ["2025-02-01", null, [[null, 200]]],
+          ["2024-12-01", null, [[null, 100]]]
+        ]
+      ];
+      const parsed = JSON.stringify(decoded);
+      const payload = `)]}'\n[[null, null, ${JSON.stringify(parsed)}]]`;
+
+      const result = parseCalendarResponse(payload);
+
+      expect(result).toEqual([
+        { date: "2024-12-01", price: 100 },
+        { date: "2025-02-01", price: 200 }
+      ]);
+    });
+  });
+
+  describe("parseExactSearchResponse", () => {
+    it("handles empty or invalid strings", () => {
+      expect(() => parseExactSearchResponse("")).toThrow();
+      expect(parseExactSearchResponse(")]}'\n[]")).toEqual([]);
+      expect(parseExactSearchResponse(")]}'\n[[null, null, null]]")).toEqual([]);
+      expect(
+        parseExactSearchResponse(`)]}'\n[[null, null, ${JSON.stringify(JSON.stringify({}))}]]`)
+      ).toEqual([]);
+    });
+
+    it("parses valid flight entries with direct airline booking source", () => {
+      const decoded = {
+        "2": [
           [
             [
-              null, null,
               [
+                null,
+                null,
                 [
-                  null, null, null, "SFO", null, null, "JFK", null,
-                  [2023, 10, 16], null, [10, 0, 0], 300,
-                  null, null, null, null, null, null, null, null,
-                  [2023, 10, 16], [2023, 10, 16],
-                  ["UA", "123", null, "United Airlines"]
+                  [
+                    null, null, null,
+                    "JFK", null, null, "LHR", null,
+                    [12, 30], null, [20, 15], 465,
+                    null, null, null, null, null, null, null, null,
+                    [2025, 5, 1], [2025, 5, 1],
+                    ["BA", "123", null, "British Airways"]
+                  ]
+                ],
+                null, null, null, null, null, null,
+                465,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                [
+                  ["BA", "British Airways", "https://britishairways.com"]
                 ]
+              ],
+              [
+                [null, null, null, 500]
               ]
-            ],
-            [
-              [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 150.5]
             ]
           ]
         ]
-      ]
-    ] as any[];
+      };
 
-    if (sellerName) {
-      const seller = [sellerCode, sellerName, sellerUrl];
-      parsedObj[2][0][0][0][24] = [seller];
-    } else {
-      parsedObj[2][0][0][0][24] = null;
-    }
+      const parsed = JSON.stringify(decoded);
+      const payload = `)]}'\n[[null, null, ${JSON.stringify(parsed)}]]`;
 
-    const inputObj = [[null, null, JSON.stringify(parsedObj)]];
-    return `)]}'\n` + JSON.stringify(inputObj);
-  };
+      const result = parseExactSearchResponse(payload);
 
-  it("should parse valid responses with flights and detect Direct booking", () => {
-    const input = getFlightInput(null, "United Airlines", "https://united.com");
+      expect(result).toEqual([
+        {
+          bookingSource: {
+            type: "direct_airline",
+            label: "Direct with British Airways",
+            sellerName: "British Airways",
+            url: "https://britishairways.com",
+            detected: true
+          },
+          price: 500,
+          durationMinutes: 465,
+          stops: 0,
+          legs: [
+            {
+              airlineCode: "BA",
+              airlineName: "British Airways",
+              flightNumber: "123",
+              departureAirportCode: "JFK",
+              arrivalAirportCode: "LHR",
+              departureDateTime: "2025-05-01T12:30:00",
+              arrivalDateTime: "2025-05-01T20:15:00",
+              durationMinutes: 465
+            }
+          ]
+        }
+      ]);
+    });
 
-    const result = parseExactSearchResponse(input);
-    expect(result.length).toBe(1);
-    expect(result[0].price).toBe(150.5);
-    expect(result[0].legs.length).toBe(1);
-    expect(result[0].legs[0].airlineCode).toBe("UA");
-    expect(result[0].legs[0].airlineName).toBe("United Airlines");
-    expect(result[0].legs[0].flightNumber).toBe("123");
-    expect(result[0].legs[0].departureAirportCode).toBe("SFO");
-    expect(result[0].legs[0].arrivalAirportCode).toBe("JFK");
-    expect(result[0].legs[0].durationMinutes).toBe(300);
-    // [2023, 10, 16] & time [10, 0, 0] vs [2023, 10, 16] (year, month, day vs hour, minute format in output logic)
-    // Actually the mock has departureTimeParts as [2023, 10, 16], so parseDateTime will produce 2023-10-16T2023:10:00 but testing exact output based on what the script gives
-    expect(result[0].legs[0].departureDateTime).toBe("2023-10-16T2023:10:00");
-    expect(result[0].legs[0].arrivalDateTime).toBe("2023-10-16T10:00:00");
-    expect(result[0].bookingSource.type).toBe("direct_airline");
-    expect(result[0].bookingSource.sellerName).toBe("United Airlines");
-  });
+    it("parses valid flight entries with known OTA booking source", () => {
+      const decoded = {
+        "3": [
+          [
+            [
+              [
+                null,
+                null,
+                [
+                  [
+                    null, null, null,
+                    "JFK", null, null, "LHR", null,
+                    [12, 30], null, [20, 15], 465,
+                    null, null, null, null, null, null, null, null,
+                    [2025, 5, 1], [2025, 5, 1],
+                    ["BA", "123", null, "British Airways"]
+                  ]
+                ],
+                null, null, null, null, null, null,
+                465,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                [
+                  [null, "Expedia", "https://expedia.com"]
+                ]
+              ],
+              [
+                [null, null, null, 400]
+              ]
+            ]
+          ]
+        ]
+      };
 
-  it("should parse known OTA booking sources", () => {
-    const input = getFlightInput(null, "Expedia", "https://expedia.com");
+      const parsed = JSON.stringify(decoded);
+      const payload = `)]}'\n[[null, null, ${JSON.stringify(parsed)}]]`;
 
-    const result = parseExactSearchResponse(input);
-    expect(result.length).toBe(1);
-    expect(result[0].bookingSource.type).toBe("ota");
-    expect(result[0].bookingSource.sellerName).toBe("Expedia");
-  });
+      const result = parseExactSearchResponse(payload);
 
-  it("should fallback to unknown OTA booking sources", () => {
-    const input = getFlightInput(null, "RandomTravelAgency", "https://random.com");
+      expect(result).toEqual([
+        {
+          bookingSource: {
+            type: "ota",
+            label: "OTA: Expedia",
+            sellerName: "Expedia",
+            url: "https://expedia.com",
+            detected: true
+          },
+          price: 400,
+          durationMinutes: 465,
+          stops: 0,
+          legs: [
+            {
+              airlineCode: "BA",
+              airlineName: "British Airways",
+              flightNumber: "123",
+              departureAirportCode: "JFK",
+              arrivalAirportCode: "LHR",
+              departureDateTime: "2025-05-01T12:30:00",
+              arrivalDateTime: "2025-05-01T20:15:00",
+              durationMinutes: 465
+            }
+          ]
+        }
+      ]);
+    });
 
-    const result = parseExactSearchResponse(input);
-    expect(result.length).toBe(1);
-    expect(result[0].bookingSource.type).toBe("ota");
-    expect(result[0].bookingSource.sellerName).toBe("RandomTravelAgency");
-  });
+    it("returns unknown booking source if candidate is missing", () => {
+      const decoded = {
+        "2": [
+          [
+            [
+              [
+                null,
+                null,
+                [
+                  [
+                    null, null, null,
+                    "JFK", null, null, "LHR", null,
+                    [12, 30], null, [20, 15], 465,
+                    null, null, null, null, null, null, null, null,
+                    [2025, 5, 1], [2025, 5, 1],
+                    ["BA", "123", null, "British Airways"]
+                  ]
+                ],
+                null, null, null, null, null, null,
+                465
+                // route[24] is missing
+              ],
+              [
+                [null, null, null, 500]
+              ]
+            ]
+          ]
+        ]
+      };
 
-  it("should handle unknown booking source if candidate not found", () => {
-    const input = getFlightInput(null, "", "");
+      const parsed = JSON.stringify(decoded);
+      const payload = `)]}'\n[[null, null, ${JSON.stringify(parsed)}]]`;
 
-    const result = parseExactSearchResponse(input);
-    expect(result.length).toBe(1);
-    expect(result[0].bookingSource.type).toBe("unknown");
-    expect(result[0].bookingSource.detected).toBe(false);
-  });
+      const result = parseExactSearchResponse(payload);
 
-  it("should skip invalid legs or flights", () => {
-    // Corrupted input missing price and some legs information
-    const input = `)]}'\n[[null, null, "[null, null, [[[ [[null, null, [null]]], [[null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]] ]]]]"]]`;
-    const result = parseExactSearchResponse(input);
-    expect(result.length).toBe(0);
-  });
+      expect(result[0]?.bookingSource.type).toBe("unknown");
+    });
 
-  it("should handle empty or invalid JSON gracefully", () => {
-    expect(() => parseExactSearchResponse("")).toThrow(SyntaxError);
-    expect(parseExactSearchResponse(")]}'\n[[null, null, null]]")).toEqual([]);
-    expect(parseExactSearchResponse(")]}'\n[[null, null, \"[]\"]]")).toEqual([]);
+    it("handles multiple legs with correct stop counts", () => {
+      const decoded = {
+        "2": [
+          [
+            [
+              [
+                null,
+                null,
+                [
+                  [
+                    null, null, null,
+                    "JFK", null, null, "LHR", null,
+                    [12, 30], null, [20, 15], 465,
+                    null, null, null, null, null, null, null, null,
+                    [2025, 5, 1], [2025, 5, 1],
+                    ["BA", "123", null, "British Airways"]
+                  ],
+                  [
+                    null, null, null,
+                    "LHR", null, null, "CDG", null,
+                    [22, 30], null, [23, 15], 45,
+                    null, null, null, null, null, null, null, null,
+                    [2025, 5, 1], [2025, 5, 1],
+                    ["AF", "456", null, "Air France"]
+                  ]
+                ],
+                null, null, null, null, null, null,
+                600,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                [
+                  ["BA", "British Airways", "https://britishairways.com"]
+                ]
+              ],
+              [
+                [null, null, null, 500]
+              ]
+            ]
+          ]
+        ]
+      };
+
+      const parsed = JSON.stringify(decoded);
+      const payload = `)]}'\n[[null, null, ${JSON.stringify(parsed)}]]`;
+
+      const result = parseExactSearchResponse(payload);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.stops).toBe(1);
+      expect(result[0]?.legs).toHaveLength(2);
+    });
+
+    it("skips invalid flight entries", () => {
+      const decoded = {
+        "2": [
+          [
+            [
+              [
+                null, null, [] // invalid legs
+              ],
+              [
+                [null, null, null, 500]
+              ]
+            ],
+            null,
+            "not a flight"
+          ]
+        ]
+      };
+
+      const parsed = JSON.stringify(decoded);
+      const payload = `)]}'\n[[null, null, ${JSON.stringify(parsed)}]]`;
+
+      const result = parseExactSearchResponse(payload);
+
+      expect(result).toEqual([]);
+    });
   });
 });

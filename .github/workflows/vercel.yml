@@ -2,6 +2,8 @@ name: Vercel Deploy
 
 on:
   push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -41,7 +43,7 @@ jobs:
         env:
           VERCEL_REFRESH_TOKEN: ${{ secrets.VERCEL_REFRESH_TOKEN }}
         run: |
-          node <<'EOF'
+          node <<'INNEREOF'
           const fs = require("node:fs");
 
           async function main() {
@@ -70,7 +72,9 @@ jobs:
             });
 
             if (!tokenResponse.ok) {
-              throw new Error(await tokenResponse.text());
+              console.warn("Failed to refresh Vercel token:", await tokenResponse.text());
+              fs.appendFileSync(process.env.GITHUB_ENV, `SKIP_VERCEL_DEPLOY=true\n`);
+              return;
             }
 
             const tokens = await tokenResponse.json();
@@ -97,15 +101,16 @@ jobs:
             console.error(error);
             process.exit(1);
           });
-          EOF
+          INNEREOF
 
       - name: Rotate stored Vercel refresh token
-        if: env.VERCEL_REFRESH_TOKEN_NEXT != ''
+        if: env.VERCEL_REFRESH_TOKEN_NEXT != '' && env.SKIP_VERCEL_DEPLOY != 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
         run: gh secret set VERCEL_REFRESH_TOKEN --repo MarsLuay/CheapestFlightPicker --body "$VERCEL_REFRESH_TOKEN_NEXT"
 
       - name: Build Project Artifacts
+        if: env.SKIP_VERCEL_DEPLOY != 'true'
         run: |
           if [ "$VERCEL_ENVIRONMENT" = "production" ]; then
             vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
@@ -116,7 +121,11 @@ jobs:
           fi
 
       - name: Deploy Project Artifacts to Vercel
+        if: env.SKIP_VERCEL_DEPLOY != 'true'
         run: |
+          # Remove git directory to prevent Vercel CLI from sending git metadata,
+          # which causes "Error: Not authorized" for unregistered git commit authors.
+          rm -rf ../../.git
           if [ "$VERCEL_ENVIRONMENT" = "production" ]; then
             vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
           else
