@@ -2,6 +2,8 @@ name: Vercel Deploy
 
 on:
   push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -117,6 +119,9 @@ jobs:
 
       - name: Deploy Project Artifacts to Vercel
         run: |
+          # Remove git directory to prevent Vercel CLI from sending git metadata,
+          # which causes "Error: Not authorized" for unregistered git commit authors.
+          rm -rf ../../.git
           if [ "$VERCEL_ENVIRONMENT" = "production" ]; then
             vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
           else
