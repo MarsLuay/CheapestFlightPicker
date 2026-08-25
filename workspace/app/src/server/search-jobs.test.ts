@@ -35,8 +35,10 @@ describe("search-jobs", () => {
   it("should get a search job without checkpoint", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
+      version: 1,
+      request: {} as any,
+      departureDatePrices: [],
+      returnDatePrices: []
     };
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
@@ -48,8 +50,10 @@ describe("search-jobs", () => {
   it("should get a search job with checkpoint", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
+      version: 1,
+      request: {} as any,
+      departureDatePrices: [],
+      returnDatePrices: []
     };
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
@@ -77,8 +81,19 @@ describe("search-jobs", () => {
   it("should not update progress if job is completed", () => {
     const createdJob = createSearchJob();
     completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
+      request: {} as any,
+      departureDatePrices: [],
+      returnDatePrices: [],
+      cheapestOverall: null,
+      cheapestRoundTrip: null,
+      cheapestTwoOneWays: null,
+      cheapestNonstop: null,
+      cheapestMultiStop: null,
+      evaluatedDatePairs: [],
+      inspectedOptions: 0,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
     });
 
     const progress: SearchProgress = {
@@ -96,8 +111,19 @@ describe("search-jobs", () => {
   it("should complete search job", () => {
     const createdJob = createSearchJob();
     const summary: SearchSummary = {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
+      request: {} as any,
+      departureDatePrices: [],
+      returnDatePrices: [],
+      cheapestOverall: null,
+      cheapestRoundTrip: null,
+      cheapestTwoOneWays: null,
+      cheapestNonstop: null,
+      cheapestMultiStop: null,
+      evaluatedDatePairs: [],
+      inspectedOptions: 0,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
     };
 
     const completedJob = completeSearchJob(createdJob.id, summary);
@@ -117,14 +143,25 @@ describe("search-jobs", () => {
     expect(failedJob?.status).toBe("failed");
     expect(failedJob?.error).toBe(errorMessage);
     expect(failedJob?.progress.stage).toBe("Failed");
-    expect(failedJob?.progress.detail).toBe(errorMessage);
+    expect(failedJob?.progress.detail).toBe("Something went wrong");
   });
 
   it("should not fail job if already completed", () => {
     const createdJob = createSearchJob();
     completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
+      request: {} as any,
+      departureDatePrices: [],
+      returnDatePrices: [],
+      cheapestOverall: null,
+      cheapestRoundTrip: null,
+      cheapestTwoOneWays: null,
+      cheapestNonstop: null,
+      cheapestMultiStop: null,
+      evaluatedDatePairs: [],
+      inspectedOptions: 0,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
     });
 
     const failedJob = failSearchJob(createdJob.id, "Error after completion");
