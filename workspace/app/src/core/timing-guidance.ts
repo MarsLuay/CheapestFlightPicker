@@ -920,6 +920,172 @@ export function buildHackerFareInsight(
   };
 }
 
+function buildWatchHistorySignals(
+  pricePosition: TimingPricePosition,
+  trend: TimingTrend,
+  historySampleSize: number
+): TimingSignal[] {
+  const signals: TimingSignal[] = [];
+
+  if (pricePosition === "near_low") {
+    signals.push({
+      priority: 2,
+      reason:
+        `The current fare is within 3% of the lowest price this app has seen across ${historySampleSize} check${
+          historySampleSize === 1 ? "" : "s"
+        } for this exact trip.`,
+      score: 1
+    });
+  } else if (pricePosition === "high") {
+    signals.push({
+      priority: 2,
+      reason:
+        "The current fare is noticeably above the recent range for this exact trip watch.",
+      score: -1
+    });
+  }
+
+  if (trend === "rising") {
+    signals.push({
+      priority: 2,
+      reason: "Recent checks for this trip have been trending upward.",
+      score: 1
+    });
+  } else if (trend === "falling") {
+    signals.push({
+      priority: 2,
+      reason: "Recent checks for this trip have been trending downward.",
+      score: -1
+    });
+  } else if (trend === "flat" && historySampleSize >= 4) {
+    signals.push({
+      priority: 1.5,
+      reason:
+        "Recent checks have been fairly flat, so there may not be much downside left.",
+      score: 0.5
+    });
+  }
+
+  return signals;
+}
+
+function buildProjectionSignal(
+  projection: TimingFuturePriceProjection | null,
+  daysUntilDeparture: number,
+  materialMovementThreshold: number,
+  currency: string
+): TimingSignal | null {
+  if (!projection) {
+    return null;
+  }
+
+  if (
+    projection.riskAmount >=
+    Math.max(projection.savingsAmount * 1.2, materialMovementThreshold)
+  ) {
+    return {
+      priority: 4,
+      reason: `A ${projection.horizonDays}-day projection points to about ${formatPrice(
+        Math.round(projection.forecastPrice),
+        currency
+      )}, with roughly ${formatPrice(
+        Math.round(projection.riskAmount),
+        currency
+      )} of modeled upside risk and only about ${formatPrice(
+        Math.round(projection.savingsAmount),
+        currency
+      )} of likely savings left.`,
+      score:
+        daysUntilDeparture > 90
+          ? projection.riskAmount >= materialMovementThreshold * 2
+            ? 0.75
+            : 0.5
+          : projection.riskAmount >= materialMovementThreshold * 1.5
+            ? 2
+            : 1
+    };
+  }
+
+  if (
+    daysUntilDeparture > 14 &&
+    projection.savingsAmount >=
+      Math.max(projection.riskAmount * 1.2, materialMovementThreshold)
+  ) {
+    return {
+      priority: 4,
+      reason: `A ${projection.horizonDays}-day projection still leaves room for about ${formatPrice(
+        Math.round(projection.savingsAmount),
+        currency
+      )} of additional downside, while the modeled rebound risk is only about ${formatPrice(
+        Math.round(projection.riskAmount),
+        currency
+      )}.`,
+      score: projection.savingsAmount >= materialMovementThreshold * 1.5 ? -2 : -1
+    };
+  }
+
+  return null;
+}
+
+function buildObservationSignals(
+  currentObservation: TimingObservation | undefined,
+  daysUntilDeparture: number,
+  trend: TimingTrend
+): TimingSignal[] {
+  if (!currentObservation) {
+    return [];
+  }
+
+  const signals: TimingSignal[] = [];
+
+  if (
+    currentObservation.volatility !== null &&
+    currentObservation.volatility >= 0.18
+  ) {
+    signals.push({
+      priority: 1.5,
+      reason:
+        daysUntilDeparture > 30 && trend !== "rising"
+          ? `The cheapest few qualifying fares in this search are still spread across about ${Math.round(
+              currentObservation.volatility * 100
+            )}%, which usually means there is still room for one more dip.`
+          : `The cheapest few qualifying fares in this search are spread across about ${Math.round(
+              currentObservation.volatility * 100
+            )}%, so this route is still moving around.`,
+      score: daysUntilDeparture > 30 && trend !== "rising" ? -1 : 0.5
+    });
+  }
+
+  if (
+    currentObservation.optionCount >= 3 &&
+    currentObservation.directAirlineCount > 0 &&
+    currentObservation.otaCount === 0 &&
+    currentObservation.mixedOrUnknownCount === 0
+  ) {
+    signals.push({
+      priority: 1,
+      reason:
+        "The cheapest qualifying options in this check are all direct-airline fares rather than OTA listings.",
+      score: 0.5
+    });
+  }
+
+  if (
+    currentObservation.airlineMix.length >= 3 &&
+    daysUntilDeparture > 30 &&
+    trend !== "rising"
+  ) {
+    signals.push({
+      priority: 0.75,
+      reason:
+        "Several airlines are still competing near the top of this search, which usually gives the market a little more room to reprice.",
+      score: -0.5
+    });
+  }
+
+  return signals;
+}
+
 export function buildTimingGuidance(
   summary: SearchSummary,
   observations: TimingObservation[],
@@ -989,13 +1155,14 @@ export function buildTimingGuidance(
     daysUntilDeparture,
     effectiveMarketMetrics
   );
-  const signals: TimingSignal[] = [];
   const materialMovementThreshold = Math.max(currentBestPrice * 0.03, 15);
   const airlineBaselineSignal = buildAirlineBaselineSignal(
     currentObservation,
     comparableMarketObservations.slice(0, -1),
     currency
   );
+
+  const signals: TimingSignal[] = [];
 
   // Broader market context leads the call; exact-trip watch history backs it up.
   if (routeWindowSignal) {
@@ -1006,88 +1173,16 @@ export function buildTimingGuidance(
     });
   }
 
-  if (pricePosition === "near_low") {
-    signals.push({
-      priority: 2,
-      reason:
-      `The current fare is within 3% of the lowest price this app has seen across ${historySampleSize} check${
-        historySampleSize === 1 ? "" : "s"
-      } for this exact trip.`,
-      score: 1
-    });
-  } else if (pricePosition === "high") {
-    signals.push({
-      priority: 2,
-      reason:
-        "The current fare is noticeably above the recent range for this exact trip watch.",
-      score: -1
-    });
-  }
+  signals.push(...buildWatchHistorySignals(pricePosition, trend, historySampleSize));
 
-  if (trend === "rising") {
-    signals.push({
-      priority: 2,
-      reason: "Recent checks for this trip have been trending upward.",
-      score: 1
-    });
-  } else if (trend === "falling") {
-    signals.push({
-      priority: 2,
-      reason: "Recent checks for this trip have been trending downward.",
-      score: -1
-    });
-  } else if (trend === "flat" && historySampleSize >= 4) {
-    signals.push({
-      priority: 1.5,
-      reason:
-        "Recent checks have been fairly flat, so there may not be much downside left.",
-      score: 0.5
-    });
-  }
-
-  if (projection) {
-    if (
-      projection.riskAmount >=
-      Math.max(projection.savingsAmount * 1.2, materialMovementThreshold)
-    ) {
-      signals.push({
-        priority: 4,
-        reason: `A ${projection.horizonDays}-day projection points to about ${formatPrice(
-          Math.round(projection.forecastPrice),
-          currency
-        )}, with roughly ${formatPrice(
-          Math.round(projection.riskAmount),
-          currency
-        )} of modeled upside risk and only about ${formatPrice(
-          Math.round(projection.savingsAmount),
-          currency
-        )} of likely savings left.`,
-        score:
-          daysUntilDeparture > 90
-            ? projection.riskAmount >= materialMovementThreshold * 2
-              ? 0.75
-              : 0.5
-            : projection.riskAmount >= materialMovementThreshold * 1.5
-              ? 2
-              : 1
-      });
-    } else if (
-      daysUntilDeparture > 14 &&
-      projection.savingsAmount >=
-        Math.max(projection.riskAmount * 1.2, materialMovementThreshold)
-    ) {
-      signals.push({
-        priority: 4,
-        reason: `A ${projection.horizonDays}-day projection still leaves room for about ${formatPrice(
-          Math.round(projection.savingsAmount),
-          currency
-        )} of additional downside, while the modeled rebound risk is only about ${formatPrice(
-          Math.round(projection.riskAmount),
-          currency
-        )}.`,
-        score: projection.savingsAmount >= materialMovementThreshold * 1.5 ? -2 : -1
-      });
-    }
+  const projectionSignal = buildProjectionSignal(
+    projection,
+    daysUntilDeparture,
+    materialMovementThreshold,
+    currency
+  );
+  if (projectionSignal) {
+    signals.push(projectionSignal);
   }
 
   if (
@@ -1106,53 +1201,7 @@ export function buildTimingGuidance(
     signals.push(airlineBaselineSignal);
   }
 
-  if (
-    currentObservation &&
-    currentObservation.volatility !== null &&
-    currentObservation.volatility >= 0.18
-  ) {
-    signals.push({
-      priority: 1.5,
-      reason:
-        daysUntilDeparture > 30 && trend !== "rising"
-          ? `The cheapest few qualifying fares in this search are still spread across about ${Math.round(
-              currentObservation.volatility * 100
-            )}%, which usually means there is still room for one more dip.`
-          : `The cheapest few qualifying fares in this search are spread across about ${Math.round(
-              currentObservation.volatility * 100
-            )}%, so this route is still moving around.`,
-      score: daysUntilDeparture > 30 && trend !== "rising" ? -1 : 0.5
-    });
-  }
-
-  if (
-    currentObservation &&
-    currentObservation.optionCount >= 3 &&
-    currentObservation.directAirlineCount > 0 &&
-    currentObservation.otaCount === 0 &&
-    currentObservation.mixedOrUnknownCount === 0
-  ) {
-    signals.push({
-      priority: 1,
-      reason:
-        "The cheapest qualifying options in this check are all direct-airline fares rather than OTA listings.",
-      score: 0.5
-    });
-  }
-
-  if (
-    currentObservation &&
-    currentObservation.airlineMix.length >= 3 &&
-    daysUntilDeparture > 30 &&
-    trend !== "rising"
-  ) {
-    signals.push({
-      priority: 0.75,
-      reason:
-        "Several airlines are still competing near the top of this search, which usually gives the market a little more room to reprice.",
-      score: -0.5
-    });
-  }
+  signals.push(...buildObservationSignals(currentObservation, daysUntilDeparture, trend));
 
   const score = signals.reduce((total, signal) => total + signal.score, 0);
   const recommendation: TimingRecommendation = score >= 1 ? "book_now" : "wait";
