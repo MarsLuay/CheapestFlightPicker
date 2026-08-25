@@ -565,10 +565,7 @@ registerProcessIncidentHandlers();
 
 if (!isVercelRuntime()) {
   app.listen(port, () => {
-    appendServerLog("info", "Server started", { port });
-    console.log(
-      `Cheapest Flight Picker server listening on http://localhost:${port}`
-    );
+    appendServerLog("info", `Cheapest Flight Picker server listening on http://localhost:${port}`, { port });
   });
 }
 
