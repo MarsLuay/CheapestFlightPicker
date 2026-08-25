@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateFlightDistanceMiles, findAirportByCode, findClosestAirport, searchAirports } from "./catalog";
+import { calculateFlightDistanceMiles, findAirlineByCode, findAirportByCode, findClosestAirport, searchAirports } from "./catalog";
 
 describe("calculateFlightDistanceMiles", () => {
   it("returns 0 for an empty array of legs", () => {
@@ -50,6 +50,31 @@ describe("calculateFlightDistanceMiles", () => {
   });
 });
 
+describe("findAirportByCode", () => {
+  it("finds airport by IATA code case-insensitively", () => {
+    const sea = findAirportByCode("sea");
+    expect(sea).toBeDefined();
+    expect(sea?.iata).toBe("SEA");
+    expect(sea?.name).toContain("Seattle");
+  });
+
+  it("returns undefined for unknown airport code", () => {
+    expect(findAirportByCode("INVALID_CODE")).toBeUndefined();
+  });
+});
+
+describe("findAirlineByCode", () => {
+  it("finds airline by IATA code case-insensitively", () => {
+    const airline = findAirlineByCode("aa");
+    expect(airline).toBeDefined();
+    expect(airline?.iata).toBe("AA");
+  });
+
+  it("returns undefined for unknown airline code", () => {
+    expect(findAirlineByCode("INVALID_CODE")).toBeUndefined();
+  });
+});
+
 describe("searchAirports", () => {
   it("prioritizes exact IATA code matches", () => {
     const matches = searchAirports("SEA", 5);
@@ -70,5 +95,26 @@ describe("findClosestAirport", () => {
     );
 
     expect(closestAirport?.iata).toBe("SEA");
+  });
+});
+
+describe("findAirlineByCode", () => {
+  it("returns airline when matching IATA code is provided in uppercase", () => {
+    const airline = findAirlineByCode("AA");
+    expect(airline).toBeDefined();
+    expect(airline?.iata).toBe("AA");
+    expect(airline?.name).toBe("American Airlines");
+  });
+
+  it("returns airline when matching IATA code is provided in lowercase", () => {
+    const airline = findAirlineByCode("dl");
+    expect(airline).toBeDefined();
+    expect(airline?.iata).toBe("DL");
+    expect(airline?.name).toBe("Delta Air Lines");
+  });
+
+  it("returns undefined for unknown airline code", () => {
+    const airline = findAirlineByCode("UNKNOWN_CODE");
+    expect(airline).toBeUndefined();
   });
 });

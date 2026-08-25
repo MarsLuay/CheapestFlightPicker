@@ -1294,8 +1294,8 @@ export class TimingGuidanceService {
 
     const key = buildWatchKey(summary.request);
     const marketKey = buildMarketWatchKey(summary.request);
-    const history = this.historyCache.get(key) ?? [];
-    const routeHistory = this.routeHistoryCache.get(marketKey) ?? [];
+    const history = (await this.historyCache.get(key)) ?? [];
+    const routeHistory = (await this.routeHistoryCache.get(marketKey)) ?? [];
     const observation = buildObservation(summary, options, now);
     const nextHistory = observation
       ? [...history, observation].slice(-maxHistoryEntries)
@@ -1319,8 +1319,8 @@ export class TimingGuidanceService {
     const hackerFareInsight = buildHackerFareInsight(summary);
 
     if (observation) {
-      this.historyCache.set(key, nextHistory);
-      this.routeHistoryCache.set(marketKey, nextRouteHistory);
+      await this.historyCache.set(key, nextHistory);
+      await this.routeHistoryCache.set(marketKey, nextRouteHistory);
     }
 
     return {
