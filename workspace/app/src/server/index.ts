@@ -290,6 +290,39 @@ app.get("/api/health", (_request, response) => {
   response.json({ ok: true });
 });
 
+app.use("/api/admin", (request, response, next) => {
+  const adminSecret = process.env.ADMIN_TOKEN ?? process.env.ADMIN_SECRET;
+  if (!adminSecret) {
+    next();
+    return;
+  }
+
+  const tokenHeader =
+    request.headers["x-admin-token"] ?? request.headers["x-admin-secret"];
+  let providedToken: string | undefined;
+
+  if (typeof tokenHeader === "string") {
+    providedToken = tokenHeader.trim();
+  } else if (Array.isArray(tokenHeader) && tokenHeader.length > 0) {
+    providedToken = tokenHeader[0].trim();
+  } else {
+    const authHeader = request.headers.authorization;
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      providedToken = authHeader.slice(7).trim();
+    }
+  }
+
+  if (!providedToken || providedToken !== adminSecret) {
+    response.status(401).json({
+      error: "Unauthorized: Invalid or missing admin authentication token",
+      ok: false
+    });
+    return;
+  }
+
+  next();
+});
+
 app.get("/api/admin/logs", (_request, response) => {
   response.json({ logs: getServerLogs() });
 });

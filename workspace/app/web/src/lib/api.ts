@@ -529,20 +529,36 @@ export async function runFlightSearch(
   }
 }
 
+function buildAdminHeaders(): Record<string, string> | undefined {
+  if (
+    typeof window !== "undefined" &&
+    (window as unknown as { __ADMIN_TOKEN__?: string }).__ADMIN_TOKEN__
+  ) {
+    return {
+      "x-admin-token": (window as unknown as { __ADMIN_TOKEN__?: string })
+        .__ADMIN_TOKEN__!
+    };
+  }
+  return undefined;
+}
+
 export async function fetchServerLogs(): Promise<ServerLogEntry[]> {
+  const headers = buildAdminHeaders();
   const data = await requestJson<{ logs: ServerLogEntry[] }>(
     "/api/admin/logs",
-    undefined,
+    headers ? { headers } : undefined,
     { timeoutMs: 10000 }
   );
   return data.logs;
 }
 
 export async function clearServerLogs(): Promise<void> {
+  const headers = buildAdminHeaders();
   await requestJson<{ ok: true }>(
     "/api/admin/logs",
     {
-      method: "DELETE"
+      method: "DELETE",
+      headers
     },
     {
       timeoutMs: 10000

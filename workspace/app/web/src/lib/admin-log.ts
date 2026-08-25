@@ -31,11 +31,22 @@ function reportClientIncident(entry: ClientLogEntry): void {
   }
 
   try {
+    const headers: Record<string, string> = {
+      "content-type": "application/json"
+    };
+
+    if (
+      typeof window !== "undefined" &&
+      (window as unknown as { __ADMIN_TOKEN__?: string }).__ADMIN_TOKEN__
+    ) {
+      headers["x-admin-token"] = (
+        window as unknown as { __ADMIN_TOKEN__?: string }
+      ).__ADMIN_TOKEN__!;
+    }
+
     const request = fetch("/api/admin/incidents", {
       method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
+      headers,
       body: JSON.stringify({
         level: entry.level,
         message: entry.message,
