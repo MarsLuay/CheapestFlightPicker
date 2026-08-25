@@ -89,10 +89,10 @@ function createMemoryCache<T>() {
   const entries = new Map<string, T>();
 
   return {
-    get(key: unknown) {
+    async get(key: unknown) {
       return entries.get(stableSerialize(key)) ?? null;
     },
-    set(key: unknown, value: T) {
+    async set(key: unknown, value: T) {
       entries.set(stableSerialize(key), value);
     },
     size() {
@@ -424,7 +424,7 @@ describe("TimingGuidanceService", () => {
 
     await service.annotateSummary(summary, options, new Date("2026-03-25T12:00:00.000Z"));
 
-    const history = historyCache.get(buildWatchKey(summary.request)) as Array<Record<string, unknown>>;
+    const history = (await historyCache.get(buildWatchKey(summary.request))) as Array<Record<string, unknown>>;
     const latestObservation = history[0];
 
     expect(history).toHaveLength(1);
