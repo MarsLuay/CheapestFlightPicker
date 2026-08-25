@@ -11,6 +11,7 @@ import {
   updateSearchJobProgress,
   updateSearchJobResumeCheckpoint
 } from "./search-jobs";
+import { searchRequestSchema } from "../shared/schemas";
 import type { SearchProgress, SearchResumeCheckpoint, SearchSummary } from "../shared/types";
 
 describe("search-jobs", () => {
@@ -32,11 +33,23 @@ describe("search-jobs", () => {
     expect(job.progress.percent).toBe(0);
   });
 
+  const mockRequest = searchRequestSchema.parse({
+    tripType: "one_way",
+    origin: "JFK",
+    destination: "LAX",
+    departureDateFrom: "2026-05-01",
+    departureDateTo: "2026-05-02",
+    cabinClass: "economy",
+    stopsFilter: "any"
+  });
+
   it("should get a search job without checkpoint", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
+      version: 1,
+      request: mockRequest,
+      departureDatePrices: [],
+      returnDatePrices: []
     };
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
@@ -48,8 +61,10 @@ describe("search-jobs", () => {
   it("should get a search job with checkpoint", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
+      version: 1,
+      request: mockRequest,
+      departureDatePrices: [],
+      returnDatePrices: []
     };
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
@@ -76,10 +91,22 @@ describe("search-jobs", () => {
 
   it("should not update progress if job is completed", () => {
     const createdJob = createSearchJob();
-    completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
-    });
+    const dummySummary: SearchSummary = {
+      request: mockRequest,
+      departureDatePrices: [],
+      returnDatePrices: [],
+      cheapestOverall: null,
+      cheapestRoundTrip: null,
+      cheapestTwoOneWays: null,
+      cheapestNonstop: null,
+      cheapestMultiStop: null,
+      evaluatedDatePairs: [],
+      inspectedOptions: 0,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
+    };
+    completeSearchJob(createdJob.id, dummySummary);
 
     const progress: SearchProgress = {
       stage: "Searching",
@@ -96,8 +123,19 @@ describe("search-jobs", () => {
   it("should complete search job", () => {
     const createdJob = createSearchJob();
     const summary: SearchSummary = {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
+      request: mockRequest,
+      departureDatePrices: [],
+      returnDatePrices: [],
+      cheapestOverall: null,
+      cheapestRoundTrip: null,
+      cheapestTwoOneWays: null,
+      cheapestNonstop: null,
+      cheapestMultiStop: null,
+      evaluatedDatePairs: [],
+      inspectedOptions: 0,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
     };
 
     const completedJob = completeSearchJob(createdJob.id, summary);
@@ -123,8 +161,19 @@ describe("search-jobs", () => {
   it("should not fail job if already completed", () => {
     const createdJob = createSearchJob();
     completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
+      request: mockRequest,
+      departureDatePrices: [],
+      returnDatePrices: [],
+      cheapestOverall: null,
+      cheapestRoundTrip: null,
+      cheapestTwoOneWays: null,
+      cheapestNonstop: null,
+      cheapestMultiStop: null,
+      evaluatedDatePairs: [],
+      inspectedOptions: 0,
+      timingGuidance: null,
+      priceAlert: null,
+      hackerFareInsight: null
     });
 
     const failedJob = failSearchJob(createdJob.id, "Error after completion");
