@@ -57,7 +57,7 @@ describe("admin-log", () => {
     });
 
     it("persists log via writeIncidentLogSafely when persist option is true with default source", () => {
-      const spy = vi.spyOn(incidentLogModule, "writeIncidentLogSafely").mockImplementation(() => {});
+      const spy = vi.spyOn(incidentLogModule, "writeIncidentLogSafely").mockImplementation(() => null);
 
       appendServerLog("error", "Database connection lost", { db: "main" }, { persist: true });
 
@@ -71,7 +71,7 @@ describe("admin-log", () => {
     });
 
     it("persists log via writeIncidentLogSafely with custom source", () => {
-      const spy = vi.spyOn(incidentLogModule, "writeIncidentLogSafely").mockImplementation(() => {});
+      const spy = vi.spyOn(incidentLogModule, "writeIncidentLogSafely").mockImplementation(() => null);
 
       appendServerLog("info", "Client search request", undefined, { persist: true, source: "client" });
 
@@ -85,7 +85,7 @@ describe("admin-log", () => {
     });
 
     it("does not persist log when persist option is omitted or false", () => {
-      const spy = vi.spyOn(incidentLogModule, "writeIncidentLogSafely").mockImplementation(() => {});
+      const spy = vi.spyOn(incidentLogModule, "writeIncidentLogSafely").mockImplementation(() => null);
 
       appendServerLog("info", "Non-persisted log", undefined, { persist: false });
       appendServerLog("info", "Another non-persisted log");
