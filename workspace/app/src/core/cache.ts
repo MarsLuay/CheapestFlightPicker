@@ -64,6 +64,8 @@ export class JsonFileCache<T> {
 
   private lastCreatedAt = 0;
 
+  private readonly memoryCache = new Map<string, CacheEnvelope<T>>();
+
   constructor(options: JsonFileCacheOptions) {
     if (!options.directoryPath && !options.directorySegments) {
       throw new Error(
@@ -86,6 +88,17 @@ export class JsonFileCache<T> {
     this.sweepIfNeeded();
 
     const filePath = this.getFilePath(keyParts);
+
+    const cachedEnvelope = this.memoryCache.get(filePath);
+    if (cachedEnvelope) {
+      if (typeof cachedEnvelope.expiresAt !== "number" || Date.now() >= cachedEnvelope.expiresAt) {
+        this.memoryCache.delete(filePath);
+        fs.rmSync(filePath, { force: true });
+        return null;
+      }
+      return cachedEnvelope.value;
+    }
+
     if (!fs.existsSync(filePath)) {
       return null;
     }
@@ -95,12 +108,15 @@ export class JsonFileCache<T> {
       const envelope = JSON.parse(rawContents) as CacheEnvelope<T>;
 
       if (typeof envelope.expiresAt !== "number" || Date.now() >= envelope.expiresAt) {
+        this.memoryCache.delete(filePath);
         fs.rmSync(filePath, { force: true });
         return null;
       }
 
+      this.memoryCache.set(filePath, envelope);
       return envelope.value;
     } catch {
+      this.memoryCache.delete(filePath);
       fs.rmSync(filePath, { force: true });
       return null;
     }
@@ -119,8 +135,12 @@ export class JsonFileCache<T> {
       value
     };
 
+    const filePath = this.getFilePath(keyParts);
+
+    this.memoryCache.set(filePath, envelope);
+
     fs.writeFileSync(
-      this.getFilePath(keyParts),
+      filePath,
       JSON.stringify(envelope),
       "utf8"
     );
@@ -143,14 +163,19 @@ export class JsonFileCache<T> {
       const filePath = path.join(this.directoryPath, entry);
 
       try {
-        const rawContents = fs.readFileSync(filePath, "utf8");
-        const envelope = JSON.parse(rawContents) as CacheEnvelope<T>;
+        let envelope = this.memoryCache.get(filePath);
+        if (!envelope) {
+          const rawContents = fs.readFileSync(filePath, "utf8");
+          envelope = JSON.parse(rawContents) as CacheEnvelope<T>;
+          this.memoryCache.set(filePath, envelope);
+        }
 
         if (
           typeof envelope.expiresAt !== "number" ||
           typeof envelope.createdAt !== "number" ||
           now >= envelope.expiresAt
         ) {
+          this.memoryCache.delete(filePath);
           fs.rmSync(filePath, { force: true });
           removedEntries.push(filePath);
           continue;
@@ -161,6 +186,7 @@ export class JsonFileCache<T> {
           filePath
         });
       } catch {
+        this.memoryCache.delete(filePath);
         fs.rmSync(filePath, { force: true });
         removedEntries.push(filePath);
       }
@@ -173,8 +199,15 @@ export class JsonFileCache<T> {
         .slice(0, overflow);
 
       for (const entry of entriesToRemove) {
+        this.memoryCache.delete(entry.filePath);
         fs.rmSync(entry.filePath, { force: true });
         removedEntries.push(entry.filePath);
+      }
+    }
+
+    for (const memPath of this.memoryCache.keys()) {
+      if (!fs.existsSync(memPath)) {
+        this.memoryCache.delete(memPath);
       }
     }
 
