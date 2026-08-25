@@ -290,11 +290,36 @@ app.get("/api/health", (_request, response) => {
   response.json({ ok: true });
 });
 
+function requireAdminAuth(
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction
+): void {
+  const configuredKey = process.env.ADMIN_API_KEY || "admin";
+  const rawProvidedKey =
+    request.headers["x-admin-key"] ??
+    (request.headers.authorization?.startsWith("Bearer ")
+      ? request.headers.authorization.slice(7)
+      : undefined);
+  const providedKey =
+    typeof rawProvidedKey === "string" ? rawProvidedKey.trim() : undefined;
+
+  if (providedKey && providedKey === configuredKey) {
+    next();
+    return;
+  }
+
+  response.status(401).json({
+    error: "Unauthorized",
+    ok: false
+  });
+}
+
 app.get("/api/admin/logs", (_request, response) => {
   response.json({ logs: getServerLogs() });
 });
 
-app.delete("/api/admin/logs", (_request, response) => {
+app.delete("/api/admin/logs", requireAdminAuth, (_request, response) => {
   clearServerLogs();
   response.json({ ok: true });
 });
