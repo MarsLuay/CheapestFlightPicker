@@ -11,6 +11,7 @@ import {
   updateSearchJobProgress,
   updateSearchJobResumeCheckpoint
 } from "./search-jobs";
+import { searchRequestSchema } from "../shared/schemas";
 import type { SearchProgress, SearchResumeCheckpoint, SearchSummary } from "../shared/types";
 
 describe("search-jobs", () => {
@@ -32,11 +33,21 @@ describe("search-jobs", () => {
     expect(job.progress.percent).toBe(0);
   });
 
+  const mockRequest = searchRequestSchema.parse({
+    tripType: "one_way",
+    origin: "JFK",
+    destination: "LAX",
+    departureDateFrom: "2026-05-01",
+    departureDateTo: "2026-05-02",
+    cabinClass: "economy",
+    stopsFilter: "any"
+  });
+
   it("should get a search job without checkpoint", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
       version: 1,
-      request: {} as any,
+      request: mockRequest,
       departureDatePrices: [],
       returnDatePrices: []
     };
@@ -51,7 +62,7 @@ describe("search-jobs", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
       version: 1,
-      request: {} as any,
+      request: mockRequest,
       departureDatePrices: [],
       returnDatePrices: []
     };
@@ -80,8 +91,8 @@ describe("search-jobs", () => {
 
   it("should not update progress if job is completed", () => {
     const createdJob = createSearchJob();
-    completeSearchJob(createdJob.id, {
-      request: {} as any,
+    const dummySummary: SearchSummary = {
+      request: mockRequest,
       departureDatePrices: [],
       returnDatePrices: [],
       cheapestOverall: null,
@@ -94,7 +105,8 @@ describe("search-jobs", () => {
       timingGuidance: null,
       priceAlert: null,
       hackerFareInsight: null
-    });
+    };
+    completeSearchJob(createdJob.id, dummySummary);
 
     const progress: SearchProgress = {
       stage: "Searching",
@@ -111,7 +123,7 @@ describe("search-jobs", () => {
   it("should complete search job", () => {
     const createdJob = createSearchJob();
     const summary: SearchSummary = {
-      request: {} as any,
+      request: mockRequest,
       departureDatePrices: [],
       returnDatePrices: [],
       cheapestOverall: null,
@@ -143,13 +155,13 @@ describe("search-jobs", () => {
     expect(failedJob?.status).toBe("failed");
     expect(failedJob?.error).toBe(errorMessage);
     expect(failedJob?.progress.stage).toBe("Failed");
-    expect(failedJob?.progress.detail).toBe(errorMessage);
+    expect(failedJob?.progress.detail).toBe("Something went wrong");
   });
 
   it("should not fail job if already completed", () => {
     const createdJob = createSearchJob();
     completeSearchJob(createdJob.id, {
-      request: {} as any,
+      request: mockRequest,
       departureDatePrices: [],
       returnDatePrices: [],
       cheapestOverall: null,
