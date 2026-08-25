@@ -97,3 +97,24 @@ describe("findClosestAirport", () => {
     expect(closestAirport?.iata).toBe("SEA");
   });
 });
+
+describe("findAirlineByCode", () => {
+  it("returns airline when matching IATA code is provided in uppercase", () => {
+    const airline = findAirlineByCode("AA");
+    expect(airline).toBeDefined();
+    expect(airline?.iata).toBe("AA");
+    expect(airline?.name).toBe("American Airlines");
+  });
+
+  it("returns airline when matching IATA code is provided in lowercase", () => {
+    const airline = findAirlineByCode("dl");
+    expect(airline).toBeDefined();
+    expect(airline?.iata).toBe("DL");
+    expect(airline?.name).toBe("Delta Air Lines");
+  });
+
+  it("returns undefined for unknown airline code", () => {
+    const airline = findAirlineByCode("UNKNOWN_CODE");
+    expect(airline).toBeUndefined();
+  });
+});
