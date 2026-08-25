@@ -2,12 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ensureIncidentLogDirectory,
   INCIDENT_LOG_RETENTION_MS,
   writeIncidentLog,
+  writeIncidentLogSafely,
 } from "./incident-log";
 
 const temporaryDirectories: string[] = [];
@@ -21,6 +22,7 @@ function createTemporaryDirectory(): string {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directoryPath of temporaryDirectories.splice(0)) {
     fs.rmSync(directoryPath, {
       force: true,
@@ -132,5 +134,51 @@ describe("writeIncidentLog", () => {
     expect(files).toHaveLength(1);
     expect(path.basename(recentResult.filePath)).toContain("fresh-incident");
     expect(files[0]).toContain("fresh-incident");
+  });
+});
+
+describe("writeIncidentLogSafely", () => {
+  it("returns incident entry and file path on success", () => {
+    const directoryPath = createTemporaryDirectory();
+    const timestamp = new Date("2026-03-25T21:45:30.123Z");
+
+    const result = writeIncidentLogSafely(
+      {
+        source: "server",
+        level: "info",
+        message: "Safe incident test"
+      },
+      {
+        directoryPath,
+        timestamp
+      }
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.entry.message).toBe("Safe incident test");
+    expect(fs.existsSync(result!.filePath)).toBe(true);
+  });
+
+  it("catches errors, logs to console.error, and returns null when writing fails", () => {
+    const directoryPath = createTemporaryDirectory();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writeError = new Error("Disk full or write permission denied");
+    vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
+      throw writeError;
+    });
+
+    const result = writeIncidentLogSafely(
+      {
+        source: "server",
+        level: "error",
+        message: "Failed write test"
+      },
+      {
+        directoryPath
+      }
+    );
+
+    expect(result).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalledWith("Failed to write incident log", writeError);
   });
 });
