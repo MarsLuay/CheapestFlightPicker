@@ -1455,6 +1455,76 @@ export class FlightSearchService {
       return options;
     });
 
+    function processEvaluatedPairResults(
+      pair: CandidatePair,
+      refinedRoundTripOptions: FlightOption[],
+      refinedOutboundOptions: FlightOption[],
+      refinedInboundOptions: FlightOption[]
+    ): SearchResumeRoundTripResult {
+      const inspectedOptionsForPair =
+        refinedRoundTripOptions.length +
+        refinedOutboundOptions.length +
+        refinedInboundOptions.length;
+
+      const cheapestRoundTrip = findCheapestForRequest(
+        refinedRoundTripOptions,
+        request
+      );
+      const cheapestNonstopRoundTrip = findCheapestNonstopForRequest(
+        refinedRoundTripOptions,
+        request
+      );
+      const cheapestOutbound = findCheapestForRequest(
+        refinedOutboundOptions,
+        request
+      );
+      const cheapestInbound = findCheapestForRequest(
+        refinedInboundOptions,
+        request
+      );
+      const cheapestTwoOneWays =
+        cheapestOutbound && cheapestInbound && pair.returnDate
+          ? combineTwoOneWays(
+              cheapestOutbound,
+              cheapestInbound,
+              pair.departureDate,
+              pair.returnDate
+            )
+          : null;
+      const cheapestNonstopOutbound = findCheapestNonstopForRequest(
+        refinedOutboundOptions,
+        request
+      );
+      const cheapestNonstopInbound = findCheapestNonstopForRequest(
+        refinedInboundOptions,
+        request
+      );
+      const cheapestNonstopTwoOneWays =
+        cheapestNonstopOutbound && cheapestNonstopInbound && pair.returnDate
+          ? combineTwoOneWays(
+              cheapestNonstopOutbound,
+              cheapestNonstopInbound,
+              pair.departureDate,
+              pair.returnDate
+            )
+          : null;
+      const cheapestNonstop = findCheapestForRequest(
+        [cheapestNonstopRoundTrip, cheapestNonstopTwoOneWays].filter(
+          (entry): entry is FlightOption => entry !== null
+        ),
+        request
+      );
+
+      return {
+        departureDate: pair.departureDate,
+        returnDate: pair.returnDate,
+        cheapestRoundTrip,
+        cheapestTwoOneWays,
+        cheapestNonstop,
+        inspectedOptions: inspectedOptionsForPair
+      };
+    }
+
     async function evaluateCandidatePair(
       pair: CandidatePair,
       service: FlightSearchService
@@ -1531,68 +1601,13 @@ export class FlightSearchService {
             pair.returnDate ?? pair.departureDate
           )
         );
-      const inspectedOptionsForPair =
-        refinedRoundTripOptions.length +
-        refinedOutboundOptions.length +
-        refinedInboundOptions.length;
 
-      const cheapestRoundTrip = findCheapestForRequest(
+      return processEvaluatedPairResults(
+        pair,
         refinedRoundTripOptions,
-        request
-      );
-      const cheapestNonstopRoundTrip = findCheapestNonstopForRequest(
-        refinedRoundTripOptions,
-        request
-      );
-      const cheapestOutbound = findCheapestForRequest(
         refinedOutboundOptions,
-        request
+        refinedInboundOptions
       );
-      const cheapestInbound = findCheapestForRequest(
-        refinedInboundOptions,
-        request
-      );
-      const cheapestTwoOneWays =
-        cheapestOutbound && cheapestInbound && pair.returnDate
-          ? combineTwoOneWays(
-              cheapestOutbound,
-              cheapestInbound,
-              pair.departureDate,
-              pair.returnDate
-            )
-          : null;
-      const cheapestNonstopOutbound = findCheapestNonstopForRequest(
-        refinedOutboundOptions,
-        request
-      );
-      const cheapestNonstopInbound = findCheapestNonstopForRequest(
-        refinedInboundOptions,
-        request
-      );
-      const cheapestNonstopTwoOneWays =
-        cheapestNonstopOutbound && cheapestNonstopInbound && pair.returnDate
-          ? combineTwoOneWays(
-              cheapestNonstopOutbound,
-              cheapestNonstopInbound,
-              pair.departureDate,
-              pair.returnDate
-            )
-          : null;
-      const cheapestNonstop = findCheapestForRequest(
-        [cheapestNonstopRoundTrip, cheapestNonstopTwoOneWays].filter(
-          (entry): entry is FlightOption => entry !== null
-        ),
-        request
-      );
-
-      return {
-        departureDate: pair.departureDate,
-        returnDate: pair.returnDate,
-        cheapestRoundTrip,
-        cheapestTwoOneWays,
-        cheapestNonstop,
-        inspectedOptions: inspectedOptionsForPair
-      };
     }
 
     await mapWithConcurrency(pendingPairs, 2, async (pair) => {
