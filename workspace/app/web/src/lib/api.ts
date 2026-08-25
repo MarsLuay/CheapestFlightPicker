@@ -542,6 +542,9 @@ export async function clearServerLogs(): Promise<void> {
   await requestJson<{ ok: true }>(
     "/api/admin/logs",
     {
+      headers: {
+        "x-admin-key": "admin"
+      },
       method: "DELETE"
     },
     {
