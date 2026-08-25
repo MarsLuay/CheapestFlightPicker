@@ -68,7 +68,7 @@ export class GoogleFlightsProvider {
       params: normalizedParams,
       type: "calendar"
     };
-    const cachedResults = this.calendarCache.get(cacheKey);
+    const cachedResults = await this.calendarCache.get(cacheKey);
     if (cachedResults) {
       return cachedResults;
     }
@@ -77,7 +77,7 @@ export class GoogleFlightsProvider {
     const response = await this.client.post(calendarUrl, `f.req=${payload}`);
     const parsedResults = parseCalendarResponse(response);
     // Skip nested exact timing annotation — core search annotates times after exacts.
-    this.calendarCache.set(cacheKey, parsedResults);
+    await this.calendarCache.set(cacheKey, parsedResults);
     return parsedResults;
   }
 
@@ -92,7 +92,7 @@ export class GoogleFlightsProvider {
     };
     const cachedResults =
       runtimeOptions?.bypassCache !== true
-        ? this.exactSearchCache.get(cacheKey)
+        ? await this.exactSearchCache.get(cacheKey)
         : null;
     if (cachedResults) {
       return cachedResults;
@@ -118,7 +118,7 @@ export class GoogleFlightsProvider {
         normalizedParams.requireFreeCarryOnBag,
         normalizedParams.cabinClass
       );
-      this.exactSearchCache.set(cacheKey, filteredOptions);
+      await this.exactSearchCache.set(cacheKey, filteredOptions);
       return filteredOptions;
     }
 
@@ -167,7 +167,7 @@ export class GoogleFlightsProvider {
       normalizedParams.requireFreeCarryOnBag,
       normalizedParams.cabinClass
     );
-    this.exactSearchCache.set(cacheKey, filteredOptions);
+    await this.exactSearchCache.set(cacheKey, filteredOptions);
     return filteredOptions;
   }
 
