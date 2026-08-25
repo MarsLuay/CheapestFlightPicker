@@ -529,10 +529,25 @@ export async function runFlightSearch(
   }
 }
 
+function getAdminHeaders(): Record<string, string> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const adminKey =
+    (window as unknown as { ADMIN_KEY?: string }).ADMIN_KEY ||
+    localStorage.getItem("adminKey") ||
+    "";
+
+  return adminKey ? { "x-admin-key": adminKey } : {};
+}
+
 export async function fetchServerLogs(): Promise<ServerLogEntry[]> {
   const data = await requestJson<{ logs: ServerLogEntry[] }>(
     "/api/admin/logs",
-    undefined,
+    {
+      headers: getAdminHeaders()
+    },
     { timeoutMs: 10000 }
   );
   return data.logs;
@@ -542,7 +557,8 @@ export async function clearServerLogs(): Promise<void> {
   await requestJson<{ ok: true }>(
     "/api/admin/logs",
     {
-      method: "DELETE"
+      method: "DELETE",
+      headers: getAdminHeaders()
     },
     {
       timeoutMs: 10000

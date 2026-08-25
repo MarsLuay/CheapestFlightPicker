@@ -253,6 +253,50 @@ function isVercelRuntime(): boolean {
   return process.env.VERCEL === "1" || process.env.VERCEL === "true";
 }
 
+function requireAdminAuth(
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction
+): void {
+  const adminKey =
+    process.env.ADMIN_API_KEY ||
+    process.env.ADMIN_KEY ||
+    process.env.ADMIN_TOKEN;
+
+  if (!adminKey) {
+    response.status(401).json({
+      error: "Unauthorized: Admin API key not configured on server",
+      ok: false
+    });
+    return;
+  }
+
+  const authHeader = request.headers.authorization;
+  const bearerToken =
+    authHeader && authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : null;
+
+  const providedKey =
+    bearerToken ||
+    (typeof request.headers["x-admin-key"] === "string"
+      ? request.headers["x-admin-key"].trim()
+      : null) ||
+    (typeof request.headers["x-api-key"] === "string"
+      ? request.headers["x-api-key"].trim()
+      : null);
+
+  if (!providedKey || providedKey !== adminKey) {
+    response.status(401).json({
+      error: "Unauthorized: Invalid or missing admin key",
+      ok: false
+    });
+    return;
+  }
+
+  next();
+}
+
 app.use(cors());
 app.use(express.json());
 app.use((request, response, next) => {
@@ -290,11 +334,11 @@ app.get("/api/health", (_request, response) => {
   response.json({ ok: true });
 });
 
-app.get("/api/admin/logs", (_request, response) => {
+app.get("/api/admin/logs", requireAdminAuth, (_request, response) => {
   response.json({ logs: getServerLogs() });
 });
 
-app.delete("/api/admin/logs", (_request, response) => {
+app.delete("/api/admin/logs", requireAdminAuth, (_request, response) => {
   clearServerLogs();
   response.json({ ok: true });
 });
