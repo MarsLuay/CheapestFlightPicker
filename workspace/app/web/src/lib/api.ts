@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { maxSearchResults } from "./types";
 import { addClientLog } from "./admin-log";
+import { getAdminAuthHeaders } from "./admin-auth";
 import { searchCatalogAirlines, searchCatalogAirports } from "./catalog";
 import { isHostedApiModeEnabled } from "./runtime-mode";
 
@@ -576,7 +577,7 @@ export async function runFlightSearch(
 export async function fetchServerLogs(): Promise<ServerLogEntry[]> {
   const data = await requestJson<{ logs: ServerLogEntry[] }>(
     "/api/admin/logs",
-    undefined,
+    { headers: getAdminAuthHeaders() },
     { timeoutMs: 10000 }
   );
   return data.logs;
@@ -586,9 +587,7 @@ export async function clearServerLogs(): Promise<void> {
   await requestJson<{ ok: true }>(
     "/api/admin/logs",
     {
-      headers: {
-        "x-admin-key": "admin"
-      },
+      headers: getAdminAuthHeaders(),
       method: "DELETE"
     },
     {

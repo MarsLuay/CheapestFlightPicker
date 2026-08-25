@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import { getAdminAuthHeaders } from "./admin-auth";
+
 export type ClientLogLevel = "info" | "warn" | "error";
 
 export type ClientLogEntry = {
@@ -34,7 +36,8 @@ function reportClientIncident(entry: ClientLogEntry): void {
     const request = fetch("/api/admin/incidents", {
       method: "POST",
       headers: {
-        "content-type": "application/json"
+        "content-type": "application/json",
+        ...getAdminAuthHeaders()
       },
       body: JSON.stringify({
         level: entry.level,

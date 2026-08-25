@@ -31,6 +31,15 @@ Useful commands:
 - `npm run build` for a production build
 - `npm start` to run the built server
 
+Admin API authentication
+
+All `/api/admin/*` endpoints require an admin key. Set one of
+`ADMIN_API_KEY`, `ADMIN_KEY`, `ADMIN_TOKEN`, or `ADMIN_SECRET` before starting
+the server. The browser client sends `window.__ADMIN_TOKEN__` as `x-admin-key`
+when that runtime value is provided; it never falls back to a built-in default
+key. Bearer authorization and the legacy `x-admin-key`, `x-admin-token`,
+`x-admin-secret`, and `x-api-key` headers are accepted for API clients.
+
 ## Tiny note
 
 If something looks broken:
