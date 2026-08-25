@@ -342,6 +342,215 @@ export async function searchAirlines(query: string): Promise<AirlineRecord[]> {
   }
 }
 
+async function runHostedFlightSearch(
+  searchRequest: SearchRequest,
+  options: RunFlightSearchOptions,
+  requestDetails: string
+): Promise<SearchResponse> {
+  options.onProgress?.({
+    stage: "Running hosted search",
+    detail: "Waiting for the server to finish comparing fares.",
+    completedSteps: 0,
+    totalSteps: 1,
+    percent: 15
+  });
+
+  return requestJson<SearchResponse>(
+    "/api/search",
+    {
+      body: JSON.stringify(searchRequest),
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "POST"
+    },
+    {
+      logStart: true,
+      logSuccess: true,
+      requestDetails,
+      signal: options.signal,
+      successDetails: buildSearchSuccessDetails,
+      timeoutMs: hostedSearchTimeoutMs
+    }
+  );
+}
+
+async function createSearchJob(
+  searchRequest: SearchRequest,
+  options: RunFlightSearchOptions
+): Promise<{ jobId: string }> {
+  return requestJson<{ jobId: string }>(
+    "/api/search/jobs",
+    {
+      body: JSON.stringify(
+        options.resumeFromJobId
+          ? {
+              request: searchRequest,
+              resumeFromJobId: options.resumeFromJobId
+            }
+          : searchRequest
+      ),
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "POST"
+    },
+    {
+      signal: options.signal,
+      timeoutMs: 15000
+    }
+  );
+}
+
+async function pollSearchJobUntilComplete(
+  initialJobId: string,
+  searchRequest: SearchRequest,
+  options: RunFlightSearchOptions,
+  requestDetails: string,
+  searchStartedAt: number,
+  onJobIdUpdated: (newJobId: string) => void
+): Promise<SearchResponse> {
+  let currentJobId = initialJobId;
+  let jobRecoveryAttempts = 0;
+
+  while (true) {
+    if (performance.now() - searchStartedAt > searchJobTimeoutMs) {
+      throw new Error(
+        "Search took too long to finish. Try narrowing the date window."
+      );
+    }
+
+    let jobStatus: SearchJobStatus;
+    try {
+      jobStatus = await requestJson<SearchJobStatus>(
+        `/api/search/jobs/${currentJobId}`,
+        undefined,
+        {
+          signal: options.signal,
+          timeoutMs: 15000
+        }
+      );
+    } catch (error) {
+      const message = toErrorMessage(error, `/api/search/jobs/${currentJobId}`);
+
+      if (
+        message === "Search job not found" &&
+        jobRecoveryAttempts < maxSearchJobRecoveryAttempts
+      ) {
+        jobRecoveryAttempts += 1;
+        addClientLog(
+          "warn",
+          "Search job disappeared; restarting search",
+          joinLogDetails([
+            "The local server likely restarted while the search was in progress.",
+            `recoveryAttempt=${jobRecoveryAttempts}`,
+            requestDetails
+          ])
+        );
+        options.onProgress?.({
+          stage: "Restarting search",
+          detail: "The local server restarted, so the search is starting again.",
+          completedSteps: 0,
+          totalSteps: 1,
+          percent: 0
+        });
+        const newJob = await createSearchJob(searchRequest, options);
+        currentJobId = newJob.jobId;
+        onJobIdUpdated(newJob.jobId);
+        options.onJobCreated?.(newJob.jobId);
+        continue;
+      }
+
+      throw error;
+    }
+
+    options.onProgress?.(jobStatus.progress);
+
+    if (jobStatus.status === "completed" && jobStatus.summary) {
+      const response: SearchResponse = {
+        ok: true,
+        summary: jobStatus.summary
+      };
+      addClientLog(
+        "info",
+        "POST /api/search succeeded",
+        joinLogDetails([
+          `status=200`,
+          buildSearchSuccessDetails(response)
+        ])
+      );
+      return response;
+    }
+
+    if (jobStatus.status === "failed") {
+      const message = jobStatus.error ?? "Search failed";
+      addClientLog(
+        "error",
+        "POST /api/search failed",
+        joinLogDetails([message, requestDetails])
+      );
+      return {
+        ok: false,
+        error: message
+      };
+    }
+
+    await sleep(350, options.signal);
+  }
+}
+
+async function runJobBasedFlightSearch(
+  searchRequest: SearchRequest,
+  options: RunFlightSearchOptions,
+  requestDetails: string
+): Promise<SearchResponse> {
+  const searchStartedAt = performance.now();
+
+  try {
+    const job = await createSearchJob(searchRequest, options);
+    let activeJobId = job.jobId;
+    options.onJobCreated?.(job.jobId);
+
+    const cancelActiveJob = () => {
+      void Promise.resolve(
+        fetch(`/api/search/jobs/${activeJobId}`, { method: "DELETE" })
+      ).catch(() => undefined);
+    };
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        cancelActiveJob();
+        throw new Error("Search canceled.");
+      }
+      options.signal.addEventListener("abort", cancelActiveJob, { once: true });
+    }
+
+    return await pollSearchJobUntilComplete(
+      job.jobId,
+      searchRequest,
+      options,
+      requestDetails,
+      searchStartedAt,
+      (newJobId) => {
+        activeJobId = newJobId;
+      }
+    );
+  } catch (error) {
+    if (options.signal?.aborted && isAbortError(error)) {
+      addClientLog("warn", "POST /api/search canceled", requestDetails);
+      throw new Error("Search canceled.");
+    }
+
+    const message = toErrorMessage(error, "/api/search");
+    addClientLog(
+      "error",
+      "POST /api/search failed",
+      joinLogDetails([message, requestDetails])
+    );
+    throw new Error(message);
+  }
+}
+
 export async function runFlightSearch(
   request: SearchRequest,
   optionsOrProgress?: RunFlightSearchOptions | ((progress: SearchProgress) => void)
@@ -357,176 +566,11 @@ export async function runFlightSearch(
   const requestDetails = buildSearchRequestDetails(searchRequest);
 
   if (isHostedApiModeEnabled()) {
-    options.onProgress?.({
-      stage: "Running hosted search",
-      detail: "Waiting for the server to finish comparing fares.",
-      completedSteps: 0,
-      totalSteps: 1,
-      percent: 15
-    });
-
-    return requestJson<SearchResponse>(
-      "/api/search",
-      {
-        body: JSON.stringify(searchRequest),
-        headers: {
-          "content-type": "application/json"
-        },
-        method: "POST"
-      },
-      {
-        logStart: true,
-        logSuccess: true,
-        requestDetails,
-        signal: options.signal,
-        successDetails: buildSearchSuccessDetails,
-        timeoutMs: hostedSearchTimeoutMs
-      }
-    );
+    return runHostedFlightSearch(searchRequest, options, requestDetails);
   }
 
   addClientLog("info", "POST /api/search started", requestDetails);
-  const searchStartedAt = performance.now();
-  let jobRecoveryAttempts = 0;
-
-  async function createSearchJob(): Promise<{ jobId: string }> {
-    return requestJson<{ jobId: string }>(
-      "/api/search/jobs",
-      {
-        body: JSON.stringify(
-          options.resumeFromJobId
-            ? {
-                request: searchRequest,
-                resumeFromJobId: options.resumeFromJobId
-              }
-            : searchRequest
-        ),
-        headers: {
-          "content-type": "application/json"
-        },
-        method: "POST"
-      },
-      {
-        signal: options.signal,
-        timeoutMs: 15000
-      }
-    );
-  }
-
-  try {
-    let job = await createSearchJob();
-    let activeJobId = job.jobId;
-    options.onJobCreated?.(job.jobId);
-
-    const cancelActiveJob = () => {
-      void Promise.resolve(
-        fetch(`/api/search/jobs/${activeJobId}`, { method: "DELETE" })
-      ).catch(() => undefined);
-    };
-    if (options.signal) {
-      if (options.signal.aborted) {
-        cancelActiveJob();
-        throw new Error("Search canceled.");
-      }
-      options.signal.addEventListener("abort", cancelActiveJob, { once: true });
-    }
-
-    while (true) {
-      if (performance.now() - searchStartedAt > searchJobTimeoutMs) {
-        throw new Error(
-          "Search took too long to finish. Try narrowing the date window."
-        );
-      }
-
-      let jobStatus: SearchJobStatus;
-      try {
-        jobStatus = await requestJson<SearchJobStatus>(
-          `/api/search/jobs/${job.jobId}`,
-          undefined,
-          {
-            signal: options.signal,
-            timeoutMs: 15000
-          }
-        );
-      } catch (error) {
-        const message = toErrorMessage(error, `/api/search/jobs/${job.jobId}`);
-
-        if (
-          message === "Search job not found" &&
-          jobRecoveryAttempts < maxSearchJobRecoveryAttempts
-        ) {
-          jobRecoveryAttempts += 1;
-          addClientLog(
-            "warn",
-            "Search job disappeared; restarting search",
-            joinLogDetails([
-              "The local server likely restarted while the search was in progress.",
-              `recoveryAttempt=${jobRecoveryAttempts}`,
-              requestDetails
-            ])
-          );
-          options.onProgress?.({
-            stage: "Restarting search",
-            detail: "The local server restarted, so the search is starting again.",
-            completedSteps: 0,
-            totalSteps: 1,
-            percent: 0
-          });
-          job = await createSearchJob();
-          activeJobId = job.jobId;
-          options.onJobCreated?.(job.jobId);
-          continue;
-        }
-
-        throw error;
-      }
-      options.onProgress?.(jobStatus.progress);
-
-      if (jobStatus.status === "completed" && jobStatus.summary) {
-        const response: SearchResponse = {
-          ok: true,
-          summary: jobStatus.summary
-        };
-        addClientLog(
-          "info",
-          "POST /api/search succeeded",
-          joinLogDetails([
-            `status=200`,
-            buildSearchSuccessDetails(response)
-          ])
-        );
-        return response;
-      }
-
-      if (jobStatus.status === "failed") {
-        const message = jobStatus.error ?? "Search failed";
-        addClientLog(
-          "error",
-          "POST /api/search failed",
-          joinLogDetails([message, requestDetails])
-        );
-        return {
-          ok: false,
-          error: message
-        };
-      }
-
-      await sleep(350, options.signal);
-    }
-  } catch (error) {
-    if (options.signal?.aborted && isAbortError(error)) {
-      addClientLog("warn", "POST /api/search canceled", requestDetails);
-      throw new Error("Search canceled.");
-    }
-
-    const message = toErrorMessage(error, "/api/search");
-    addClientLog(
-      "error",
-      "POST /api/search failed",
-      joinLogDetails([message, requestDetails])
-    );
-    throw new Error(message);
-  }
+  return runJobBasedFlightSearch(searchRequest, options, requestDetails);
 }
 
 export async function fetchServerLogs(): Promise<ServerLogEntry[]> {
