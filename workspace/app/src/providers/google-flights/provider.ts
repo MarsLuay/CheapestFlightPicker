@@ -178,22 +178,31 @@ export class GoogleFlightsProvider {
   ): GoogleFlightResult[] {
     const seen = new Set<string>();
 
-    return [...results]
-      .filter((result) => result.legs[0]?.departureAirportCode === origin)
-      .sort((left, right) => {
-        if (left.price !== right.price) {
-          return left.price - right.price;
-        }
+    const filtered = results.filter(
+      (result) => result.legs[0]?.departureAirportCode === origin
+    );
 
-        if (prioritizeMileFlights) {
-          return (
-            calculateFlightDistanceMiles(right.legs) -
-            calculateFlightDistanceMiles(left.legs)
-          );
-        }
+    const decorated = filtered.map((result) => ({
+      result,
+      distanceMiles: prioritizeMileFlights
+        ? calculateFlightDistanceMiles(result.legs)
+        : 0
+    }));
 
-        return 0;
-      })
+    decorated.sort((left, right) => {
+      if (left.result.price !== right.result.price) {
+        return left.result.price - right.result.price;
+      }
+
+      if (prioritizeMileFlights) {
+        return right.distanceMiles - left.distanceMiles;
+      }
+
+      return 0;
+    });
+
+    return decorated
+      .map((item) => item.result)
       .filter((result) => {
         const key = result.legs
           .map((leg) =>
