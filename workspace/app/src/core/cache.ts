@@ -64,6 +64,8 @@ export class JsonFileCache<T> {
 
   private lastCreatedAt = 0;
 
+  private readonly memoryCache = new Map<string, CacheEnvelope<T>>();
+
   constructor(options: JsonFileCacheOptions) {
     if (!options.directoryPath && !options.directorySegments) {
       throw new Error(
@@ -79,35 +81,46 @@ export class JsonFileCache<T> {
     this.sweepIntervalMs = options.sweepIntervalMs ?? 1000 * 60 * 5;
     this.version = options.version;
 
-    this.ensureDirectory();
+    this.ensureDirectorySync();
   }
 
-  get(keyParts: unknown): T | null {
-    this.sweepIfNeeded();
+  async get(keyParts: unknown): Promise<T | null> {
+    await this.sweepIfNeeded();
 
     const filePath = this.getFilePath(keyParts);
-    if (!fs.existsSync(filePath)) {
-      return null;
+    const now = Date.now();
+
+    const mem = this.memoryCache.get(filePath);
+    if (mem) {
+      if (typeof mem.expiresAt !== "number" || now >= mem.expiresAt) {
+        this.memoryCache.delete(filePath);
+        await fs.promises.rm(filePath, { force: true }).catch(() => {});
+        return null;
+      }
+      return mem.value;
     }
 
     try {
-      const rawContents = fs.readFileSync(filePath, "utf8");
+      const rawContents = await fs.promises.readFile(filePath, "utf8");
       const envelope = JSON.parse(rawContents) as CacheEnvelope<T>;
 
-      if (typeof envelope.expiresAt !== "number" || Date.now() >= envelope.expiresAt) {
-        fs.rmSync(filePath, { force: true });
+      if (typeof envelope.expiresAt !== "number" || now >= envelope.expiresAt) {
+        this.memoryCache.delete(filePath);
+        await fs.promises.rm(filePath, { force: true }).catch(() => {});
         return null;
       }
 
+      this.memoryCache.set(filePath, envelope);
       return envelope.value;
     } catch {
-      fs.rmSync(filePath, { force: true });
+      this.memoryCache.delete(filePath);
+      await fs.promises.rm(filePath, { force: true }).catch(() => {});
       return null;
     }
   }
 
-  set(keyParts: unknown, value: T): void {
-    this.ensureDirectory();
+  async set(keyParts: unknown, value: T): Promise<void> {
+    await this.ensureDirectory();
 
     const now = Date.now();
     const createdAt =
@@ -119,31 +132,61 @@ export class JsonFileCache<T> {
       value
     };
 
-    fs.writeFileSync(
-      this.getFilePath(keyParts),
+    const filePath = this.getFilePath(keyParts);
+    this.memoryCache.set(filePath, envelope);
+
+    await fs.promises.writeFile(
+      filePath,
       JSON.stringify(envelope),
       "utf8"
     );
 
-    this.sweepIfNeeded(true);
+    await this.sweepIfNeeded(true);
   }
 
-  sweepExpired(): number {
-    this.ensureDirectory();
+  async sweepExpired(): Promise<number> {
+    await this.ensureDirectory();
 
     const removedEntries: string[] = [];
     const activeEntries: Array<{ createdAt: number; filePath: string }> = [];
     const now = Date.now();
 
-    for (const entry of fs.readdirSync(this.directoryPath)) {
+    let dirEntries: string[] = [];
+    try {
+      dirEntries = await fs.promises.readdir(this.directoryPath);
+    } catch {
+      dirEntries = [];
+    }
+
+    for (const entry of dirEntries) {
       if (!entry.endsWith(".json")) {
         continue;
       }
 
       const filePath = path.join(this.directoryPath, entry);
+      const mem = this.memoryCache.get(filePath);
+
+      if (mem) {
+        if (
+          typeof mem.expiresAt !== "number" ||
+          typeof mem.createdAt !== "number" ||
+          now >= mem.expiresAt
+        ) {
+          this.memoryCache.delete(filePath);
+          await fs.promises.rm(filePath, { force: true }).catch(() => {});
+          removedEntries.push(filePath);
+          continue;
+        }
+
+        activeEntries.push({
+          createdAt: mem.createdAt,
+          filePath
+        });
+        continue;
+      }
 
       try {
-        const rawContents = fs.readFileSync(filePath, "utf8");
+        const rawContents = await fs.promises.readFile(filePath, "utf8");
         const envelope = JSON.parse(rawContents) as CacheEnvelope<T>;
 
         if (
@@ -151,17 +194,20 @@ export class JsonFileCache<T> {
           typeof envelope.createdAt !== "number" ||
           now >= envelope.expiresAt
         ) {
-          fs.rmSync(filePath, { force: true });
+          this.memoryCache.delete(filePath);
+          await fs.promises.rm(filePath, { force: true }).catch(() => {});
           removedEntries.push(filePath);
           continue;
         }
 
+        this.memoryCache.set(filePath, envelope);
         activeEntries.push({
           createdAt: envelope.createdAt,
           filePath
         });
       } catch {
-        fs.rmSync(filePath, { force: true });
+        this.memoryCache.delete(filePath);
+        await fs.promises.rm(filePath, { force: true }).catch(() => {});
         removedEntries.push(filePath);
       }
     }
@@ -173,7 +219,8 @@ export class JsonFileCache<T> {
         .slice(0, overflow);
 
       for (const entry of entriesToRemove) {
-        fs.rmSync(entry.filePath, { force: true });
+        this.memoryCache.delete(entry.filePath);
+        await fs.promises.rm(entry.filePath, { force: true }).catch(() => {});
         removedEntries.push(entry.filePath);
       }
     }
@@ -182,17 +229,21 @@ export class JsonFileCache<T> {
     return removedEntries.length;
   }
 
-  private sweepIfNeeded(force = false): void {
+  private async sweepIfNeeded(force = false): Promise<number> {
     const now = Date.now();
     if (!force && now - this.lastSweepAt < this.sweepIntervalMs) {
-      return;
+      return 0;
     }
 
-    this.sweepExpired();
+    return await this.sweepExpired();
   }
 
-  private ensureDirectory(): void {
+  private ensureDirectorySync(): void {
     fs.mkdirSync(this.directoryPath, { recursive: true });
+  }
+
+  private async ensureDirectory(): Promise<void> {
+    await fs.promises.mkdir(this.directoryPath, { recursive: true });
   }
 
   private getFilePath(keyParts: unknown): string {

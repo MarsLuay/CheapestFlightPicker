@@ -41,15 +41,15 @@ describe("stableSerialize", () => {
 });
 
 describe("JsonFileCache", () => {
-  it("returns a cached value before it expires", () => {
+  it("returns a cached value before it expires", async () => {
     const cache = new JsonFileCache<{ price: number }>({
       directoryPath: createTempDirectory(),
       ttlMs: 1000
     });
 
-    cache.set({ route: "SEA-PIT" }, { price: 123 });
+    await cache.set({ route: "SEA-PIT" }, { price: 123 });
 
-    expect(cache.get({ route: "SEA-PIT" })).toEqual({ price: 123 });
+    expect(await cache.get({ route: "SEA-PIT" })).toEqual({ price: 123 });
   });
 
   it("removes expired entries during a sweep", async () => {
@@ -61,14 +61,14 @@ describe("JsonFileCache", () => {
       sweepIntervalMs: 0
     });
 
-    cache.set({ route: "SEA-PIT" }, { price: 123 });
+    await cache.set({ route: "SEA-PIT" }, { price: 123 });
     await vi.advanceTimersByTimeAsync(25);
 
-    expect(cache.get({ route: "SEA-PIT" })).toBeNull();
+    expect(await cache.get({ route: "SEA-PIT" })).toBeNull();
     expect(fs.readdirSync(directoryPath).length).toBe(0);
   });
 
-  it("prunes the oldest entries when the cache grows too large", () => {
+  it("prunes the oldest entries when the cache grows too large", async () => {
     const directoryPath = createTempDirectory();
     const cache = new JsonFileCache<{ price: number }>({
       directoryPath,
@@ -77,17 +77,17 @@ describe("JsonFileCache", () => {
       sweepIntervalMs: 0
     });
 
-    cache.set({ route: "SEA-PIT-1" }, { price: 101 });
-    cache.set({ route: "SEA-PIT-2" }, { price: 102 });
-    cache.set({ route: "SEA-PIT-3" }, { price: 103 });
+    await cache.set({ route: "SEA-PIT-1" }, { price: 101 });
+    await cache.set({ route: "SEA-PIT-2" }, { price: 102 });
+    await cache.set({ route: "SEA-PIT-3" }, { price: 103 });
 
-    expect(cache.get({ route: "SEA-PIT-1" })).toBeNull();
-    expect(cache.get({ route: "SEA-PIT-2" })).toEqual({ price: 102 });
-    expect(cache.get({ route: "SEA-PIT-3" })).toEqual({ price: 103 });
+    expect(await cache.get({ route: "SEA-PIT-1" })).toBeNull();
+    expect(await cache.get({ route: "SEA-PIT-2" })).toEqual({ price: 102 });
+    expect(await cache.get({ route: "SEA-PIT-3" })).toEqual({ price: 103 });
     expect(fs.readdirSync(directoryPath).length).toBe(2);
   });
 
-  it("keeps different cache versions isolated from each other", () => {
+  it("keeps different cache versions isolated from each other", async () => {
     const directoryPath = createTempDirectory();
     const v1Cache = new JsonFileCache<{ price: number }>({
       directoryPath,
@@ -100,9 +100,9 @@ describe("JsonFileCache", () => {
       version: 2
     });
 
-    v1Cache.set({ route: "SEA-PIT" }, { price: 123 });
+    await v1Cache.set({ route: "SEA-PIT" }, { price: 123 });
 
-    expect(v1Cache.get({ route: "SEA-PIT" })).toEqual({ price: 123 });
-    expect(v2Cache.get({ route: "SEA-PIT" })).toBeNull();
+    expect(await v1Cache.get({ route: "SEA-PIT" })).toEqual({ price: 123 });
+    expect(await v2Cache.get({ route: "SEA-PIT" })).toBeNull();
   });
 });
