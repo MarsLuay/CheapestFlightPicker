@@ -17,8 +17,8 @@ Source: `workspace/app/src/server/index.ts`
 | Method | Path | Behavior |
 | --- | --- | --- |
 | GET | `/api/health` | `{ ok: true }` |
-| GET/DELETE | `/api/admin/logs` | In-memory server logs |
-| POST | `/api/admin/incidents` | Persist client incident |
+| GET/DELETE | `/api/admin/logs` | In-memory server logs; requires admin authentication |
+| POST | `/api/admin/incidents` | Persist client incident; requires admin authentication |
 | GET | `/api/airports?query=` | Airport search |
 | POST | `/api/airports/nearest` | Closest airport by lat/lon |
 | GET | `/api/airlines?query=` | Airline search |

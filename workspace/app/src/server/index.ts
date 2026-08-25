@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { timingSafeEqual } from "node:crypto";
 
 import cors from "cors";
 import express from "express";
@@ -321,16 +322,47 @@ function requireAdminAuth(
   response: express.Response,
   next: express.NextFunction
 ): void {
-  const configuredKey = process.env.ADMIN_API_KEY || "admin";
-  const rawProvidedKey =
-    request.headers["x-admin-key"] ??
-    (request.headers.authorization?.startsWith("Bearer ")
-      ? request.headers.authorization.slice(7)
-      : undefined);
-  const providedKey =
-    typeof rawProvidedKey === "string" ? rawProvidedKey.trim() : undefined;
+  const configuredKey = [
+    process.env.ADMIN_API_KEY,
+    process.env.ADMIN_KEY,
+    process.env.ADMIN_TOKEN,
+    process.env.ADMIN_SECRET
+  ]
+    .map((value) => value?.trim())
+    .find((value): value is string => Boolean(value));
 
-  if (providedKey && providedKey === configuredKey) {
+  if (!configuredKey) {
+    response.status(401).json({
+      error: "Admin authentication is not configured",
+      ok: false
+    });
+    return;
+  }
+
+  const authorization = request.headers.authorization;
+  const bearerKey =
+    typeof authorization === "string" && /^Bearer\s+/iu.test(authorization)
+      ? authorization.replace(/^Bearer\s+/iu, "").trim()
+      : undefined;
+  const headerValues = [
+    request.headers["x-admin-key"],
+    request.headers["x-admin-token"],
+    request.headers["x-admin-secret"],
+    request.headers["x-api-key"]
+  ];
+  const headerKey = headerValues
+    .map((value) => (Array.isArray(value) ? value[0] : value))
+    .find((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    ?.trim();
+  const providedKey = bearerKey || headerKey;
+
+  const configuredBuffer = Buffer.from(configuredKey);
+  const providedBuffer = Buffer.from(providedKey ?? "");
+  const matches =
+    configuredBuffer.length === providedBuffer.length &&
+    timingSafeEqual(configuredBuffer, providedBuffer);
+
+  if (matches) {
     next();
     return;
   }
@@ -341,11 +373,13 @@ function requireAdminAuth(
   });
 }
 
+app.use("/api/admin", requireAdminAuth);
+
 app.get("/api/admin/logs", (_request, response) => {
   response.json({ logs: getServerLogs() });
 });
 
-app.delete("/api/admin/logs", requireAdminAuth, (_request, response) => {
+app.delete("/api/admin/logs", (_request, response) => {
   clearServerLogs();
   response.json({ ok: true });
 });
