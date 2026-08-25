@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "contractId": "cheapest-flight-picker-context-v1",
+  "sourceOfTruth": "docs/source-of-truth/README.md",
+  "taskLedger": {
+    "path": "PROJECT-TASKS.md",
+    "section": "Durable tasks"
+  },
+  "projectMemory": {
+    "taskPath": "PROJECT-TASKS.json",
+    "candidatePath": null,
+    "verifiedPath": null,
+    "humanReadablePaths": [
+      "project-memory/architecture.md",
+      "project-memory/decisions.md",
+      "project-memory/quirks.md",
+      "project-memory/known-failures.md"
+    ]
+  },
+  "privacy": {
+    "forbiddenPatterns": [
+      "/Users/",
+      "/private/",
+      "credentials",
+      "api key",
+      "access token",
+      "password",
+      "secret"
+    ]
+  },
+  "contextBudget": {
+    "maxTokens": 1800
+  },
+  "routes": [
+    {
+      "id": "project-memory",
+      "path": "context/routes/project-memory.json"
+    }
+  ],
+  "project": {
+    "key": "cheapest-flight-picker"
+  }
+}
