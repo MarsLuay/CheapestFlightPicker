@@ -1166,6 +1166,28 @@ export default function App() {
     setHasCompletedSearch(shouldShowCompletedResults);
     setSearchProgress(initialSearchProgress);
 
+    const handleMainSearchFailure = (errorMessage: string): boolean => {
+      const shouldOfferResume = isRateLimitSearchError(errorMessage);
+      const shouldPreservePreview = hasMeaningfulSummary(latestPreviewSummary);
+
+      setError(errorMessage);
+      setSummary(null);
+      setLivePreviewSummary(shouldPreservePreview ? latestPreviewSummary : null);
+      setResumeSearchState(
+        shouldOfferResume
+          ? {
+              availableAt: Date.now() + rateLimitResumeDelayMs,
+              error: errorMessage,
+              jobId: latestSearchJobId,
+              previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
+              progress: latestProgress,
+              request: submittedRequest
+            }
+          : null
+      );
+      return shouldPreservePreview;
+    };
+
     try {
       const response = await runFlightSearch(submittedRequest, {
         onJobCreated(jobId) {
@@ -1195,25 +1217,7 @@ export default function App() {
       }
 
       if (!response.ok) {
-        const shouldOfferResume = isRateLimitSearchError(response.error);
-        const shouldPreservePreview = hasMeaningfulSummary(latestPreviewSummary);
-
-        setError(response.error);
-        setSummary(null);
-        setLivePreviewSummary(shouldPreservePreview ? latestPreviewSummary : null);
-        setResumeSearchState(
-          shouldOfferResume
-            ? {
-                availableAt: Date.now() + rateLimitResumeDelayMs,
-                error: response.error,
-                jobId: latestSearchJobId,
-                previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
-                progress: latestProgress,
-                request: submittedRequest
-              }
-            : null
-        );
-        shouldShowCompletedResults = shouldPreservePreview;
+        shouldShowCompletedResults = handleMainSearchFailure(response.error);
         return;
       }
 
@@ -1242,25 +1246,7 @@ export default function App() {
         caughtError instanceof Error
           ? caughtError.message
           : "Search failed unexpectedly";
-      const shouldOfferResume = isRateLimitSearchError(message);
-      const shouldPreservePreview = hasMeaningfulSummary(latestPreviewSummary);
-
-      setError(message);
-      setSummary(null);
-      setLivePreviewSummary(shouldPreservePreview ? latestPreviewSummary : null);
-      setResumeSearchState(
-        shouldOfferResume
-          ? {
-              availableAt: Date.now() + rateLimitResumeDelayMs,
-              error: message,
-              jobId: latestSearchJobId,
-              previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
-              progress: latestProgress,
-              request: submittedRequest
-            }
-          : null
-      );
-      shouldShowCompletedResults = shouldPreservePreview;
+      shouldShowCompletedResults = handleMainSearchFailure(message);
     } finally {
       if (mainSearchRunIdRef.current === runId) {
         if (mainSearchAbortControllerRef.current === controller) {

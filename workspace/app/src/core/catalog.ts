@@ -12,6 +12,8 @@ const airlinesPath = resolveAppPath("data", "airlines.csv");
 
 let airportCache: AirportRecord[] | null = null;
 let airlineCache: AirlineRecord[] | null = null;
+let airportMapCache: Map<string, AirportRecord> | null = null;
+let airlineMapCache: Map<string, AirlineRecord> | null = null;
 
 function sanitizeCatalogText(value: string): string {
   // eslint-disable-next-line no-control-regex -- intentionally strip control characters from CSV catalog data
@@ -116,6 +118,14 @@ function loadAirports(): AirportRecord[] {
     .map(parseAirportRecord)
     .filter((record): record is AirportRecord => record !== null);
 
+  airportMapCache = new Map();
+  for (const airport of airportCache) {
+    const key = airport.iata.toUpperCase();
+    if (!airportMapCache.has(key)) {
+      airportMapCache.set(key, airport);
+    }
+  }
+
   return airportCache;
 }
 
@@ -145,12 +155,17 @@ function loadAirlines(): AirlineRecord[] {
     })
     .sort((left, right) => left.iata.localeCompare(right.iata));
 
+  airlineMapCache = new Map();
+  for (const airline of airlineCache) {
+    airlineMapCache.set(airline.iata, airline);
+  }
+
   return airlineCache;
 }
 
 export function findAirportByCode(code: string): AirportRecord | undefined {
-  const normalized = code.toUpperCase();
-  return loadAirports().find((airport) => airport.iata === normalized);
+  loadAirports();
+  return airportMapCache?.get(code.toUpperCase());
 }
 
 /**
@@ -219,8 +234,8 @@ export function findClosestAirport(
 }
 
 export function findAirlineByCode(code: string): AirlineRecord | undefined {
-  const normalized = code.toUpperCase();
-  return loadAirlines().find((airline) => airline.iata === normalized);
+  loadAirlines();
+  return airlineMapCache?.get(code.toUpperCase());
 }
 
 export function searchAirports(query: string, limit = 8): AirportRecord[] {
