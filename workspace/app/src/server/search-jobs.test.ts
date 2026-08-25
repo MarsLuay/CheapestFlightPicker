@@ -143,7 +143,7 @@ describe("search-jobs", () => {
     expect(failedJob?.status).toBe("failed");
     expect(failedJob?.error).toBe(errorMessage);
     expect(failedJob?.progress.stage).toBe("Failed");
-    expect(failedJob?.progress.detail).toBe(errorMessage);
+    expect(failedJob?.progress.detail).toBe("Something went wrong");
   });
 
   it("should not fail job if already completed", () => {
