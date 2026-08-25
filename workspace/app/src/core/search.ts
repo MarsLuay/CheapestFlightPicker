@@ -692,7 +692,7 @@ export class FlightSearchService {
       return options;
     }
 
-    const matchingIndexByIdentity = options.findIndex((option) => option === target);
+    const matchingIndexByIdentity = options.indexOf(target);
     const matchingIndex =
       matchingIndexByIdentity >= 0
         ? matchingIndexByIdentity
@@ -702,13 +702,14 @@ export class FlightSearchService {
       return options;
     }
 
+    const copy = options.slice();
     if (!replacement) {
-      return options.filter((_, index) => index !== matchingIndex);
+      copy.splice(matchingIndex, 1);
+      return copy;
     }
 
-    return options.map((option, index) =>
-      index === matchingIndex ? replacement : option
-    );
+    copy[matchingIndex] = replacement;
+    return copy;
   }
 
   async search(
