@@ -50,6 +50,31 @@ describe("calculateFlightDistanceMiles", () => {
   });
 });
 
+describe("findAirportByCode", () => {
+  it("finds airport by IATA code case-insensitively", () => {
+    const sea = findAirportByCode("sea");
+    expect(sea).toBeDefined();
+    expect(sea?.iata).toBe("SEA");
+    expect(sea?.name).toContain("Seattle");
+  });
+
+  it("returns undefined for unknown airport code", () => {
+    expect(findAirportByCode("INVALID_CODE")).toBeUndefined();
+  });
+});
+
+describe("findAirlineByCode", () => {
+  it("finds airline by IATA code case-insensitively", () => {
+    const airline = findAirlineByCode("aa");
+    expect(airline).toBeDefined();
+    expect(airline?.iata).toBe("AA");
+  });
+
+  it("returns undefined for unknown airline code", () => {
+    expect(findAirlineByCode("INVALID_CODE")).toBeUndefined();
+  });
+});
+
 describe("searchAirports", () => {
   it("prioritizes exact IATA code matches", () => {
     const matches = searchAirports("SEA", 5);
