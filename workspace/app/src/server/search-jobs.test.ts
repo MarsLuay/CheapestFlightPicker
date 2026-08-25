@@ -35,8 +35,10 @@ describe("search-jobs", () => {
   it("should get a search job without checkpoint", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
+      version: 1,
+      request: {} as any,
+      departureDatePrices: [],
+      returnDatePrices: []
     };
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
@@ -48,8 +50,10 @@ describe("search-jobs", () => {
   it("should get a search job with checkpoint", () => {
     const createdJob = createSearchJob();
     const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
+      version: 1,
+      request: {} as any,
+      departureDatePrices: [],
+      returnDatePrices: []
     };
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
@@ -77,9 +81,8 @@ describe("search-jobs", () => {
   it("should not update progress if job is completed", () => {
     const createdJob = createSearchJob();
     completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
-    });
+      cheapestRoundTrip: null
+    } as any);
 
     const progress: SearchProgress = {
       stage: "Searching",
@@ -96,9 +99,8 @@ describe("search-jobs", () => {
   it("should complete search job", () => {
     const createdJob = createSearchJob();
     const summary: SearchSummary = {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
-    };
+      cheapestRoundTrip: null
+    } as any;
 
     const completedJob = completeSearchJob(createdJob.id, summary);
     expect(completedJob).toBeDefined();
@@ -123,9 +125,8 @@ describe("search-jobs", () => {
   it("should not fail job if already completed", () => {
     const createdJob = createSearchJob();
     completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
-    });
+      cheapestRoundTrip: null
+    } as any);
 
     const failedJob = failSearchJob(createdJob.id, "Error after completion");
     expect(failedJob?.status).toBe("completed");
