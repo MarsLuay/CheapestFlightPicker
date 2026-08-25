@@ -253,7 +253,33 @@ function isVercelRuntime(): boolean {
   return process.env.VERCEL === "1" || process.env.VERCEL === "true";
 }
 
-app.use(cors());
+function getAllowedOrigins(): string[] {
+  if (process.env.ALLOWED_ORIGINS) {
+    return process.env.ALLOWED_ORIGINS.split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+  }
+  return [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8787",
+    "http://127.0.0.1:8787"
+  ];
+}
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = getAllowedOrigins();
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true
+  })
+);
 app.use(express.json());
 app.use((request, response, next) => {
   const startedAt = Date.now();
