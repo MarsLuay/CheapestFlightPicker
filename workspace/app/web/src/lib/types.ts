@@ -34,7 +34,7 @@ export { maxSearchResults } from "../../../src/shared/types";
 
 export type UpgradeFareCardState = {
   title: string;
-  targetCabinClass: SearchRequest["cabinClass"];
+  targetCabinClasses: SearchRequest["cabinClass"][];
   request: SearchRequest;
   option: FlightOption | null;
   progress: SearchProgress | null;

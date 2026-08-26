@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildAdjacentCabinBoxTitle,
-  buildAdjacentCabinSearchRequest,
+  buildHigherCabinBoxTitle,
+  buildHigherCabinSearchRequests,
   getCabinLabel,
-  getNextCabinClass
+  getHigherCabinClasses,
+  getNextCabinClass,
+  pickCheaperFlightOption
 } from "./cabin-upgrade";
-import type { SearchRequest } from "./types";
+import type { FlightOption, SearchRequest } from "./types";
 
 function buildRequest(
   cabinClass: SearchRequest["cabinClass"] = "economy"
@@ -45,21 +47,59 @@ describe("adjacent cabin helpers", () => {
     expect(getNextCabinClass("first")).toBeNull();
   });
 
-  it("builds an adjacent-cabin search request without changing other filters", () => {
-    expect(buildAdjacentCabinSearchRequest(buildRequest("economy"))).toEqual({
-      ...buildRequest("economy"),
-      cabinClass: "premium_economy",
-      maxResults: 3
-    });
-    expect(buildAdjacentCabinSearchRequest(buildRequest("first"))).toBeNull();
+  it("lists every higher cabin in order", () => {
+    expect(getHigherCabinClasses("economy")).toEqual([
+      "premium_economy",
+      "business",
+      "first"
+    ]);
+    expect(getHigherCabinClasses("premium_economy")).toEqual([
+      "business",
+      "first"
+    ]);
+    expect(getHigherCabinClasses("first")).toEqual([]);
   });
 
-  it("builds a user-facing box title for the adjacent or mirrored cabin", () => {
-    expect(buildAdjacentCabinBoxTitle("economy")).toBe(
-      "Overall Cheapest Premium Economy"
+  it("builds a search request for every higher cabin without changing filters", () => {
+    expect(
+      buildHigherCabinSearchRequests(buildRequest("economy")).map(
+        ({ cabinClass, maxResults }) => ({ cabinClass, maxResults })
+      )
+    ).toEqual([
+      { cabinClass: "premium_economy", maxResults: 3 },
+      { cabinClass: "business", maxResults: 3 },
+      { cabinClass: "first", maxResults: 3 }
+    ]);
+    expect(buildHigherCabinSearchRequests(buildRequest("first"))).toEqual([]);
+  });
+
+  it("builds a user-facing box title for higher-cabin pricing", () => {
+    expect(buildHigherCabinBoxTitle("economy")).toBe(
+      "Overall Cheapest Premium Economy or Higher"
     );
-    expect(buildAdjacentCabinBoxTitle("business")).toBe("Overall Cheapest First");
-    expect(buildAdjacentCabinBoxTitle("first")).toBe("Overall Cheapest First");
+    expect(buildHigherCabinBoxTitle("business")).toBe("Overall Cheapest First");
+    expect(buildHigherCabinBoxTitle("first")).toBe("Overall Cheapest First");
     expect(getCabinLabel("premium_economy")).toBe("Premium Economy");
+  });
+
+  it("keeps the cheaper fare when a higher cabin beats the earlier cabin", () => {
+    const option = (totalPrice: number) =>
+      ({
+        source: "google_round_trip",
+        totalPrice,
+        currency: "USD",
+        slices: [],
+        bookingSource: {
+          type: "unknown",
+          label: "Unknown",
+          detected: false
+        }
+      }) as FlightOption;
+
+    const premiumEconomy = option(500);
+    const first = option(450);
+
+    expect(pickCheaperFlightOption(premiumEconomy, first)).toBe(first);
+    expect(pickCheaperFlightOption(first, premiumEconomy)).toBe(first);
   });
 });

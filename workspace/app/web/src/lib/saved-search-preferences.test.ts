@@ -44,6 +44,7 @@ describe("loadSavedSearchPreferences", () => {
     expect(loadSavedSearchPreferences(storage)).toEqual({
       origin: "SEA",
       destination: "JFK",
+      tripType: "round_trip",
       useExactDates: true,
       prioritizeMileFlights: false,
       requireFreeCarryOnBag: true,
@@ -76,13 +77,41 @@ describe("loadSavedSearchPreferences", () => {
 });
 
 describe("saveSavedSearchPreferences", () => {
-  it("stores normalized cached preferences", () => {
-    const storage = createMemoryStorage();
+  it.each(["one_way", "round_trip"] as const)(
+    "stores normalized cached preferences for %s",
+    (tripType) => {
+      const storage = createMemoryStorage();
 
-    saveSavedSearchPreferences(
-      {
-        origin: " sea ",
+      saveSavedSearchPreferences(
+        {
+          origin: " sea ",
+          destination: "",
+          tripType,
+          useExactDates: false,
+          prioritizeMileFlights: true,
+          requireFreeCarryOnBag: true,
+          minimumTripDays: 4,
+          maximumTripDays: 11,
+          departureTimeWindow: {
+            from: 18,
+            to: 24
+          },
+          arrivalTimeWindow: {
+            from: 7,
+            to: 19
+          }
+        },
+        storage
+      );
+
+      expect(
+        JSON.parse(
+          storage.getItem("cheapest-flight-picker.saved-search-preferences") ?? ""
+        )
+      ).toEqual({
+        origin: "SEA",
         destination: "",
+        tripType,
         useExactDates: false,
         prioritizeMileFlights: true,
         requireFreeCarryOnBag: true,
@@ -96,30 +125,7 @@ describe("saveSavedSearchPreferences", () => {
           from: 7,
           to: 19
         }
-      },
-      storage
-    );
-
-    expect(
-      JSON.parse(
-        storage.getItem("cheapest-flight-picker.saved-search-preferences") ?? ""
-      )
-    ).toEqual({
-      origin: "SEA",
-      destination: "",
-      useExactDates: false,
-      prioritizeMileFlights: true,
-      requireFreeCarryOnBag: true,
-      minimumTripDays: 4,
-      maximumTripDays: 11,
-      departureTimeWindow: {
-        from: 18,
-        to: 24
-      },
-      arrivalTimeWindow: {
-        from: 7,
-        to: 19
-      }
-    });
-  });
+      });
+    }
+  );
 });

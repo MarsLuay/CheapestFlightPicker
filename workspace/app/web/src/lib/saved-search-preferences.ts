@@ -18,6 +18,7 @@ type SavedSearchPreferences = Pick<
   | "origin"
   | "prioritizeMileFlights"
   | "requireFreeCarryOnBag"
+  | "tripType"
   | "useExactDates"
 >;
 
@@ -51,6 +52,17 @@ function normalizeBoolean(value: unknown): boolean | null {
   }
 
   return value;
+}
+
+function normalizeTripType(
+  value: unknown
+): SearchRequest["tripType"] | null {
+  if (value === undefined) {
+    // Existing saved records predate trip-type persistence.
+    return "round_trip";
+  }
+
+  return value === "one_way" || value === "round_trip" ? value : null;
 }
 
 function normalizeTimeWindow(value: unknown): TimeWindow | null {
@@ -90,6 +102,7 @@ function normalizeSavedSearchPreferences(
   const destination = normalizeAirportCode(record.destination, {
     allowBlank: true
   });
+  const tripType = normalizeTripType(record.tripType);
   const useExactDates = normalizeBoolean(record.useExactDates);
   const prioritizeMileFlights =
     record.prioritizeMileFlights === undefined
@@ -107,6 +120,7 @@ function normalizeSavedSearchPreferences(
   if (
     !origin ||
     destination === null ||
+    tripType === null ||
     useExactDates === null ||
     prioritizeMileFlights === null ||
     requireFreeCarryOnBag === null ||
@@ -121,6 +135,7 @@ function normalizeSavedSearchPreferences(
   return {
     origin,
     destination,
+    tripType,
     useExactDates,
     prioritizeMileFlights,
     requireFreeCarryOnBag,

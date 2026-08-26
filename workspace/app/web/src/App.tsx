@@ -9,9 +9,10 @@ import {
 
 import { runFlightSearch } from "./lib/api";
 import {
-  buildAdjacentCabinBoxTitle,
-  buildAdjacentCabinSearchRequest,
-  getCabinLabel
+  buildHigherCabinBoxTitle,
+  buildHigherCabinSearchRequests,
+  getCabinLabel,
+  pickCheaperFlightOption
 } from "./lib/cabin-upgrade";
 import {
   addDaysToLocalDate,
@@ -177,7 +178,7 @@ function createInitialRequest(
       })();
 
   return {
-    tripType: "round_trip",
+    tripType: savedPreferences?.tripType ?? "round_trip",
     origin: savedPreferences?.origin ?? origin,
     destination: savedPreferences?.destination ?? "",
     departureDateFrom: initialDates.departureDateFrom,
@@ -280,14 +281,14 @@ function createInitialUpgradeFareCardState(
   summary: SearchSummary,
   submittedRequest: SearchRequest
 ): UpgradeFareCardState {
-  const title = buildAdjacentCabinBoxTitle(submittedRequest.cabinClass);
-  const adjacentRequest = buildAdjacentCabinSearchRequest(submittedRequest);
+  const title = buildHigherCabinBoxTitle(submittedRequest.cabinClass);
+  const higherCabinRequests = buildHigherCabinSearchRequests(submittedRequest);
   const baseCabinLabel = getCabinLabel(submittedRequest.cabinClass).toLowerCase();
 
-  if (!adjacentRequest) {
+  if (higherCabinRequests.length === 0) {
     return {
       title,
-      targetCabinClass: submittedRequest.cabinClass,
+      targetCabinClasses: [],
       request: summary.request,
       option: summary.cheapestOverall,
       progress: null,
@@ -298,23 +299,29 @@ function createInitialUpgradeFareCardState(
     };
   }
 
-  const targetCabinLabel = getCabinLabel(adjacentRequest.cabinClass).toLowerCase();
+  const targetCabinLabels = higherCabinRequests.map((higherCabinRequest) =>
+    getCabinLabel(higherCabinRequest.cabinClass).toLowerCase()
+  );
+  const targetCabinClasses = higherCabinRequests.map(
+    (higherCabinRequest) => higherCabinRequest.cabinClass
+  );
+  const targetCabinDescription = targetCabinLabels.join(", ");
 
   return {
     title,
-    targetCabinClass: adjacentRequest.cabinClass,
-    request: adjacentRequest,
+    targetCabinClasses,
+    request: higherCabinRequests[0] as SearchRequest,
     option: null,
     progress: {
-      stage: "Preparing adjacent cabin search",
-      detail: `Starting a ${targetCabinLabel} follow-up search after the ${baseCabinLabel} results loaded.`,
+      stage: "Preparing higher-cabin searches",
+      detail: `Starting ${targetCabinDescription} searches after the ${baseCabinLabel} results loaded.`,
       completedSteps: 0,
-      totalSteps: 1,
+      totalSteps: higherCabinRequests.length,
       percent: 0
     },
     status: "searching",
-    summaryNote: `Checking the next cabin up from your selected ${baseCabinLabel} search.`,
-    emptyMessage: `Searching ${targetCabinLabel} fares one cabin above your selected ${baseCabinLabel} search.`
+    summaryNote: `Checking ${targetCabinDescription} fares for the cheapest option above your selected ${baseCabinLabel} search.`,
+    emptyMessage: `Searching ${targetCabinDescription} fares above your selected ${baseCabinLabel} search.`
   };
 }
 
@@ -584,8 +591,9 @@ export default function App() {
   const [upgradeFareBox, setUpgradeFareBox] = useState<UpgradeFareCardState | null>(
     null
   );
-  const [upgradeSearchRequest, setUpgradeSearchRequest] =
-    useState<SearchRequest | null>(null);
+  const [upgradeSearchRequests, setUpgradeSearchRequests] = useState<
+    SearchRequest[]
+  >([]);
   const [error, setError] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [hasCompletedSearch, setHasCompletedSearch] = useState(false);
@@ -639,6 +647,7 @@ export default function App() {
     saveSavedSearchPreferences({
       origin: nextRequest.origin,
       destination: nextRequest.destination,
+      tripType: nextRequest.tripType,
       useExactDates: nextUseExactDates,
       minimumTripDays: nextRequest.minimumTripDays ?? 0,
       maximumTripDays: nextRequest.maximumTripDays ?? 14,
@@ -964,121 +973,146 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!upgradeSearchRequest || !summary) {
+    if (upgradeSearchRequests.length === 0 || !summary) {
       return;
     }
 
     const controller = new AbortController();
     const runId = ++upgradeSearchRunIdRef.current;
     const baseCabinLabel = getCabinLabel(summary.request.cabinClass).toLowerCase();
-    const targetCabinLabel = getCabinLabel(
-      upgradeSearchRequest.cabinClass
-    ).toLowerCase();
+    const searchRequests = upgradeSearchRequests;
+    const higherCabinDescription = searchRequests
+      .map((searchRequest) => getCabinLabel(searchRequest.cabinClass))
+      .join(", ");
+    let bestOption: FlightOption | null = null;
+    let bestRequest = searchRequests[0] as SearchRequest;
+    const failedCabinLabels: string[] = [];
 
     upgradeSearchAbortControllerRef.current?.abort();
     upgradeSearchAbortControllerRef.current = controller;
 
-    void runFlightSearch(upgradeSearchRequest, {
-      maxResults: upgradeSearchRequest.maxResults,
-      onProgress(progress) {
-        if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
+    void (async () => {
+      for (let index = 0; index < searchRequests.length; index += 1) {
+        const searchRequest = searchRequests[index];
+        if (!searchRequest || controller.signal.aborted) {
           return;
         }
 
-        startTransition(() => {
-          setUpgradeFareBox((current) => {
-            if (!current) {
-              return current;
-            }
+        const targetCabinLabel = getCabinLabel(
+          searchRequest.cabinClass
+        ).toLowerCase();
 
-            return {
-              ...current,
-              option: progress.previewCheapestOverall ?? current.option,
-              progress,
-              status: "searching",
-              summaryNote: progress.previewCheapestOverall
-                ? `Best ${targetCabinLabel} fare so far while the follow-up search keeps checking more combinations.`
-                : `Checking the next cabin up from your selected ${baseCabinLabel} search.`
-            };
-          });
-        });
-      },
-      signal: controller.signal
-    })
-      .then((response) => {
-        if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
-          return;
-        }
+        try {
+          const response = await runFlightSearch(searchRequest, {
+            maxResults: searchRequest.maxResults,
+            onProgress(progress) {
+              if (
+                controller.signal.aborted ||
+                upgradeSearchRunIdRef.current !== runId
+              ) {
+                return;
+              }
 
-        startTransition(() => {
-          setUpgradeFareBox((current) => {
-            if (!current) {
-              return current;
-            }
+              bestOption = pickCheaperFlightOption(
+                bestOption,
+                progress.previewCheapestOverall ?? null
+              );
+              if (progress.previewCheapestOverall === bestOption) {
+                bestRequest = searchRequest;
+              }
 
-            if (!response.ok) {
-              return current.option
-                ? {
-                    ...current,
-                    progress: null,
-                    status: "failed",
-                    summaryNote: `The ${targetCabinLabel} follow-up search hit a snag, but this was the best fare found before it stopped.`
+              startTransition(() => {
+                setUpgradeFareBox((current) => {
+                  if (!current) {
+                    return current;
                   }
-                : {
-                    ...current,
-                    progress: null,
-                    status: "failed",
-                    summaryNote: undefined,
-                    emptyMessage: `The ${targetCabinLabel} follow-up search hit a snag: ${response.error}`
-                  };
-            }
 
+                  return {
+                    ...current,
+                    option: bestOption ?? current.option,
+                    request: bestRequest,
+                    progress: {
+                      ...progress,
+                      stage: `${targetCabinLabel}: ${progress.stage}`,
+                      detail: `${index + 1}/${searchRequests.length} higher-cabin searches checked. ${progress.detail ?? ""}`.trim()
+                    },
+                    status: "searching",
+                    summaryNote: bestOption
+                      ? `Best higher-cabin fare so far while checking ${higherCabinDescription}.`
+                      : `Checking ${targetCabinLabel} fares above your selected ${baseCabinLabel} search.`
+                  };
+                });
+              });
+            },
+            signal: controller.signal
+          });
+
+          if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
+            return;
+          }
+
+          if (!response.ok) {
+            failedCabinLabels.push(getCabinLabel(searchRequest.cabinClass));
+            continue;
+          }
+
+          const previousBestOption: FlightOption | null = bestOption;
+          bestOption = pickCheaperFlightOption(
+            bestOption,
+            response.summary.cheapestOverall ?? null
+          );
+          if (bestOption !== previousBestOption && response.summary.cheapestOverall) {
+            bestRequest = searchRequest;
+          }
+        } catch (error) {
+          if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
+            return;
+          }
+
+          failedCabinLabels.push(getCabinLabel(searchRequest.cabinClass));
+          continue;
+        }
+      }
+
+      if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
+        return;
+      }
+
+      startTransition(() => {
+        setUpgradeFareBox((current) => {
+          if (!current) {
+            return current;
+          }
+
+          if (!bestOption) {
             return {
               ...current,
-              option: response.summary.cheapestOverall,
               progress: null,
-              status: "ready",
-              summaryNote: response.summary.cheapestOverall
-                ? `Finished checking ${targetCabinLabel} fares one cabin above your selected ${baseCabinLabel} search.`
-                : `Checked ${targetCabinLabel} fares one cabin above your selected ${baseCabinLabel} search.`,
-              emptyMessage: `No ${targetCabinLabel} fare qualified one cabin above your selected ${baseCabinLabel} search.`
+              status: "failed",
+              summaryNote: undefined,
+              emptyMessage: failedCabinLabels.length
+                ? `The higher-cabin searches for ${failedCabinLabels.join(", ")} did not return a usable fare.`
+                : `No higher-cabin fare qualified above your selected ${baseCabinLabel} search.`
             };
-          });
-          setUpgradeSearchRequest(null);
-        });
-      })
-      .catch((error) => {
-        if (controller.signal.aborted || upgradeSearchRunIdRef.current !== runId) {
-          return;
-        }
+          }
 
-        startTransition(() => {
-          setUpgradeFareBox((current) => {
-            if (!current) {
-              return current;
-            }
+          const partialFailureNote = failedCabinLabels.length
+            ? ` Some searches hit a snag: ${failedCabinLabels.join(", ")}.`
+            : "";
 
-            return current.option
-              ? {
-                  ...current,
-                  progress: null,
-                  status: "failed",
-                  summaryNote: `The ${targetCabinLabel} follow-up search stopped early, but this was the best fare found before it stopped.`
-                }
-              : {
-                  ...current,
-                  progress: null,
-                  status: "failed",
-                  summaryNote: undefined,
-                  emptyMessage:
-                    error instanceof Error
-                      ? error.message
-                      : `The ${targetCabinLabel} follow-up search stopped unexpectedly.`
-                };
-          });
-          setUpgradeSearchRequest(null);
+          return {
+            ...current,
+            request: bestRequest,
+            option: bestOption,
+            progress: null,
+            status: failedCabinLabels.length > 0 ? "failed" : "ready",
+            summaryNote: `Finished checking ${higherCabinDescription} fares; this is the cheapest higher-cabin option found.${partialFailureNote}`,
+            emptyMessage: `No higher-cabin fare qualified above your selected ${baseCabinLabel} search.`
+          };
         });
+        setUpgradeSearchRequests([]);
       });
+    })();
 
     return () => {
       controller.abort();
@@ -1086,7 +1120,7 @@ export default function App() {
         upgradeSearchAbortControllerRef.current = null;
       }
     };
-  }, [summary, upgradeSearchRequest]);
+  }, [summary, upgradeSearchRequests]);
 
   async function startMainSearch(
     submittedRequest: SearchRequest,
@@ -1115,7 +1149,7 @@ export default function App() {
     upgradeSearchAbortControllerRef.current?.abort();
     upgradeSearchAbortControllerRef.current = null;
     setUpgradeFareBox(null);
-    setUpgradeSearchRequest(null);
+    setUpgradeSearchRequests([]);
     setError("");
     setSummary(null);
     setSearchProgress(null);
@@ -1232,10 +1266,10 @@ export default function App() {
             : createInitialUpgradeFareCardState(response.summary, submittedRequest)
         );
       });
-      setUpgradeSearchRequest(
+      setUpgradeSearchRequests(
         shouldBlockHostedSearch
-          ? null
-          : buildAdjacentCabinSearchRequest(submittedRequest)
+          ? []
+          : buildHigherCabinSearchRequests(submittedRequest)
       );
     } catch (caughtError) {
       if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
@@ -1287,7 +1321,7 @@ export default function App() {
     upgradeSearchAbortControllerRef.current?.abort();
     upgradeSearchAbortControllerRef.current = null;
     setUpgradeFareBox(null);
-    setUpgradeSearchRequest(null);
+    setUpgradeSearchRequests([]);
     setError("");
     setSummary(null);
     setSearchProgress(null);
@@ -1404,8 +1438,8 @@ export default function App() {
           )
         );
       });
-      setUpgradeSearchRequest(
-        buildAdjacentCabinSearchRequest(winningSubmittedRequest)
+      setUpgradeSearchRequests(
+        buildHigherCabinSearchRequests(winningSubmittedRequest)
       );
       setError(
         searchFailures.length > 0
@@ -1577,7 +1611,7 @@ export default function App() {
     upgradeSearch: upgradeFareBox
       ? {
           title: upgradeFareBox.title,
-          targetCabinClass: upgradeFareBox.targetCabinClass,
+          targetCabinClasses: upgradeFareBox.targetCabinClasses,
           status: upgradeFareBox.status,
           progress: upgradeFareBox.progress
             ? {

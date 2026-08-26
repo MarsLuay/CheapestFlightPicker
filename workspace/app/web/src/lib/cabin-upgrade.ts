@@ -1,4 +1,11 @@
-import type { SearchRequest } from "./types";
+import type { FlightOption, SearchRequest } from "./types";
+
+const cabinOrder: SearchRequest["cabinClass"][] = [
+  "economy",
+  "premium_economy",
+  "business",
+  "first"
+];
 
 const nextCabinByClass: Record<
   SearchRequest["cabinClass"],
@@ -27,25 +34,47 @@ export function getNextCabinClass(
   return nextCabinByClass[cabinClass];
 }
 
-export function buildAdjacentCabinSearchRequest(
-  request: SearchRequest
-): SearchRequest | null {
-  const nextCabinClass = getNextCabinClass(request.cabinClass);
-  if (!nextCabinClass) {
-    return null;
-  }
-
-  return {
-    ...request,
-    cabinClass: nextCabinClass,
-    maxResults: 3
-  };
+export function getHigherCabinClasses(
+  cabinClass: SearchRequest["cabinClass"]
+): SearchRequest["cabinClass"][] {
+  const cabinIndex = cabinOrder.indexOf(cabinClass);
+  return cabinIndex < 0 ? [] : cabinOrder.slice(cabinIndex + 1);
 }
 
-export function buildAdjacentCabinBoxTitle(
+export function buildHigherCabinSearchRequests(
+  request: SearchRequest
+): SearchRequest[] {
+  return getHigherCabinClasses(request.cabinClass).map((cabinClass) => ({
+    ...request,
+    cabinClass,
+    maxResults: 3
+  }));
+}
+
+export function pickCheaperFlightOption(
+  current: FlightOption | null,
+  next: FlightOption | null
+): FlightOption | null {
+  if (!current) {
+    return next;
+  }
+
+  if (!next) {
+    return current;
+  }
+
+  return next.totalPrice < current.totalPrice ? next : current;
+}
+
+export function buildHigherCabinBoxTitle(
   cabinClass: SearchRequest["cabinClass"]
 ): string {
-  return `Overall Cheapest ${getCabinLabel(
-    getNextCabinClass(cabinClass) ?? cabinClass
-  )}`;
+  const nextCabinClass = getNextCabinClass(cabinClass);
+  if (!nextCabinClass) {
+    return `Overall Cheapest ${getCabinLabel(cabinClass)}`;
+  }
+
+  const higherCabinSuffix =
+    getHigherCabinClasses(cabinClass).length > 1 ? " or Higher" : "";
+  return `Overall Cheapest ${getCabinLabel(nextCabinClass)}${higherCabinSuffix}`;
 }
