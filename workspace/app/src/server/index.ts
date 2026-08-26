@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { timingSafeEqual } from "node:crypto";
 
 import cors from "cors";
 import express from "express";
@@ -253,7 +254,33 @@ function isVercelRuntime(): boolean {
   return process.env.VERCEL === "1" || process.env.VERCEL === "true";
 }
 
-app.use(cors());
+function getAllowedOrigins(): string[] {
+  if (process.env.ALLOWED_ORIGINS) {
+    return process.env.ALLOWED_ORIGINS.split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+  }
+  return [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8787",
+    "http://127.0.0.1:8787"
+  ];
+}
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = getAllowedOrigins();
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true
+  })
+);
 app.use(express.json());
 app.use((request, response, next) => {
   const startedAt = Date.now();
@@ -289,6 +316,64 @@ app.use((request, response, next) => {
 app.get("/api/health", (_request, response) => {
   response.json({ ok: true });
 });
+
+function requireAdminAuth(
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction
+): void {
+  const configuredKey = [
+    process.env.ADMIN_API_KEY,
+    process.env.ADMIN_KEY,
+    process.env.ADMIN_TOKEN,
+    process.env.ADMIN_SECRET
+  ]
+    .map((value) => value?.trim())
+    .find((value): value is string => Boolean(value));
+
+  if (!configuredKey) {
+    response.status(401).json({
+      error: "Admin authentication is not configured",
+      ok: false
+    });
+    return;
+  }
+
+  const authorization = request.headers.authorization;
+  const bearerKey =
+    typeof authorization === "string" && /^Bearer\s+/iu.test(authorization)
+      ? authorization.replace(/^Bearer\s+/iu, "").trim()
+      : undefined;
+  const headerValues = [
+    request.headers["x-admin-key"],
+    request.headers["x-admin-token"],
+    request.headers["x-admin-secret"],
+    request.headers["x-api-key"]
+  ];
+  const headerKey = headerValues
+    .map((value) => (Array.isArray(value) ? value[0] : value))
+    .find((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    ?.trim();
+  const providedKey = bearerKey || headerKey;
+
+  const configuredBuffer = Buffer.from(configuredKey);
+  const providedBuffer = Buffer.from(providedKey ?? "");
+  const matches =
+    configuredBuffer.length === providedBuffer.length &&
+    timingSafeEqual(configuredBuffer, providedBuffer);
+
+  if (matches) {
+    next();
+    return;
+  }
+
+  response.status(401).json({
+    error: "Unauthorized",
+    ok: false
+  });
+}
+
+app.use("/api/admin", requireAdminAuth);
 
 app.get("/api/admin/logs", (_request, response) => {
   response.json({ logs: getServerLogs() });
@@ -514,10 +599,7 @@ registerProcessIncidentHandlers();
 
 if (!isVercelRuntime()) {
   app.listen(port, () => {
-    appendServerLog("info", "Server started", { port });
-    console.log(
-      `Cheapest Flight Picker server listening on http://localhost:${port}`
-    );
+    appendServerLog("info", `Cheapest Flight Picker server listening on http://localhost:${port}`, { port });
   });
 }
 
