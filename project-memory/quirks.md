@@ -1,9 +1,10 @@
 # Quirks
 
-- The browser can load bundled airport and airline CSV catalogs before falling back to the API.
-- Saved search preferences, dates, and origin may be kept in browser local storage; the project documents no analytics or advertising SDKs.
-- The hidden admin panel opens with backtick or tilde and exposes logs, origin diagnostics, timing guidance, price alerts, and Hacker Fare state.
-- Initial origin selection prefers a saved origin, then timezone inference, then the `SEA` fallback; the UI also starts with a flexible date window unless exact dates are selected.
-- The root launchers are designed to fetch the rest of the repository into a sibling `CheapestFlightPicker` directory and may install missing Git/Node.js when supported by the host.
+- Browser catalog loading prefers bundled airport/airline CSVs, then falls back to the API.
+- Saved preferences, dates, and origin live in browser local storage; no analytics or advertising SDK is shipped.
+- Backtick or tilde opens the hidden admin panel with logs, origin diagnostics, timing guidance, price alerts, and Hacker Fare state.
+- Origin selection prefers saved origin, then timezone inference, then `SEA`; the initial date mode is flexible unless exact dates are selected.
+- Hosted mode blocks interactive search; offline mode can use catalogs/caches but cannot produce new live cheapest fares.
+- Root launchers can fetch the repository into a sibling directory and install missing Git/Node when supported by the host.
 
-Sources: `README.md`, `workspace/app/README.md`, and `workspace/app/web/src/App.tsx`.
+Code references for Serena: `workspace/app/web/src/App.tsx`, `workspace/app/web/src/lib/catalog.ts`, `workspace/app/src/shared`, and the root launcher scripts.

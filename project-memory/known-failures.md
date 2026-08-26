@@ -1,9 +1,10 @@
 # Known failures and accepted limitations
 
-- Hosted searches are expected to be unavailable or unreliable because Google Flights rate-limits hosted traffic; local execution is the documented workaround.
+- Hosted searches may fail or be unavailable because Google rate-limits shared hosted traffic; local execution is the workaround.
+- If another local service occupies the default port `8787`, the launcher must validate `/api/health` before reuse and select the next available port; otherwise the browser can open the unrelated OpenAI API welcome page instead of the picker.
 - Real-device and narrow-viewport mobile verification remains manual QA.
-- Static UX analysis can report empty `catch` blocks in minified React vendor assets; this is third-party bundle noise, not app source.
-- The documented low-severity `esbuild` advisory affects the Windows development server only; production `npm start` does not expose it, and Dependabot tracks it.
-- Clone-analysis info findings include intentional duplication across parallel server/web modules and repeated UI branches; deduplication is explicitly treated as a large, non-user-facing refactor.
+- Static UX analysis can flag empty `catch` blocks in minified third-party vendor assets; this is not app-source failure.
+- The low-severity `esbuild` advisory affects the Windows development server only; production start does not expose it.
+- Serena review records intentional duplicate logic and seams as maintenance findings: repeated nonstop/time helpers, an empty booking-supplement seam, and repeated UI branches. Refactor only with current-code evidence.
 
-Sources: the "Code analysis — wont-fix" section of `README.md` and the hosted-mode message in `workspace/app/web/src/App.tsx`.
+Code references for Serena: `workspace/app/web/src/App.tsx`, `workspace/app/src/providers/google-flights`, `workspace/app/src/core`, and `workspace/app/package.json`.

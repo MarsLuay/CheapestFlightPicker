@@ -11,7 +11,62 @@ import {
   updateSearchJobProgress,
   updateSearchJobResumeCheckpoint
 } from "./search-jobs";
-import type { SearchProgress, SearchResumeCheckpoint, SearchSummary } from "../shared/types";
+import type {
+  SearchProgress,
+  SearchRequest,
+  SearchResumeCheckpoint,
+  SearchSummary
+} from "../shared/types";
+
+function buildSearchRequest(): SearchRequest {
+  return {
+    tripType: "round_trip",
+    origin: "SEA",
+    destination: "LAX",
+    departureDateFrom: "2026-05-01",
+    departureDateTo: "2026-05-02",
+    returnDateFrom: "2026-05-08",
+    returnDateTo: "2026-05-09",
+    cabinClass: "economy",
+    stopsFilter: "any",
+    preferDirectBookingOnly: false,
+    airlines: [],
+    passengers: {
+      adults: 1,
+      children: 0,
+      infantsInSeat: 0,
+      infantsOnLap: 0
+    },
+    maxResults: 12
+  };
+}
+
+function buildResumeCheckpoint(): SearchResumeCheckpoint {
+  return {
+    version: 1,
+    request: buildSearchRequest(),
+    departureDatePrices: [],
+    returnDatePrices: []
+  };
+}
+
+function buildSearchSummary(): SearchSummary {
+  return {
+    request: buildSearchRequest(),
+    departureDatePrices: [],
+    returnDatePrices: [],
+    cheapestOverall: null,
+    cheapestRoundTrip: null,
+    cheapestTwoOneWays: null,
+    cheapestNonstop: null,
+    cheapestMultiStop: null,
+    evaluatedDatePairs: [],
+    inspectedOptions: 0,
+    timingGuidance: null,
+    priceAlert: null,
+    hackerFareInsight: null
+  };
+}
 
 describe("search-jobs", () => {
   beforeEach(() => {
@@ -34,10 +89,7 @@ describe("search-jobs", () => {
 
   it("should get a search job without checkpoint", () => {
     const createdJob = createSearchJob();
-    const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
-    };
+    const resumeCheckpoint = buildResumeCheckpoint();
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
     const job = getSearchJob(createdJob.id);
@@ -47,10 +99,7 @@ describe("search-jobs", () => {
 
   it("should get a search job with checkpoint", () => {
     const createdJob = createSearchJob();
-    const resumeCheckpoint: SearchResumeCheckpoint = {
-      handledLegs: [],
-      pendingLegs: []
-    };
+    const resumeCheckpoint = buildResumeCheckpoint();
     updateSearchJobResumeCheckpoint(createdJob.id, resumeCheckpoint);
 
     const job = getSearchJobWithCheckpoint(createdJob.id);
@@ -76,10 +125,7 @@ describe("search-jobs", () => {
 
   it("should not update progress if job is completed", () => {
     const createdJob = createSearchJob();
-    completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
-    });
+    completeSearchJob(createdJob.id, buildSearchSummary());
 
     const progress: SearchProgress = {
       stage: "Searching",
@@ -95,10 +141,7 @@ describe("search-jobs", () => {
 
   it("should complete search job", () => {
     const createdJob = createSearchJob();
-    const summary: SearchSummary = {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
-    };
+    const summary = buildSearchSummary();
 
     const completedJob = completeSearchJob(createdJob.id, summary);
     expect(completedJob).toBeDefined();
@@ -122,10 +165,7 @@ describe("search-jobs", () => {
 
   it("should not fail job if already completed", () => {
     const createdJob = createSearchJob();
-    completeSearchJob(createdJob.id, {
-      cheapestRoundTrips: [],
-      dateWindowStats: { start: "", end: "", numDays: 1, combinations: 1 }
-    });
+    completeSearchJob(createdJob.id, buildSearchSummary());
 
     const failedJob = failSearchJob(createdJob.id, "Error after completion");
     expect(failedJob?.status).toBe("completed");

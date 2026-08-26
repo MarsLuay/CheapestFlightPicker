@@ -25,14 +25,23 @@ esac
 REPO_URL="https://github.com/MarsLuay/CheapestFlightPicker.git"
 REPO_DIR="$LAUNCHER_DIR"
 STANDALONE_REPO_DIR="$LAUNCHER_DIR/CheapestFlightPicker"
-APP_URL="http://localhost:8787"
-HEALTH_URL="$APP_URL/api/health"
+APP_PORT="${PORT:-8787}"
+APP_URL=""
+HEALTH_URL=""
 APP_START_MODE="existing"
 APP_LOG_DIR=""
 APP_LOG_FILE=""
 APP_PID_FILE=""
 TOOLCHAIN_INSTALLED=0
 LOCAL_NODE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/nodejs"
+
+set_app_port() {
+  APP_PORT="$1"
+  APP_URL="http://localhost:$APP_PORT"
+  HEALTH_URL="$APP_URL/api/health"
+}
+
+set_app_port "$APP_PORT"
 
 add_common_tool_paths() {
   local candidate
@@ -485,16 +494,46 @@ ensure_toolchain() {
 
 is_app_healthy() {
   if command -v curl >/dev/null 2>&1; then
-    curl --silent --fail --max-time 5 --output /dev/null "$HEALTH_URL"
+    curl --silent --fail --max-time 5 "$HEALTH_URL" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'
     return
   fi
 
   if command -v wget >/dev/null 2>&1; then
-    wget --quiet --spider --timeout=5 --tries=1 "$HEALTH_URL"
+    wget --quiet --output-document=- --timeout=5 --tries=1 "$HEALTH_URL" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'
     return
   fi
 
-  node -e 'const http = require("node:http"); const url = process.argv[1]; const request = http.get(url, (response) => { response.resume(); process.exit(response.statusCode === 200 ? 0 : 1); }); request.on("error", () => process.exit(1)); request.setTimeout(5000, () => { request.destroy(); process.exit(1); });' "$HEALTH_URL"
+  node -e 'const http = require("node:http"); const url = process.argv[1]; const request = http.get(url, (response) => { let body = ""; response.setEncoding("utf8"); response.on("data", (chunk) => { body += chunk; }); response.on("end", () => process.exit(response.statusCode === 200 && /"ok"\s*:\s*true/.test(body) ? 0 : 1)); }); request.on("error", () => process.exit(1)); request.setTimeout(5000, () => { request.destroy(); process.exit(1); });' "$HEALTH_URL"
+}
+
+port_is_available() {
+  local port="$1"
+
+  node -e 'const net = require("node:net"); const port = Number(process.argv[1]); const hosts = ["127.0.0.1", "::1"]; let remaining = hosts.length; let occupied = false; const done = () => { remaining -= 1; if (remaining === 0) process.exit(occupied ? 1 : 0); }; for (const host of hosts) { const server = net.createServer(); server.once("error", (error) => { if (error.code === "EADDRINUSE") occupied = true; done(); }); server.listen({ host, port }, () => server.close(done)); }' "$port"
+}
+
+select_app_port() {
+  if is_app_healthy; then
+    return 0
+  fi
+
+  if port_is_available "$APP_PORT"; then
+    return 0
+  fi
+
+  local candidate=$((APP_PORT + 1))
+  local limit=$((APP_PORT + 100))
+  while (( candidate < limit )); do
+    if port_is_available "$candidate"; then
+      echo "Port $APP_PORT is already in use by another service. Using port $candidate for Cheapest Flight Picker."
+      set_app_port "$candidate"
+      return 0
+    fi
+    candidate=$((candidate + 1))
+  done
+
+  echo "No available local port found for Cheapest Flight Picker."
+  return 1
 }
 
 wait_for_app_ready() {
@@ -589,7 +628,7 @@ start_app() {
   APP_LOG_FILE="$APP_LOG_DIR/server.log"
   APP_PID_FILE="$APP_LOG_DIR/server.pid"
 
-  printf -v launch_command 'cd %q && exec npm start' "$APP_DIR"
+  printf -v launch_command 'cd %q && PORT=%q exec npm start' "$APP_DIR" "$APP_PORT"
 
   if launch_in_terminal "$launch_command"; then
     APP_START_MODE="terminal"
@@ -659,6 +698,10 @@ echo "Checking for an existing app instance..."
 if is_app_healthy; then
   echo "App is already running. Reusing the existing instance."
 else
+  if ! select_app_port; then
+    exit 1
+  fi
+
   echo "Launching app..."
   start_app
 
