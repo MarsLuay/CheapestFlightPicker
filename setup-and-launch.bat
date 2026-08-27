@@ -1,6 +1,17 @@
 @echo off
 setlocal EnableDelayedExpansion
+if defined TEMP (
+  set "LAUNCHER_LOG_FILE=%TEMP%\CheapestFlightPicker-setup.log"
+) else (
+  set "LAUNCHER_LOG_FILE=%~dp0CheapestFlightPicker-setup.log"
+)
+set "CURRENT_STEP=launcher startup"
+call :log "INFO Launcher started."
+call :log "INFO Launcher path: %~f0"
+echo Launcher log: "!LAUNCHER_LOG_FILE!"
+set "CURRENT_STEP=initializing Windows PATH"
 call :bootstrap_windows_path
+set "CURRENT_STEP=locating PowerShell"
 call :resolve_powershell
 set "RELAUNCHED_AFTER_TOOLCHAIN=0"
 if /i "%~1"=="--after-toolchain-install" set "RELAUNCHED_AFTER_TOOLCHAIN=1"
@@ -10,8 +21,13 @@ set "REPO_URL=https://github.com/MarsLuay/CheapestFlightPicker.git"
 set "REPO_DIR=%LAUNCHER_DIR%"
 set "STANDALONE_REPO_DIR=%LAUNCHER_DIR%\CheapestFlightPicker"
 
+set "CURRENT_STEP=ensuring Git and Node.js"
 call :ensure_toolchain
-if errorlevel 2 exit /b 0
+if errorlevel 2 (
+  call :log "INFO Toolchain installation requested a fresh launcher window."
+  echo Detailed launcher log: "!LAUNCHER_LOG_FILE!"
+  exit /b 0
+)
 if errorlevel 1 exit /b 1
 
 if exist "!LAUNCHER_DIR!\workspace\app\package.json" (
@@ -41,7 +57,9 @@ if exist "!REPO_DIR!\.git" (
 
     echo No local repo was found next to this launcher.
     echo Cloning Cheapest Flight Picker into "!REPO_DIR!"...
-    git clone "%REPO_URL%" "!REPO_DIR!"
+    set "CURRENT_STEP=cloning the repository"
+    call :log "INFO Cloning repository."
+    git clone "%REPO_URL%" "!REPO_DIR!" >>"!LAUNCHER_LOG_FILE!" 2>&1
     if errorlevel 1 (
       call :fail 1
       exit /b 1
@@ -50,13 +68,16 @@ if exist "!REPO_DIR!\.git" (
 )
 
 echo Checking for repo updates...
+set "CURRENT_STEP=checking repository updates"
 if not exist "!REPO_DIR!\.git" (
   echo Using local workspace without git metadata.
   goto :after_repo_setup
 )
-git -C "!REPO_DIR!" status --porcelain --untracked-files=normal | findstr . >nul
+git -C "!REPO_DIR!" status --porcelain --untracked-files=normal 2>>"!LAUNCHER_LOG_FILE!" | findstr . >nul
 if errorlevel 1 (
-  git -C "!REPO_DIR!" pull --ff-only origin main
+  set "CURRENT_STEP=updating the repository"
+  call :log "INFO Pulling repository updates."
+  git -C "!REPO_DIR!" pull --ff-only origin main >>"!LAUNCHER_LOG_FILE!" 2>&1
   if errorlevel 1 (
     echo Failed to update the repo automatically.
     call :fail 1
@@ -77,8 +98,14 @@ if not exist "!APP_DIR!\package.json" (
   exit /b 1
 )
 
+set "CURRENT_STEP=changing to the app directory"
 cd /d "!APP_DIR!"
+if errorlevel 1 (
+  call :fail 1
+  exit /b 1
+)
 
+set "CURRENT_STEP=checking for npm"
 where npm >nul 2>nul
 if errorlevel 1 (
   echo npm is required but was not found on PATH.
@@ -87,43 +114,57 @@ if errorlevel 1 (
 )
 
 echo Installing dependencies...
-call npm install
+set "CURRENT_STEP=installing npm dependencies"
+call :log "INFO Running npm install."
+call npm install >>"!LAUNCHER_LOG_FILE!" 2>&1
 if errorlevel 1 (
   call :fail 1
   exit /b 1
 )
 
 echo Running typecheck and tests...
-call npm run check
+set "CURRENT_STEP=running typecheck"
+call :log "INFO Running npm run check."
+call npm run check >>"!LAUNCHER_LOG_FILE!" 2>&1
 if errorlevel 1 (
   call :fail 1
   exit /b 1
 )
-call npm run test
+set "CURRENT_STEP=running tests"
+call :log "INFO Running npm run test."
+call npm run test >>"!LAUNCHER_LOG_FILE!" 2>&1
 if errorlevel 1 (
   call :fail 1
   exit /b 1
 )
 
 echo Building server and web app...
-call npm run build
+set "CURRENT_STEP=building the app"
+call :log "INFO Running npm run build."
+call npm run build >>"!LAUNCHER_LOG_FILE!" 2>&1
 if errorlevel 1 (
   call :fail 1
   exit /b 1
 )
 
 echo Checking for an existing app instance...
-call :run_powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1"
+set "CURRENT_STEP=checking app health"
+call :log "INFO Checking app health."
+call :run_powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >>"!LAUNCHER_LOG_FILE!" 2>&1
 if errorlevel 1 (
   echo Launching app...
   set "APP_LAUNCH_DIR=%CD%"
-  call :run_powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start' | Out-Null"
+  set "CURRENT_STEP=starting the app server"
+  call :log "INFO Starting app server."
+  call :run_powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start' | Out-Null" >>"!LAUNCHER_LOG_FILE!" 2>&1
   if errorlevel 1 (
     call :fail 1
     exit /b 1
   )
 
-  call :run_powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $deadline=(Get-Date).AddSeconds(30); do { try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); exit 1"
+  set "CURRENT_STEP=waiting for the app server"
+  call :log "INFO Waiting for app health."
+  call :run_powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $deadline=(Get-Date).AddSeconds(30); do { try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); exit 1" >>"!LAUNCHER_LOG_FILE!" 2>&1
   if errorlevel 1 (
     echo The server did not become ready within 30 seconds. Check the server window for errors.
     call :fail 1
@@ -133,6 +174,7 @@ if errorlevel 1 (
   echo App is already running. Reusing the existing instance.
 )
 
+call :log "INFO Launcher completed successfully."
 start "" http://localhost:8787
 echo App launched in your browser. Close the server window to stop it.
 exit /b 0
@@ -475,6 +517,7 @@ exit /b 0
 
 :run_powershell
 if not defined POWERSHELL_EXE (
+  call :log "ERROR PowerShell was not found."
   echo PowerShell is required but was not found on this machine.
   exit /b 1
 )
@@ -510,11 +553,18 @@ exit /b 0
 
 exit /b 0
 
+:log
+if not defined LAUNCHER_LOG_FILE exit /b 0
+>>"!LAUNCHER_LOG_FILE!" echo([%date% %time%] %~1
+exit /b 0
+
 :fail
 set "FAIL_CODE=%~1"
 if not defined FAIL_CODE set "FAIL_CODE=1"
+call :log "ERROR Setup stopped with code !FAIL_CODE! during !CURRENT_STEP!."
 echo.
 echo Setup stopped before the app could launch.
+echo Detailed launcher log: "!LAUNCHER_LOG_FILE!"
 echo Press any key to close this window.
 pause >nul
 exit /b %FAIL_CODE%

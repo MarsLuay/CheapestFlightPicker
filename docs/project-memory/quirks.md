@@ -6,5 +6,6 @@
 - Origin selection prefers saved origin, then timezone inference, then `SEA`; the initial date mode is flexible unless exact dates are selected.
 - Hosted mode blocks interactive search; offline mode can use catalogs/caches but cannot produce new live cheapest fares.
 - Root launchers can fetch the repository into a sibling directory and install missing Git/Node when supported by the host.
+- The Windows launcher records startup, step, and captured command failures in `%TEMP%\CheapestFlightPicker-setup.log` and prints that path when setup stops.
 
 Code references for Serena: `workspace/app/web/src/App.tsx`, `workspace/app/web/src/lib/catalog.ts`, `workspace/app/src/shared`, and the root launcher scripts.
