@@ -23,7 +23,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.5.1",
     "react": "^19.2.7",
-    "react-dom": "^19.2.0",
+    "react-dom": "^19.2.7",
     "zod": "^4.4.3"
   },
   "overrides": {
