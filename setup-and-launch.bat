@@ -156,7 +156,7 @@ if errorlevel 1 (
   set "APP_LAUNCH_DIR=%CD%"
   set "CURRENT_STEP=starting the app server"
   call :log "INFO Starting app server."
-  call :run_powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start' | Out-Null" >>"!LAUNCHER_LOG_FILE!" 2>&1
+  call :run_powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start'" >>"!LAUNCHER_LOG_FILE!" 2>&1
   if errorlevel 1 (
     call :fail 1
     exit /b 1
@@ -281,7 +281,7 @@ if not errorlevel 1 (
 )
 
 echo Downloading Git for Windows installer from the official source...
-call :run_powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $release=Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest'; $asset=$release.assets | Where-Object { $_.name -match '64-bit\.exe$' -and $_.name -notmatch 'Portable' } | Select-Object -First 1; if (-not $asset) { throw 'Could not find a Git for Windows installer.' }; $installer=Join-Path $env:TEMP $asset.name; Write-Host ('Downloading ' + $asset.browser_download_url); Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-' -Wait -PassThru; if ($proc.ExitCode -ne 0) { exit 1 }"
+call :run_powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $release=Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest'; $asset=$null; foreach ($candidate in $release.assets) { if ($candidate.name -match '64-bit\.exe$' -and $candidate.name -notmatch 'Portable') { $asset=$candidate; break } }; if (-not $asset) { throw 'Could not find a Git for Windows installer.' }; $installer=Join-Path $env:TEMP $asset.name; Write-Host ('Downloading ' + $asset.browser_download_url); Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing; $proc=Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-' -Wait -PassThru; if ($proc.ExitCode -ne 0) { exit 1 }"
 if errorlevel 1 (
   call :install_git_with_curl
   if errorlevel 1 exit /b 1
