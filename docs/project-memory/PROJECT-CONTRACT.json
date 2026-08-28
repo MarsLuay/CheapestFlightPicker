@@ -3,11 +3,11 @@
   "contractId": "cheapest-flight-picker-context-v1",
   "sourceOfTruth": "docs/project-memory/architecture.md",
   "taskLedger": {
-    "path": "PROJECT-TASKS.md",
+    "path": "docs/project-memory/PROJECT-TASKS.md",
     "section": "Durable tasks"
   },
   "projectMemory": {
-    "taskPath": "PROJECT-TASKS.json",
+    "taskPath": "docs/project-memory/PROJECT-TASKS.json",
     "candidatePath": null,
     "verifiedPath": null,
     "humanReadablePaths": [
