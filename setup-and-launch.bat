@@ -20,6 +20,8 @@ if "%LAUNCHER_DIR:~-1%"=="\" set "LAUNCHER_DIR=%LAUNCHER_DIR:~0,-1%"
 set "REPO_URL=https://github.com/MarsLuay/CheapestFlightPicker.git"
 set "REPO_DIR=%LAUNCHER_DIR%"
 set "STANDALONE_REPO_DIR=%LAUNCHER_DIR%\CheapestFlightPicker"
+set "APP_PORT=8787"
+set "APP_URL=http://localhost:8787"
 
 set "CURRENT_STEP=ensuring Git and Node.js"
 call :ensure_toolchain
@@ -150,13 +152,19 @@ if errorlevel 1 (
 echo Checking for an existing app instance...
 set "CURRENT_STEP=checking app health"
 call :log "INFO Checking app health."
-call :run_powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >>"!LAUNCHER_LOG_FILE!" 2>&1
+call :check_app_health !APP_PORT! >>"!LAUNCHER_LOG_FILE!" 2>&1
 if errorlevel 1 (
+  call :select_app_port >>"!LAUNCHER_LOG_FILE!" 2>&1
+  if errorlevel 1 (
+    call :fail 1
+    exit /b 1
+  )
   echo Launching app...
   set "APP_LAUNCH_DIR=%CD%"
+  set "APP_LAUNCH_PORT=!APP_PORT!"
   set "CURRENT_STEP=starting the app server"
   call :log "INFO Starting app server."
-  call :run_powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start'" >>"!LAUNCHER_LOG_FILE!" 2>&1
+  call :run_powershell -NoProfile -Command "$env:PORT='!APP_LAUNCH_PORT!'; Start-Process -FilePath 'cmd.exe' -WorkingDirectory $env:APP_LAUNCH_DIR -ArgumentList '/k','npm start'" >>"!LAUNCHER_LOG_FILE!" 2>&1
   if errorlevel 1 (
     call :fail 1
     exit /b 1
@@ -164,7 +172,7 @@ if errorlevel 1 (
 
   set "CURRENT_STEP=waiting for the app server"
   call :log "INFO Waiting for app health."
-  call :run_powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $deadline=(Get-Date).AddSeconds(30); do { try { $response = Invoke-WebRequest -UseBasicParsing http://localhost:8787/api/health; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); exit 1" >>"!LAUNCHER_LOG_FILE!" 2>&1
+  call :run_powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $deadline=(Get-Date).AddSeconds(30); do { try { $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:!APP_PORT!/api/health' -TimeoutSec 5; if ($response.StatusCode -eq 200) { $health = ConvertFrom-Json -InputObject $response.Content; if ($health.ok -eq $true) { exit 0 } } } catch {}; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); exit 1" >>"!LAUNCHER_LOG_FILE!" 2>&1
   if errorlevel 1 (
     echo The server did not become ready within 30 seconds. Check the server window for errors.
     call :fail 1
@@ -175,9 +183,43 @@ if errorlevel 1 (
 )
 
 call :log "INFO Launcher completed successfully."
-start "" http://localhost:8787
-echo App launched in your browser. Close the server window to stop it.
+start "" "!APP_URL!"
+echo App launched in your browser at !APP_URL!. Close the server window to stop it.
 exit /b 0
+
+:check_app_health
+call :run_powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try { $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:%~1/api/health' -TimeoutSec 5; if ($response.StatusCode -eq 200) { $health = ConvertFrom-Json -InputObject $response.Content; if ($health.ok -eq $true) { exit 0 } } } catch {}; exit 1"
+exit /b %ERRORLEVEL%
+
+:port_is_available
+call :run_powershell -NoProfile -Command "$port=[int]%~1; $occupied=$false; foreach ($address in @([Net.IPAddress]::Loopback, [Net.IPAddress]::IPv6Loopback)) { $probe=New-Object Net.Sockets.TcpListener($address, $port); try { $probe.Start() } catch { $occupied=$true } finally { $probe.Stop() } }; if ($occupied) { exit 1 }; exit 0"
+exit /b %ERRORLEVEL%
+
+:select_app_port
+call :check_app_health !APP_PORT!
+if not errorlevel 1 exit /b 0
+
+call :port_is_available !APP_PORT!
+if not errorlevel 1 exit /b 0
+
+set /a NEXT_APP_PORT=!APP_PORT! + 1
+set /a APP_PORT_LIMIT=!APP_PORT! + 100
+:select_app_port_next
+if !NEXT_APP_PORT! GEQ !APP_PORT_LIMIT! (
+  echo No available local port found for Cheapest Flight Picker.
+  exit /b 1
+)
+
+call :port_is_available !NEXT_APP_PORT!
+if not errorlevel 1 (
+  echo Port !APP_PORT! is already in use by another service. Using port !NEXT_APP_PORT! for Cheapest Flight Picker.
+  set "APP_PORT=!NEXT_APP_PORT!"
+  set "APP_URL=http://localhost:!APP_PORT!"
+  exit /b 0
+)
+
+set /a NEXT_APP_PORT+=1
+goto :select_app_port_next
 
 :ensure_toolchain
 call :refresh_path
