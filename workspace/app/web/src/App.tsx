@@ -368,6 +368,15 @@ function isRateLimitSearchError(message: string): boolean {
   return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);
 }
 
+function getHostedAwareSearchError(
+  message: string,
+  hostedApiMode: boolean
+): string {
+  return hostedApiMode && isRateLimitSearchError(message)
+    ? hostedSearchUnavailableMessage
+    : message;
+}
+
 function selectInputValueOnFocus(event: FocusEvent<HTMLInputElement>) {
   const input = event.currentTarget;
   window.requestAnimationFrame(() => {
@@ -1132,10 +1141,7 @@ export default function App() {
       resumeFromJobId?: string;
     }
   ) {
-    const shouldBlockHostedSearch = hostedApiMode;
-    const validationError = shouldBlockHostedSearch
-      ? null
-      : getSearchValidationError(submittedRequest);
+    const validationError = getSearchValidationError(submittedRequest);
 
     if (validationError) {
       setError(validationError);
@@ -1154,14 +1160,6 @@ export default function App() {
     setSummary(null);
     setSearchProgress(null);
     setIsSearching(false);
-
-    if (shouldBlockHostedSearch) {
-      setLivePreviewSummary(null);
-      setHasCompletedSearch(false);
-      setResumeSearchState(null);
-      setError(hostedSearchUnavailableMessage);
-      return;
-    }
 
     const controller = new AbortController();
     const runId = ++mainSearchRunIdRef.current;
@@ -1204,14 +1202,19 @@ export default function App() {
       const shouldOfferResume = isRateLimitSearchError(errorMessage);
       const shouldPreservePreview = hasMeaningfulSummary(latestPreviewSummary);
 
-      setError(errorMessage);
+      const displayError = getHostedAwareSearchError(
+        errorMessage,
+        hostedApiMode
+      );
+
+      setError(displayError);
       setSummary(null);
       setLivePreviewSummary(shouldPreservePreview ? latestPreviewSummary : null);
       setResumeSearchState(
         shouldOfferResume
           ? {
               availableAt: Date.now() + rateLimitResumeDelayMs,
-              error: errorMessage,
+              error: displayError,
               jobId: latestSearchJobId,
               previewSummary: shouldPreservePreview ? latestPreviewSummary : null,
               progress: latestProgress,
@@ -1261,15 +1264,11 @@ export default function App() {
         setLivePreviewSummary(null);
         setResumeSearchState(null);
         setUpgradeFareBox(
-          shouldBlockHostedSearch
-            ? null
-            : createInitialUpgradeFareCardState(response.summary, submittedRequest)
+          createInitialUpgradeFareCardState(response.summary, submittedRequest)
         );
       });
       setUpgradeSearchRequests(
-        shouldBlockHostedSearch
-          ? []
-          : buildHigherCabinSearchRequests(submittedRequest)
+        buildHigherCabinSearchRequests(submittedRequest)
       );
     } catch (caughtError) {
       if (controller.signal.aborted || mainSearchRunIdRef.current !== runId) {
@@ -1304,10 +1303,8 @@ export default function App() {
       return;
     }
 
-    const shouldBlockHostedSearch = hostedApiMode;
-    const validationError = shouldBlockHostedSearch
-      ? null
-      : routeRequests.map(getSearchValidationError).find(Boolean) ?? null;
+    const validationError =
+      routeRequests.map(getSearchValidationError).find(Boolean) ?? null;
 
     if (validationError) {
       setError(validationError);
@@ -1326,14 +1323,6 @@ export default function App() {
     setSummary(null);
     setSearchProgress(null);
     setIsSearching(false);
-
-    if (shouldBlockHostedSearch) {
-      setLivePreviewSummary(null);
-      setHasCompletedSearch(false);
-      setResumeSearchState(null);
-      setError(hostedSearchUnavailableMessage);
-      return;
-    }
 
     const controller = new AbortController();
     const runId = ++mainSearchRunIdRef.current;
@@ -1408,8 +1397,12 @@ export default function App() {
           continue;
         }
 
+        const routeError = getHostedAwareSearchError(
+          response.error,
+          hostedApiMode
+        );
         searchFailures.push(
-          `${routeRequest.origin} -> ${routeRequest.destination}: ${response.error}`
+          `${routeRequest.origin} -> ${routeRequest.destination}: ${routeError}`
         );
       }
 
@@ -1455,7 +1448,7 @@ export default function App() {
         caughtError instanceof Error
           ? caughtError.message
           : "Multi-airport search failed unexpectedly";
-      setError(message);
+      setError(getHostedAwareSearchError(message, hostedApiMode));
       setSummary(null);
       setLivePreviewSummary(bestSummary);
       shouldShowCompletedResults = hasMeaningfulSummary(bestSummary);
