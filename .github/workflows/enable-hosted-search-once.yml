@@ -31,148 +31,19 @@ jobs:
               global text
               actual = text.count(old)
               if actual != expected:
-                  raise SystemExit(f"Expected {expected} occurrence(s), found {actual}: {old[:100]!r}")
+                  raise SystemExit(f"Expected {expected} occurrence(s), found {actual}: {old[:120]!r}")
               text = text.replace(old, new, expected)
 
-          replace_exact(
-              '''function isRateLimitSearchError(message: string): boolean {
-            return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);
-          }
-          ''',
-              '''function isRateLimitSearchError(message: string): boolean {
-            return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);
-          }
-
-          function getHostedAwareSearchError(
-            message: string,
-            hostedApiMode: boolean
-          ): string {
-            return hostedApiMode && isRateLimitSearchError(message)
-              ? hostedSearchUnavailableMessage
-              : message;
-          }
-          ''',
-          )
-
-          replace_exact(
-              '''    const shouldBlockHostedSearch = hostedApiMode;
-              const validationError = shouldBlockHostedSearch
-                ? null
-                : getSearchValidationError(submittedRequest);
-          ''',
-              '''    const validationError = getSearchValidationError(submittedRequest);
-          ''',
-          )
-
-          replace_exact(
-              '''    if (shouldBlockHostedSearch) {
-              setLivePreviewSummary(null);
-              setHasCompletedSearch(false);
-              setResumeSearchState(null);
-              setError(hostedSearchUnavailableMessage);
-              return;
-            }
-
-          ''',
-              '''''',
-          )
-
-          replace_exact(
-              '''      setError(errorMessage);
-              setSummary(null);
-          ''',
-              '''      const displayError = getHostedAwareSearchError(
-                errorMessage,
-                hostedApiMode
-              );
-
-              setError(displayError);
-              setSummary(null);
-          ''',
-          )
-
-          replace_exact(
-              '''              error: errorMessage,
-          ''',
-              '''              error: displayError,
-          ''',
-          )
-
-          replace_exact(
-              '''        setUpgradeFareBox(
-                  shouldBlockHostedSearch
-                    ? null
-                    : createInitialUpgradeFareCardState(response.summary, submittedRequest)
-                );
-          ''',
-              '''        setUpgradeFareBox(
-                  createInitialUpgradeFareCardState(response.summary, submittedRequest)
-                );
-          ''',
-          )
-
-          replace_exact(
-              '''      setUpgradeSearchRequests(
-                shouldBlockHostedSearch
-                  ? []
-                  : buildHigherCabinSearchRequests(submittedRequest)
-              );
-          ''',
-              '''      setUpgradeSearchRequests(
-                buildHigherCabinSearchRequests(submittedRequest)
-              );
-          ''',
-          )
-
-          replace_exact(
-              '''    const shouldBlockHostedSearch = hostedApiMode;
-              const validationError = shouldBlockHostedSearch
-                ? null
-                : routeRequests.map(getSearchValidationError).find(Boolean) ?? null;
-          ''',
-              '''    const validationError =
-                routeRequests.map(getSearchValidationError).find(Boolean) ?? null;
-          ''',
-          )
-
-          replace_exact(
-              '''    if (shouldBlockHostedSearch) {
-              setLivePreviewSummary(null);
-              setHasCompletedSearch(false);
-              setResumeSearchState(null);
-              setError(hostedSearchUnavailableMessage);
-              return;
-            }
-
-          ''',
-              '''''',
-          )
-
-          replace_exact(
-              '''        searchFailures.push(
-                  `${routeRequest.origin} -> ${routeRequest.destination}: ${response.error}`
-                );
-          ''',
-              '''        const routeError = getHostedAwareSearchError(
-                  response.error,
-                  hostedApiMode
-                );
-                searchFailures.push(
-                  `${routeRequest.origin} -> ${routeRequest.destination}: ${routeError}`
-                );
-          ''',
-          )
-
-          replace_exact(
-              '''      setError(message);
-              setSummary(null);
-              setLivePreviewSummary(bestSummary);
-          ''',
-              '''      setError(getHostedAwareSearchError(message, hostedApiMode));
-              setSummary(null);
-              setLivePreviewSummary(bestSummary);
-          ''',
-          )
+          replace_exact("function isRateLimitSearchError(message: string): boolean {\n  return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);\n}\n", "function isRateLimitSearchError(message: string): boolean {\n  return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);\n}\n\nfunction getHostedAwareSearchError(\n  message: string,\n  hostedApiMode: boolean\n): string {\n  return hostedApiMode && isRateLimitSearchError(message)\n    ? hostedSearchUnavailableMessage\n    : message;\n}\n")
+          replace_exact("    const shouldBlockHostedSearch = hostedApiMode;\n    const validationError = shouldBlockHostedSearch\n      ? null\n      : getSearchValidationError(submittedRequest);\n", "    const validationError = getSearchValidationError(submittedRequest);\n")
+          replace_exact("    const shouldBlockHostedSearch = hostedApiMode;\n    const validationError = shouldBlockHostedSearch\n      ? null\n      : routeRequests.map(getSearchValidationError).find(Boolean) ?? null;\n", "    const validationError =\n      routeRequests.map(getSearchValidationError).find(Boolean) ?? null;\n")
+          replace_exact("    if (shouldBlockHostedSearch) {\n      setLivePreviewSummary(null);\n      setHasCompletedSearch(false);\n      setResumeSearchState(null);\n      setError(hostedSearchUnavailableMessage);\n      return;\n    }\n\n", "", expected=2)
+          replace_exact("      setError(errorMessage);\n      setSummary(null);\n", "      const displayError = getHostedAwareSearchError(\n        errorMessage,\n        hostedApiMode\n      );\n\n      setError(displayError);\n      setSummary(null);\n")
+          replace_exact("              error: errorMessage,\n", "              error: displayError,\n")
+          replace_exact("        setUpgradeFareBox(\n          shouldBlockHostedSearch\n            ? null\n            : createInitialUpgradeFareCardState(response.summary, submittedRequest)\n        );\n", "        setUpgradeFareBox(\n          createInitialUpgradeFareCardState(response.summary, submittedRequest)\n        );\n")
+          replace_exact("      setUpgradeSearchRequests(\n        shouldBlockHostedSearch\n          ? []\n          : buildHigherCabinSearchRequests(submittedRequest)\n      );\n", "      setUpgradeSearchRequests(\n        buildHigherCabinSearchRequests(submittedRequest)\n      );\n")
+          replace_exact("        searchFailures.push(\n          `${routeRequest.origin} -> ${routeRequest.destination}: ${response.error}`\n        );\n", "        const routeError = getHostedAwareSearchError(\n          response.error,\n          hostedApiMode\n        );\n        searchFailures.push(\n          `${routeRequest.origin} -> ${routeRequest.destination}: ${routeError}`\n        );\n")
+          replace_exact("      setError(message);\n      setSummary(null);\n      setLivePreviewSummary(bestSummary);\n", "      setError(getHostedAwareSearchError(message, hostedApiMode));\n      setSummary(null);\n      setLivePreviewSummary(bestSummary);\n")
 
           path.write_text(text)
           PY
