@@ -4,7 +4,7 @@
   "buildCommand": "npm run build",
   "functions": {
     "server.js": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "includeFiles": "{data/**/*,public/**/*}"
     }
   }
