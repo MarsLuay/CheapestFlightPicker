@@ -1,0 +1,210 @@
+name: Enable hosted search once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/enable-hosted-search-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch hosted search behavior
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path("workspace/app/web/src/App.tsx")
+          text = path.read_text()
+
+          def replace_exact(old: str, new: str, expected: int = 1) -> None:
+              global text
+              actual = text.count(old)
+              if actual != expected:
+                  raise SystemExit(f"Expected {expected} occurrence(s), found {actual}: {old[:100]!r}")
+              text = text.replace(old, new, expected)
+
+          replace_exact(
+              '''function isRateLimitSearchError(message: string): boolean {
+            return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);
+          }
+          ''',
+              '''function isRateLimitSearchError(message: string): boolean {
+            return /rate.?limit|too many requests|temporarily rate limited/iu.test(message);
+          }
+
+          function getHostedAwareSearchError(
+            message: string,
+            hostedApiMode: boolean
+          ): string {
+            return hostedApiMode && isRateLimitSearchError(message)
+              ? hostedSearchUnavailableMessage
+              : message;
+          }
+          ''',
+          )
+
+          replace_exact(
+              '''    const shouldBlockHostedSearch = hostedApiMode;
+              const validationError = shouldBlockHostedSearch
+                ? null
+                : getSearchValidationError(submittedRequest);
+          ''',
+              '''    const validationError = getSearchValidationError(submittedRequest);
+          ''',
+          )
+
+          replace_exact(
+              '''    if (shouldBlockHostedSearch) {
+              setLivePreviewSummary(null);
+              setHasCompletedSearch(false);
+              setResumeSearchState(null);
+              setError(hostedSearchUnavailableMessage);
+              return;
+            }
+
+          ''',
+              '''''',
+          )
+
+          replace_exact(
+              '''      setError(errorMessage);
+              setSummary(null);
+          ''',
+              '''      const displayError = getHostedAwareSearchError(
+                errorMessage,
+                hostedApiMode
+              );
+
+              setError(displayError);
+              setSummary(null);
+          ''',
+          )
+
+          replace_exact(
+              '''              error: errorMessage,
+          ''',
+              '''              error: displayError,
+          ''',
+          )
+
+          replace_exact(
+              '''        setUpgradeFareBox(
+                  shouldBlockHostedSearch
+                    ? null
+                    : createInitialUpgradeFareCardState(response.summary, submittedRequest)
+                );
+          ''',
+              '''        setUpgradeFareBox(
+                  createInitialUpgradeFareCardState(response.summary, submittedRequest)
+                );
+          ''',
+          )
+
+          replace_exact(
+              '''      setUpgradeSearchRequests(
+                shouldBlockHostedSearch
+                  ? []
+                  : buildHigherCabinSearchRequests(submittedRequest)
+              );
+          ''',
+              '''      setUpgradeSearchRequests(
+                buildHigherCabinSearchRequests(submittedRequest)
+              );
+          ''',
+          )
+
+          replace_exact(
+              '''    const shouldBlockHostedSearch = hostedApiMode;
+              const validationError = shouldBlockHostedSearch
+                ? null
+                : routeRequests.map(getSearchValidationError).find(Boolean) ?? null;
+          ''',
+              '''    const validationError =
+                routeRequests.map(getSearchValidationError).find(Boolean) ?? null;
+          ''',
+          )
+
+          replace_exact(
+              '''    if (shouldBlockHostedSearch) {
+              setLivePreviewSummary(null);
+              setHasCompletedSearch(false);
+              setResumeSearchState(null);
+              setError(hostedSearchUnavailableMessage);
+              return;
+            }
+
+          ''',
+              '''''',
+          )
+
+          replace_exact(
+              '''        searchFailures.push(
+                  `${routeRequest.origin} -> ${routeRequest.destination}: ${response.error}`
+                );
+          ''',
+              '''        const routeError = getHostedAwareSearchError(
+                  response.error,
+                  hostedApiMode
+                );
+                searchFailures.push(
+                  `${routeRequest.origin} -> ${routeRequest.destination}: ${routeError}`
+                );
+          ''',
+          )
+
+          replace_exact(
+              '''      setError(message);
+              setSummary(null);
+              setLivePreviewSummary(bestSummary);
+          ''',
+              '''      setError(getHostedAwareSearchError(message, hostedApiMode));
+              setSummary(null);
+              setLivePreviewSummary(bestSummary);
+          ''',
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: workspace/app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: workspace/app
+        run: npm ci
+
+      - name: Type check
+        working-directory: workspace/app
+        run: npm run check
+
+      - name: Test
+        working-directory: workspace/app
+        run: npm test
+
+      - name: Build
+        working-directory: workspace/app
+        run: npm run build
+
+      - name: Commit source update and remove one-time workflow
+        run: |
+          rm .github/workflows/enable-hosted-search-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add workspace/app/web/src/App.tsx .github/workflows/enable-hosted-search-once.yml
+          git commit -m "fix: enable hosted flight searches"
+          git push origin HEAD:main
