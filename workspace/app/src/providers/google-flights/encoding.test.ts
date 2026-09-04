@@ -58,6 +58,10 @@ describe("encoding", () => {
         departureTimeWindow: {
           from: 8,
           to: 12
+        },
+        arrivalTimeWindow: {
+          from: 14,
+          to: 20
         }
       };
 
@@ -68,7 +72,67 @@ describe("encoding", () => {
       const segment = payload[1][13][0];
       expect(segment[3]).toBe(1); // stops filter "nonstop"
       expect(segment[4]).toEqual(["AA", "DL"]); // airlines sorted
+      expect(segment[2]).toEqual([8, 12, 14, 20]); // time filters
+    });
+
+    it("encodes calendar search with only departure time window", () => {
+      const params: CalendarSearchParams = {
+        origin: "SEA",
+        destination: "JFK",
+        fromDate: "2024-01-01",
+        toDate: "2024-01-31",
+        travelDate: "2024-01-15",
+        cabinClass: "economy",
+        stopsFilter: "any",
+        airlines: [],
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        },
+        departureTimeWindow: {
+          from: 8,
+          to: 12
+        }
+      };
+
+      const result = encodeCalendarSearch(params);
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
+
+      const segment = payload[1][13][0];
       expect(segment[2]).toEqual([8, 12, null, null]); // time filters
+    });
+
+    it("encodes calendar search with only arrival time window", () => {
+      const params: CalendarSearchParams = {
+        origin: "SEA",
+        destination: "JFK",
+        fromDate: "2024-01-01",
+        toDate: "2024-01-31",
+        travelDate: "2024-01-15",
+        cabinClass: "economy",
+        stopsFilter: "any",
+        airlines: [],
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        },
+        arrivalTimeWindow: {
+          from: 14,
+          to: 20
+        }
+      };
+
+      const result = encodeCalendarSearch(params);
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
+
+      const segment = payload[1][13][0];
+      expect(segment[2]).toEqual([null, null, 14, 20]); // time filters
     });
 
     it("encodes calendar search with passengers", () => {
@@ -229,6 +293,60 @@ describe("encoding", () => {
       expect(selectedFlight[3]).toBeNull();
       expect(selectedFlight[4]).toBe("DL");
       expect(selectedFlight[5]).toBe("123");
+    });
+
+    it("encodes exact search with selectedFlight and improperly formatted departureDateTime", () => {
+      const params: ExactFlightSearchParams = {
+        tripType: "one_way",
+        origin: "SEA",
+        destination: "JFK",
+        departureDate: "2024-01-15",
+        cabinClass: "economy",
+        stopsFilter: "any",
+        airlines: [],
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsOnLap: 0,
+          infantsInSeat: 0
+        },
+        selectedFlight: {
+          price: 100,
+          durationMinutes: 300,
+          stops: 0,
+          bookingSource: {
+            type: "direct_airline",
+            label: "Delta",
+            detected: true,
+            url: "https://example.com",
+            sellerName: "Delta"
+          },
+          legs: [
+            {
+              departureAirportCode: "SEA",
+              arrivalAirportCode: "JFK",
+              departureDateTime: "invalid-date",
+              arrivalDateTime: "2024-01-15T16:00:00",
+              airlineCode: "DL",
+              airlineName: "Delta Air Lines",
+              flightNumber: "123",
+              durationMinutes: 300
+            }
+          ]
+        }
+      };
+
+      const result = encodeExactSearch(params);
+      const decoded = JSON.parse(decodeURIComponent(result));
+      const payload = JSON.parse(decoded[1]);
+
+      const segments = payload[1][13];
+      const segment1 = segments[0];
+
+      const selectedFlights = segment1[8];
+      const selectedFlight = selectedFlights[0];
+      // Should fallback to the travelDate provided (departureDate in this case)
+      expect(selectedFlight[1]).toBe("2024-01-15");
     });
   });
 });
