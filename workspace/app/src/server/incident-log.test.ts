@@ -31,6 +31,8 @@ afterEach(() => {
   }
 });
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 describe("ensureIncidentLogDirectory", () => {
   it("creates and returns the specified directory path", () => {
     const baseDirectory = createTemporaryDirectory();
@@ -101,7 +103,7 @@ describe("writeIncidentLog", () => {
     expect(fileContents.details?.route).toBe("SEA -> JFK");
   });
 
-  it("prunes incident files older than the retention window", () => {
+  it("prunes incident files older than the retention window", async () => {
     const directoryPath = createTemporaryDirectory();
     const now = new Date("2026-06-27T12:00:00.000Z");
     const staleTimestamp = new Date(now.getTime() - INCIDENT_LOG_RETENTION_MS - 1000);
@@ -129,6 +131,8 @@ describe("writeIncidentLog", () => {
         timestamp: now
       }
     );
+
+    await delay(100);
 
     const files = fs.readdirSync(directoryPath);
     expect(files).toHaveLength(1);

@@ -39,32 +39,26 @@ function sanitizeFileSegment(value: string): string {
 
 function pruneIncidentLogs(directoryPath: string, now: Date): void {
   const cutoffTime = now.getTime() - INCIDENT_LOG_RETENTION_MS;
-  let fileNames: string[] = [];
 
-  try {
-    fileNames = fs.readdirSync(directoryPath);
-  } catch {
-    return;
-  }
+  fs.promises.readdir(directoryPath)
+    .then((fileNames) => {
+      for (const fileName of fileNames) {
+        if (!fileName.endsWith(".json")) {
+          continue;
+        }
 
-  for (const fileName of fileNames) {
-    if (!fileName.endsWith(".json")) {
-      continue;
-    }
+        const filePath = path.join(directoryPath, fileName);
 
-    const filePath = path.join(directoryPath, fileName);
-
-    try {
-      const stats = fs.statSync(filePath);
-      if (stats.mtimeMs < cutoffTime) {
-        fs.rmSync(filePath, {
-          force: true
-        });
+        fs.promises.stat(filePath)
+          .then((stats) => {
+            if (stats.mtimeMs < cutoffTime) {
+              fs.promises.rm(filePath, { force: true }).catch(() => {});
+            }
+          })
+          .catch(() => {});
       }
-    } catch {
-      // Ignore unreadable log files so new incidents can still be recorded.
-    }
-  }
+    })
+    .catch(() => {});
 }
 
 function getIncidentLogDirectory(directoryPath?: string, now = new Date()): string {
