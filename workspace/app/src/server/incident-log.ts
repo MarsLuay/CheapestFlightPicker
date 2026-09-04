@@ -87,10 +87,10 @@ export function ensureIncidentLogDirectory(directoryPath?: string): string {
   return getIncidentLogDirectory(directoryPath);
 }
 
-export function writeIncidentLog(
+export async function writeIncidentLog(
   input: Omit<IncidentLogEntry, "id" | "timestamp">,
   options?: WriteIncidentLogOptions
-): { entry: IncidentLogEntry; filePath: string } {
+): Promise<{ entry: IncidentLogEntry; filePath: string }> {
   const timestamp = options?.timestamp ?? new Date();
   const entry: IncidentLogEntry = {
     id: buildIncidentId(timestamp),
@@ -103,18 +103,18 @@ export function writeIncidentLog(
     buildIncidentLogFileName(timestamp, entry.source, entry.message)
   );
 
-  fs.writeFileSync(filePath, `${JSON.stringify(entry, null, 2)}\n`, "utf8");
-  fs.utimesSync(filePath, timestamp, timestamp);
+  await fs.promises.writeFile(filePath, `${JSON.stringify(entry, null, 2)}\n`, "utf8");
+  await fs.promises.utimes(filePath, timestamp, timestamp);
 
   return { entry, filePath };
 }
 
-export function writeIncidentLogSafely(
+export async function writeIncidentLogSafely(
   input: Omit<IncidentLogEntry, "id" | "timestamp">,
   options?: WriteIncidentLogOptions
-): { entry: IncidentLogEntry; filePath: string } | null {
+): Promise<{ entry: IncidentLogEntry; filePath: string } | null> {
   try {
-    return writeIncidentLog(input, options);
+    return await writeIncidentLog(input, options);
   } catch (error) {
     console.error("Failed to write incident log", error);
     return null;
