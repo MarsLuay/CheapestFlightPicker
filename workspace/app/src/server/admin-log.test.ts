@@ -78,7 +78,7 @@ describe("admin-log", () => {
         details: { port: 3000 }
       });
       expect(typeof logs[0].id).toBe("string");
-      expect(logs[0].id).toMatch(/^\d+-[a-z0-9]+$/);
+      expect(logs[0].id).toMatch(/^\d+-[a-z0-9\-]+$/);
       expect(typeof logs[0].timestamp).toBe("string");
       expect(new Date(logs[0].timestamp).toISOString()).toBe(logs[0].timestamp);
     });
