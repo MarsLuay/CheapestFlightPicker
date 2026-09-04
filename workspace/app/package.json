@@ -43,7 +43,7 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.2",
     "vite": "^8.1.0",
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.11"
   },
   "description": "Flight search app that compares flexible date windows and surfaces the cheapest options."
 }
