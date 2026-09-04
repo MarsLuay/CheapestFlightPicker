@@ -72,7 +72,7 @@ export function addClientLog(
   details?: string
 ): void {
   clientLogs.unshift({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     level,
     message,
