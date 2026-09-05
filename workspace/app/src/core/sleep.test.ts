@@ -43,8 +43,16 @@ describe("sleep", () => {
     controller.abort();
 
     await expect(sleep(1000, controller.signal)).rejects.toThrow(
-      "Aborted"
+      /aborted/i
     );
+  });
+
+  it("rejects immediately with AbortError if signal is already aborted, even when delayMs is 0 or negative", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(sleep(0, controller.signal)).rejects.toThrow(/aborted/i);
+    await expect(sleep(-100, controller.signal)).rejects.toThrow(/aborted/i);
   });
 
   it("rejects with AbortError when signal is aborted mid-sleep", async () => {
@@ -54,7 +62,7 @@ describe("sleep", () => {
     vi.advanceTimersByTime(500);
     controller.abort();
 
-    await expect(sleepPromise).rejects.toThrow("Aborted");
+    await expect(sleepPromise).rejects.toThrow(/aborted/i);
   });
 
   it("removes abort event listener upon completion", async () => {

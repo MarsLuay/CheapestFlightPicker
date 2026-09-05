@@ -1,4 +1,8 @@
 export function sleep(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason !== undefined ? signal.reason : new DOMException("Aborted", "AbortError"));
+  }
+
   if (delayMs <= 0) {
     return Promise.resolve();
   }
