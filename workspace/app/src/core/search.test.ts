@@ -1584,6 +1584,71 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(summary.timingGuidance?.currentBestPrice).toBe(305);
   });
 
+  it("reports completion and rethrows when exact flight lookup fails", async () => {
+    const service = new FlightSearchService();
+    const serviceWithMocks = service as unknown as {
+      provider: {
+        searchOneWayWithinWindow: () => Promise<Array<{ date: string; price: number }>>;
+        searchExactFlights: () => Promise<FlightOption[]>;
+      };
+      bookingSourceSupplementService: {
+        supplementOptions: (options: FlightOption[]) => Promise<FlightOption[]>;
+        supplementSummary: <T>(summary: T) => Promise<T>;
+      };
+    };
+
+    serviceWithMocks.provider = {
+      async searchOneWayWithinWindow() {
+        return [{ date: "2026-05-08", price: 120 }];
+      },
+      async searchExactFlights() {
+        throw new Error("Simulated API failure");
+      }
+    };
+    serviceWithMocks.bookingSourceSupplementService = {
+      async supplementOptions(options) {
+        return options;
+      },
+      async supplementSummary(summary) {
+        return summary;
+      }
+    };
+
+    let progressUpdates: SearchProgress[] = [];
+
+    await expect(
+      service.search(
+        {
+          tripType: "round_trip",
+          origin: "SEA",
+          destination: "PIT",
+          departureDateFrom: "2026-05-08",
+          departureDateTo: "2026-05-08",
+          returnDateFrom: "2026-05-15",
+          returnDateTo: "2026-05-15",
+          cabinClass: "economy",
+          stopsFilter: "any",
+          preferDirectBookingOnly: false,
+          airlines: [],
+          passengers: {
+            adults: 1,
+            children: 0,
+            infantsInSeat: 0,
+            infantsOnLap: 0
+          },
+          maxResults: 1
+        },
+        (p) => progressUpdates.push(p)
+      )
+    ).rejects.toThrow("Simulated API failure");
+
+    // The catch block in loadOneWayExact calls reportExactLookupComplete() which updates progress message.
+    const exactFinishedUpdate = progressUpdates.find(
+      (p) => p.stage === "Checking exact flight options" && p.detail?.includes("exact fare lookups finished")
+    );
+    expect(exactFinishedUpdate).toBeDefined();
+  });
+
   it("falls back when a cached reprice no longer includes the winning itinerary", async () => {
     const service = new FlightSearchService();
     const serviceWithMocks = service as unknown as {
