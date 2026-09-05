@@ -1086,56 +1086,29 @@ function buildObservationSignals(
   return signals;
 }
 
-export function buildTimingGuidance(
-  summary: SearchSummary,
-  observations: TimingObservation[],
-  now = new Date(),
-  marketPriceMetrics?: TimingMarketPriceMetrics | null,
-  marketObservations?: TimingObservation[]
-): TimingGuidance | null {
-  const currentBestPrice = summary.cheapestOverall?.totalPrice ?? Number.NaN;
-  const currency = summary.cheapestOverall?.currency;
-
-  if (!Number.isFinite(currentBestPrice) || !currency) {
-    return null;
-  }
-
-  const daysUntilDeparture = calculateDaysUntilDeparture(summary, now);
-  const allObservations = [...observations].sort((left, right) =>
-    left.observedAt.localeCompare(right.observedAt)
-  );
-  const comparableMarketObservations = marketObservations
-    ? [...marketObservations].sort((left, right) =>
-        left.observedAt.localeCompare(right.observedAt)
-      )
-    : [];
+function extractObservationMetrics(
+  allObservations: TimingObservation[],
+  currentBestPrice: number
+) {
   const observedPrices = allObservations
     .map((observation) => observation.bestPrice)
     .filter((price) => Number.isFinite(price))
     .sort((left, right) => left - right);
 
-  const observedLowPrice = observedPrices[0] ?? currentBestPrice;
-  const observedHighPrice =
-    observedPrices[observedPrices.length - 1] ?? currentBestPrice;
-  const observedMedianPrice = percentile(observedPrices, 0.5) || currentBestPrice;
-  const trend = getTrend(allObservations);
-  const historySampleSize = allObservations.length;
-  const pricePosition = getPricePosition(
-    currentBestPrice,
-    observedLowPrice,
-    observedMedianPrice,
-    historySampleSize
-  );
-  const routeKind = getRouteKind(summary.request);
-  const routeWindowSignal = formatRouteWindowReason(routeKind, daysUntilDeparture);
-  const currentObservation = allObservations[allObservations.length - 1];
-  const recentVolatility = average(
-    allObservations
-      .slice(-5)
-      .map((observation) => observation.volatility)
-      .filter((value): value is number => value !== null)
-  );
-  const effectiveMarketMetrics =
+  return {
+    observedLowPrice: observedPrices[0] ?? currentBestPrice,
+    observedHighPrice: observedPrices[observedPrices.length - 1] ?? currentBestPrice,
+    observedMedianPrice: percentile(observedPrices, 0.5) || currentBestPrice
+  };
+}
+
+function determineEffectiveMarketMetrics(
+  currency: string,
+  allObservations: TimingObservation[],
+  comparableMarketObservations: TimingObservation[],
+  marketPriceMetrics?: TimingMarketPriceMetrics | null
+) {
+  return (
     marketPriceMetrics ??
     (comparableMarketObservations.length > 0
       ? buildLocalMarketPriceMetrics(
@@ -1144,23 +1117,38 @@ export function buildTimingGuidance(
           "route_history"
         )
       : null) ??
-    buildLocalMarketPriceMetrics(allObservations, currency, "exact_trip_history");
-  const marketPriceReason = buildMarketPriceReason(
-    currentBestPrice,
-    effectiveMarketMetrics
+    buildLocalMarketPriceMetrics(allObservations, currency, "exact_trip_history")
   );
-  const projection = buildFuturePriceProjection(
-    allObservations,
-    currentBestPrice,
+}
+
+function gatherTimingSignals(options: {
+  routeWindowSignal: { score: number; reason: string } | null;
+  pricePosition: TimingPricePosition;
+  trend: TimingTrend;
+  historySampleSize: number;
+  projection: TimingFuturePriceProjection | null;
+  daysUntilDeparture: number;
+  materialMovementThreshold: number;
+  currency: string;
+  marketPriceReason: { score: number; reason: string } | null;
+  effectiveMarketMetrics: TimingMarketPriceMetrics | null;
+  airlineBaselineSignal: TimingSignal | null;
+  currentObservation: TimingObservation;
+}): TimingSignal[] {
+  const {
+    routeWindowSignal,
+    pricePosition,
+    trend,
+    historySampleSize,
+    projection,
     daysUntilDeparture,
-    effectiveMarketMetrics
-  );
-  const materialMovementThreshold = Math.max(currentBestPrice * 0.03, 15);
-  const airlineBaselineSignal = buildAirlineBaselineSignal(
-    currentObservation,
-    comparableMarketObservations.slice(0, -1),
-    currency
-  );
+    materialMovementThreshold,
+    currency,
+    marketPriceReason,
+    effectiveMarketMetrics,
+    airlineBaselineSignal,
+    currentObservation
+  } = options;
 
   const signals: TimingSignal[] = [];
 
@@ -1202,6 +1190,44 @@ export function buildTimingGuidance(
   }
 
   signals.push(...buildObservationSignals(currentObservation, daysUntilDeparture, trend));
+
+  return signals;
+}
+
+function compileGuidanceResult(options: {
+  signals: TimingSignal[];
+  historySampleSize: number;
+  routeWindowSignal: { score: number; reason: string } | null;
+  trend: TimingTrend;
+  pricePosition: TimingPricePosition;
+  effectiveMarketMetrics: TimingMarketPriceMetrics | null;
+  recentVolatility: number | null;
+  projection: TimingFuturePriceProjection | null;
+  airlineBaselineSignal: TimingSignal | null;
+  daysUntilDeparture: number;
+  currentBestPrice: number;
+  currency: string;
+  observedLowPrice: number;
+  observedMedianPrice: number;
+  observedHighPrice: number;
+}): TimingGuidance {
+  const {
+    signals,
+    historySampleSize,
+    routeWindowSignal,
+    trend,
+    pricePosition,
+    effectiveMarketMetrics,
+    recentVolatility,
+    projection,
+    airlineBaselineSignal,
+    daysUntilDeparture,
+    currentBestPrice,
+    currency,
+    observedLowPrice,
+    observedMedianPrice,
+    observedHighPrice
+  } = options;
 
   const score = signals.reduce((total, signal) => total + signal.score, 0);
   const recommendation: TimingRecommendation = score >= 1 ? "book_now" : "wait";
@@ -1246,6 +1272,106 @@ export function buildTimingGuidance(
     historySampleSize,
     daysUntilDeparture
   };
+}
+
+export function buildTimingGuidance(
+  summary: SearchSummary,
+  observations: TimingObservation[],
+  now = new Date(),
+  marketPriceMetrics?: TimingMarketPriceMetrics | null,
+  marketObservations?: TimingObservation[]
+): TimingGuidance | null {
+  const currentBestPrice = summary.cheapestOverall?.totalPrice ?? Number.NaN;
+  const currency = summary.cheapestOverall?.currency;
+
+  if (!Number.isFinite(currentBestPrice) || !currency) {
+    return null;
+  }
+
+  const daysUntilDeparture = calculateDaysUntilDeparture(summary, now);
+  const allObservations = [...observations].sort((left, right) =>
+    left.observedAt.localeCompare(right.observedAt)
+  );
+  const comparableMarketObservations = marketObservations
+    ? [...marketObservations].sort((left, right) =>
+        left.observedAt.localeCompare(right.observedAt)
+      )
+    : [];
+
+  const { observedLowPrice, observedHighPrice, observedMedianPrice } =
+    extractObservationMetrics(allObservations, currentBestPrice);
+  const trend = getTrend(allObservations);
+  const historySampleSize = allObservations.length;
+  const pricePosition = getPricePosition(
+    currentBestPrice,
+    observedLowPrice,
+    observedMedianPrice,
+    historySampleSize
+  );
+  const routeKind = getRouteKind(summary.request);
+  const routeWindowSignal = formatRouteWindowReason(routeKind, daysUntilDeparture);
+  const currentObservation = allObservations[allObservations.length - 1];
+  const recentVolatility = average(
+    allObservations
+      .slice(-5)
+      .map((observation) => observation.volatility)
+      .filter((value): value is number => value !== null)
+  );
+  const effectiveMarketMetrics = determineEffectiveMarketMetrics(
+    currency,
+    allObservations,
+    comparableMarketObservations,
+    marketPriceMetrics
+  );
+  const marketPriceReason = buildMarketPriceReason(
+    currentBestPrice,
+    effectiveMarketMetrics
+  );
+  const projection = buildFuturePriceProjection(
+    allObservations,
+    currentBestPrice,
+    daysUntilDeparture,
+    effectiveMarketMetrics
+  );
+  const materialMovementThreshold = Math.max(currentBestPrice * 0.03, 15);
+  const airlineBaselineSignal = buildAirlineBaselineSignal(
+    currentObservation,
+    comparableMarketObservations.slice(0, -1),
+    currency
+  );
+
+  const signals = gatherTimingSignals({
+    routeWindowSignal,
+    pricePosition,
+    trend,
+    historySampleSize,
+    projection,
+    daysUntilDeparture,
+    materialMovementThreshold,
+    currency,
+    marketPriceReason,
+    effectiveMarketMetrics,
+    airlineBaselineSignal,
+    currentObservation
+  });
+
+  return compileGuidanceResult({
+    signals,
+    historySampleSize,
+    routeWindowSignal,
+    trend,
+    pricePosition,
+    effectiveMarketMetrics,
+    recentVolatility,
+    projection,
+    airlineBaselineSignal,
+    daysUntilDeparture,
+    currentBestPrice,
+    currency,
+    observedLowPrice,
+    observedMedianPrice,
+    observedHighPrice
+  });
 }
 
 export class TimingGuidanceService {
