@@ -231,6 +231,184 @@ async function copyTextToClipboard(text: string): Promise<void> {
   document.body.removeChild(textarea);
 }
 
+function FlightControlsView({
+  adminSnapshot,
+  searchProgress
+}: {
+  adminSnapshot?: AdminUiSnapshot;
+  searchProgress?: { stage?: string; detail?: string | null; percent?: number } | null;
+}) {
+  const flightControlFacts = [
+    {
+      label: "Trip type",
+      value: toHumanLabel(adminSnapshot?.route?.tripType)
+    },
+    {
+      label: "Selected route",
+      value: `${adminSnapshot?.route?.origin ?? "n/a"} -> ${
+        adminSnapshot?.route?.destination || "(destination empty)"
+      }`
+    },
+    {
+      label: "Search Intelligence",
+      value: String(adminSnapshot?.route?.searchIntelligence ?? "n/a")
+    },
+    {
+      label: "Exact dates",
+      value: adminSnapshot?.route?.useExactDates ? "enabled" : "flexible"
+    },
+    {
+      label: "Departure range",
+      value: adminSnapshot?.dateRanges?.departureRangeValid
+        ? "valid"
+        : "out of sync"
+    },
+    {
+      label: "Return range",
+      value: adminSnapshot?.dateRanges?.returnRangeValid ? "valid" : "out of sync"
+    },
+    {
+      label: "Return locked to departure",
+      value: adminSnapshot?.dateRanges?.returnDatesMatchDepartureRange ? "yes" : "no"
+    },
+    {
+      label: "Search progress",
+      value: searchProgress
+        ? `${searchProgress.stage ?? "working"} (${searchProgress.percent ?? 0}%)`
+        : "idle"
+    }
+  ];
+
+  return (
+    <section className="admin-card">
+      <h3>Flight Controls</h3>
+      <SnapshotFacts entries={flightControlFacts} />
+      {searchProgress?.detail ? (
+        <p className="muted-copy">{searchProgress.detail}</p>
+      ) : null}
+      {adminSnapshot?.searchState?.latestError ? (
+        <p className="admin-status-copy">{adminSnapshot.searchState.latestError}</p>
+      ) : null}
+    </section>
+  );
+}
+
+function OriginDetectionView({
+  locationDetection
+}: {
+  locationDetection?: AdminUiSnapshot["locationDetection"];
+}) {
+  const originDetectionFacts = [
+    {
+      label: "Detection status",
+      value: toHumanLabel(locationDetection?.status)
+    },
+    {
+      label: "Selection source",
+      value: toHumanLabel(locationDetection?.selectionSource)
+    },
+    {
+      label: "Applied origin",
+      value: locationDetection?.appliedOrigin ?? "n/a"
+    },
+    {
+      label: "Inferred airport",
+      value: locationDetection?.inferredAirport ?? "n/a"
+    },
+    {
+      label: "Browser time zone",
+      value: locationDetection?.browserTimeZone ?? "n/a"
+    },
+    {
+      label: "Matched region",
+      value: locationDetection?.matchedRegion ?? "n/a"
+    },
+    {
+      label: "Fallback origin",
+      value: locationDetection?.fallbackOrigin ?? "n/a"
+    }
+  ];
+
+  return (
+    <section className="admin-card">
+      <h3>Origin Detection</h3>
+      <SnapshotFacts entries={originDetectionFacts} />
+      <p className="muted-copy">
+        {locationDetection?.message ?? "No origin-detection status has been recorded yet."}
+      </p>
+    </section>
+  );
+}
+
+function LatestSearchSignalsView({
+  latestSummary
+}: {
+  latestSummary?: AdminUiSnapshot["latestSummary"];
+}) {
+  const latestSignalFacts = [
+    {
+      label: "Cheapest overall",
+      value: latestSummary?.cheapestOverall?.price ?? "n/a"
+    },
+    {
+      label: "Round-trip best",
+      value: latestSummary?.cheapestRoundTrip ?? "n/a"
+    },
+    {
+      label: "Best two one-ways",
+      value: latestSummary?.cheapestTwoOneWays ?? "n/a"
+    },
+    {
+      label: "Timing guidance",
+      value: latestSummary?.timingGuidance
+        ? `${toHumanLabel(latestSummary.timingGuidance.recommendation)} (${toHumanLabel(
+            latestSummary.timingGuidance.confidence
+          )})`
+        : "none"
+    },
+    {
+      label: "Price alert",
+      value: latestSummary?.priceAlert
+        ? `${toHumanLabel(latestSummary.priceAlert.kind)}${
+            typeof latestSummary.priceAlert.changePercent === "number"
+              ? ` (${latestSummary.priceAlert.changePercent}%)`
+              : ""
+          }`
+        : "none"
+    },
+    {
+      label: "Separate one-ways",
+      value: latestSummary?.separateOneWayInsight
+        ? "lower than round-trip"
+        : "none"
+    },
+    {
+      label: "Date pairs evaluated",
+      value: String(latestSummary?.evaluatedDatePairs ?? 0)
+    },
+    {
+      label: "Options inspected",
+      value: String(latestSummary?.inspectedOptions ?? 0)
+    }
+  ];
+
+  return (
+    <section className="admin-card">
+      <h3>Latest Search Signals</h3>
+      <SnapshotFacts entries={latestSignalFacts} />
+      {latestSummary?.timingGuidance?.summary ? (
+        <p className="muted-copy">{latestSummary.timingGuidance.summary}</p>
+      ) : null}
+      {latestSummary?.priceAlert?.summary ? (
+        <p className="muted-copy">{latestSummary.priceAlert.summary}</p>
+      ) : null}
+      {latestSummary?.separateOneWayInsight?.summary ? (
+        <p className="muted-copy">{latestSummary.separateOneWayInsight.summary}</p>
+      ) : null}
+    </section>
+  );
+}
+
 export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
   const clientLogs = useClientLogs();
   const [isOpen, setIsOpen] = useState(false);
@@ -346,122 +524,6 @@ export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
   const searchProgress = adminSnapshot?.searchState?.progress;
   const locationDetection = adminSnapshot?.locationDetection;
   const latestSummary = adminSnapshot?.latestSummary;
-  const flightControlFacts = [
-    {
-      label: "Trip type",
-      value: toHumanLabel(adminSnapshot?.route?.tripType)
-    },
-    {
-      label: "Selected route",
-      value: `${adminSnapshot?.route?.origin ?? "n/a"} -> ${
-        adminSnapshot?.route?.destination || "(destination empty)"
-      }`
-    },
-    {
-      label: "Search Intelligence",
-      value: String(adminSnapshot?.route?.searchIntelligence ?? "n/a")
-    },
-    {
-      label: "Exact dates",
-      value: adminSnapshot?.route?.useExactDates ? "enabled" : "flexible"
-    },
-    {
-      label: "Departure range",
-      value: adminSnapshot?.dateRanges?.departureRangeValid
-        ? "valid"
-        : "out of sync"
-    },
-    {
-      label: "Return range",
-      value: adminSnapshot?.dateRanges?.returnRangeValid ? "valid" : "out of sync"
-    },
-    {
-      label: "Return locked to departure",
-      value: adminSnapshot?.dateRanges?.returnDatesMatchDepartureRange ? "yes" : "no"
-    },
-    {
-      label: "Search progress",
-      value: searchProgress
-        ? `${searchProgress.stage ?? "working"} (${searchProgress.percent ?? 0}%)`
-        : "idle"
-    }
-  ];
-  const originDetectionFacts = [
-    {
-      label: "Detection status",
-      value: toHumanLabel(locationDetection?.status)
-    },
-    {
-      label: "Selection source",
-      value: toHumanLabel(locationDetection?.selectionSource)
-    },
-    {
-      label: "Applied origin",
-      value: locationDetection?.appliedOrigin ?? "n/a"
-    },
-    {
-      label: "Inferred airport",
-      value: locationDetection?.inferredAirport ?? "n/a"
-    },
-    {
-      label: "Browser time zone",
-      value: locationDetection?.browserTimeZone ?? "n/a"
-    },
-    {
-      label: "Matched region",
-      value: locationDetection?.matchedRegion ?? "n/a"
-    },
-    {
-      label: "Fallback origin",
-      value: locationDetection?.fallbackOrigin ?? "n/a"
-    }
-  ];
-  const latestSignalFacts = [
-    {
-      label: "Cheapest overall",
-      value: latestSummary?.cheapestOverall?.price ?? "n/a"
-    },
-    {
-      label: "Round-trip best",
-      value: latestSummary?.cheapestRoundTrip ?? "n/a"
-    },
-    {
-      label: "Best two one-ways",
-      value: latestSummary?.cheapestTwoOneWays ?? "n/a"
-    },
-    {
-      label: "Timing guidance",
-      value: latestSummary?.timingGuidance
-        ? `${toHumanLabel(latestSummary.timingGuidance.recommendation)} (${toHumanLabel(
-            latestSummary.timingGuidance.confidence
-          )})`
-        : "none"
-    },
-    {
-      label: "Price alert",
-      value: latestSummary?.priceAlert
-        ? `${toHumanLabel(latestSummary.priceAlert.kind)}${
-            typeof latestSummary.priceAlert.changePercent === "number"
-              ? ` (${latestSummary.priceAlert.changePercent}%)`
-              : ""
-          }`
-        : "none"
-    },
-    {
-      label: "Separate one-ways",
-      value: latestSummary?.separateOneWayInsight
-        ? "lower than round-trip"
-        : "none"
-    },
-    {
-      label: "Date pairs evaluated",
-      value: String(latestSummary?.evaluatedDatePairs ?? 0)
-    },
-    {
-      label: "Options inspected",
-      value: String(latestSummary?.inspectedOptions ?? 0)
-    }
-  ];
 
   return (
     <aside className="admin-panel">
@@ -588,38 +650,11 @@ export function AdminPanel({ uiSnapshot }: AdminPanelProps) {
       </div>
 
       <div className="admin-panel__grid">
-        <section className="admin-card">
-          <h3>Flight Controls</h3>
-          <SnapshotFacts entries={flightControlFacts} />
-          {searchProgress?.detail ? (
-            <p className="muted-copy">{searchProgress.detail}</p>
-          ) : null}
-          {adminSnapshot?.searchState?.latestError ? (
-            <p className="admin-status-copy">{adminSnapshot.searchState.latestError}</p>
-          ) : null}
-        </section>
+        <FlightControlsView adminSnapshot={adminSnapshot} searchProgress={searchProgress} />
 
-        <section className="admin-card">
-          <h3>Origin Detection</h3>
-          <SnapshotFacts entries={originDetectionFacts} />
-          <p className="muted-copy">
-            {locationDetection?.message ?? "No origin-detection status has been recorded yet."}
-          </p>
-        </section>
+        <OriginDetectionView locationDetection={locationDetection} />
 
-        <section className="admin-card">
-          <h3>Latest Search Signals</h3>
-          <SnapshotFacts entries={latestSignalFacts} />
-          {latestSummary?.timingGuidance?.summary ? (
-            <p className="muted-copy">{latestSummary.timingGuidance.summary}</p>
-          ) : null}
-          {latestSummary?.priceAlert?.summary ? (
-            <p className="muted-copy">{latestSummary.priceAlert.summary}</p>
-          ) : null}
-          {latestSummary?.separateOneWayInsight?.summary ? (
-            <p className="muted-copy">{latestSummary.separateOneWayInsight.summary}</p>
-          ) : null}
-        </section>
+        <LatestSearchSignalsView latestSummary={latestSummary} />
 
         <section className="admin-card">
           <h3>Environment Snapshot</h3>
