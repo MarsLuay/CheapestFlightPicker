@@ -74,11 +74,11 @@ describe("ensureIncidentLogDirectory", () => {
 });
 
 describe("writeIncidentLog", () => {
-  it("writes a timestamped JSON incident file", () => {
+  it("writes a timestamped JSON incident file", async () => {
     const directoryPath = createTemporaryDirectory();
     const timestamp = new Date("2026-03-25T21:45:30.123Z");
 
-    const result = writeIncidentLog(
+    const result = await writeIncidentLog(
       {
         source: "server",
         level: "error",
@@ -115,7 +115,7 @@ describe("writeIncidentLog", () => {
     const now = new Date("2026-06-27T12:00:00.000Z");
     const staleTimestamp = new Date(now.getTime() - INCIDENT_LOG_RETENTION_MS - 1000);
 
-    writeIncidentLog(
+    await writeIncidentLog(
       {
         source: "server",
         level: "error",
@@ -127,7 +127,7 @@ describe("writeIncidentLog", () => {
       }
     );
 
-    const recentResult = writeIncidentLog(
+    const recentResult = await writeIncidentLog(
       {
         source: "client",
         level: "error",
@@ -150,11 +150,11 @@ describe("writeIncidentLog", () => {
 });
 
 describe("writeIncidentLogSafely", () => {
-  it("returns incident entry and file path on success", () => {
+  it("returns incident entry and file path on success", async () => {
     const directoryPath = createTemporaryDirectory();
     const timestamp = new Date("2026-03-25T21:45:30.123Z");
 
-    const result = writeIncidentLogSafely(
+    const result = await writeIncidentLogSafely(
       {
         source: "server",
         level: "info",
@@ -171,15 +171,15 @@ describe("writeIncidentLogSafely", () => {
     expect(fs.existsSync(result!.filePath)).toBe(true);
   });
 
-  it("catches errors, logs to console.error, and returns null when writing fails", () => {
+  it("catches errors, logs to console.error, and returns null when writing fails", async () => {
     const directoryPath = createTemporaryDirectory();
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const writeError = new Error("Disk full or write permission denied");
-    vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
+    vi.spyOn(fs.promises, "writeFile").mockImplementation(async () => {
       throw writeError;
     });
 
-    const result = writeIncidentLogSafely(
+    const result = await writeIncidentLogSafely(
       {
         source: "server",
         level: "error",
