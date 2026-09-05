@@ -1,7 +1,7 @@
 import {
   useDeferredValue,
   useEffect,
-  useState,
+  useReducer,
   type KeyboardEvent
 } from "react";
 
@@ -27,6 +27,92 @@ export function parseTypedAirportCode(query: string): string | null {
   return trimmed.toUpperCase();
 }
 
+type State = {
+  query: string;
+  options: AirportRecord[];
+  activeIndex: number;
+  isFocused: boolean;
+  hasCommittedSelection: boolean;
+};
+
+type Action =
+  | { type: "SET_QUERY"; payload: string }
+  | { type: "SET_OPTIONS"; payload: AirportRecord[] }
+  | { type: "FOCUS"; payload: { multiple: boolean } }
+  | { type: "BLUR"; payload: { committed: boolean; multiple: boolean; value: string } }
+  | { type: "SELECT"; payload: { multiple: boolean; code: string } }
+  | { type: "SET_ACTIVE_INDEX"; payload: number | ((current: number) => number) }
+  | { type: "SYNC_PROPS"; payload: { multiple: boolean; value: string } };
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case "SET_QUERY":
+      return {
+        ...state,
+        query: action.payload,
+        hasCommittedSelection: false,
+        activeIndex: 0
+      };
+    case "SET_OPTIONS":
+      return {
+        ...state,
+        options: action.payload,
+        activeIndex: 0
+      };
+    case "FOCUS":
+      return {
+        ...state,
+        isFocused: true,
+        query: action.payload.multiple ? "" : state.query,
+        hasCommittedSelection: false
+      };
+    case "BLUR": {
+      const { committed, multiple, value } = action.payload;
+      let nextQuery = state.query;
+      if (multiple && !committed) {
+        nextQuery = "";
+      } else if (!multiple && !committed) {
+        nextQuery = value;
+      }
+      return {
+        ...state,
+        isFocused: false,
+        query: nextQuery,
+        hasCommittedSelection: false
+      };
+    }
+    case "SELECT":
+      return {
+        ...state,
+        query: action.payload.multiple ? "" : action.payload.code,
+        activeIndex: 0,
+        hasCommittedSelection: true
+      };
+    case "SET_ACTIVE_INDEX":
+      return {
+        ...state,
+        activeIndex:
+          typeof action.payload === "function"
+            ? action.payload(state.activeIndex)
+            : action.payload
+      };
+    case "SYNC_PROPS": {
+      const { multiple, value } = action.payload;
+      const nextQuery = multiple ? "" : value;
+      if (state.query === nextQuery && !state.hasCommittedSelection) {
+        return state;
+      }
+      return {
+        ...state,
+        query: nextQuery,
+        hasCommittedSelection: false
+      };
+    }
+    default:
+      return state;
+  }
+}
+
 export function AirportField({
   label,
   multiple = false,
@@ -35,11 +121,16 @@ export function AirportField({
   placeholder = "Enter an airport, city, or code",
   selectedCodes = []
 }: AirportFieldProps) {
-  const [query, setQuery] = useState(multiple ? "" : value);
-  const [options, setOptions] = useState<AirportRecord[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [isFocused, setIsFocused] = useState(false);
-  const [hasCommittedSelection, setHasCommittedSelection] = useState(false);
+  const [state, dispatch] = useReducer(reducer, {
+    query: multiple ? "" : value,
+    options: [],
+    activeIndex: 0,
+    isFocused: false,
+    hasCommittedSelection: false
+  });
+
+  const { query, options, activeIndex, isFocused, hasCommittedSelection } = state;
+
   const deferredQuery = useDeferredValue(query);
   const trimmedQuery = query.trim();
   const selectedCodesLabel = selectedCodes.join(", ");
@@ -52,8 +143,7 @@ export function AirportField({
     suggestionOptions.length > 0;
 
   useEffect(() => {
-    setQuery(multiple ? "" : value);
-    setHasCommittedSelection(false);
+    dispatch({ type: "SYNC_PROPS", payload: { multiple, value } });
   }, [multiple, value]);
 
   useEffect(() => {
@@ -61,13 +151,13 @@ export function AirportField({
 
     async function run() {
       if (deferredQuery.trim().length < 2) {
-        setOptions([]);
+        dispatch({ type: "SET_OPTIONS", payload: [] });
         return;
       }
 
       const airports = await searchAirports(deferredQuery);
       if (!cancelled) {
-        setOptions(airports);
+        dispatch({ type: "SET_OPTIONS", payload: airports });
       }
     }
 
@@ -77,14 +167,8 @@ export function AirportField({
     };
   }, [deferredQuery]);
 
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [trimmedQuery, options]);
-
   function selectAirport(airport: AirportRecord) {
-    setQuery(multiple ? "" : airport.iata);
-    setActiveIndex(0);
-    setHasCommittedSelection(true);
+    dispatch({ type: "SELECT", payload: { multiple, code: airport.iata } });
     onSelect(airport.iata);
   }
 
@@ -94,9 +178,7 @@ export function AirportField({
       return false;
     }
 
-    setQuery(multiple ? "" : code);
-    setActiveIndex(0);
-    setHasCommittedSelection(true);
+    dispatch({ type: "SELECT", payload: { multiple, code } });
     onSelect(code);
     return true;
   }
@@ -104,15 +186,19 @@ export function AirportField({
   function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown" && shouldShowSuggestions) {
       event.preventDefault();
-      setActiveIndex((current) =>
-        Math.min(current + 1, suggestionOptions.length - 1)
-      );
+      dispatch({
+        type: "SET_ACTIVE_INDEX",
+        payload: (current) => Math.min(current + 1, suggestionOptions.length - 1)
+      });
       return;
     }
 
     if (event.key === "ArrowUp" && shouldShowSuggestions) {
       event.preventDefault();
-      setActiveIndex((current) => Math.max(current - 1, 0));
+      dispatch({
+        type: "SET_ACTIVE_INDEX",
+        payload: (current) => Math.max(current - 1, 0)
+      });
       return;
     }
 
@@ -129,7 +215,7 @@ export function AirportField({
     }
 
     if (event.key === "Escape" && shouldShowSuggestions) {
-      setActiveIndex(0);
+      dispatch({ type: "SET_ACTIVE_INDEX", payload: 0 });
     }
   }
 
@@ -148,30 +234,14 @@ export function AirportField({
           }`}
           value={inputValue}
           onBlur={() => {
-            setIsFocused(false);
-            // Commit before submit/click handlers run so typed IATA codes
-            // (e.g. "PIT" then "Find cheapest flights") update parent state.
             const committed = commitTypedAirportCode();
-            if (multiple) {
-              if (!committed) {
-                setQuery("");
-              }
-            } else if (!committed) {
-              setQuery(value);
-            }
-            setHasCommittedSelection(false);
+            dispatch({ type: "BLUR", payload: { committed, multiple, value } });
           }}
           onChange={(event) => {
-            const nextValue = event.target.value;
-            setQuery(nextValue);
-            setHasCommittedSelection(false);
+            dispatch({ type: "SET_QUERY", payload: event.target.value });
           }}
           onFocus={() => {
-            setIsFocused(true);
-            if (multiple) {
-              setQuery("");
-            }
-            setHasCommittedSelection(false);
+            dispatch({ type: "FOCUS", payload: { multiple } });
           }}
           onKeyDown={handleInputKeyDown}
           placeholder={
