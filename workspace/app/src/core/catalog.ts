@@ -15,6 +15,90 @@ let airlineCache: AirlineRecord[] | null = null;
 let airportMapCache: Map<string, AirportRecord> | null = null;
 let airlineMapCache: Map<string, AirlineRecord> | null = null;
 
+interface SpatialNode {
+  airport: AirportRecord;
+  x: number;
+  y: number;
+  z: number;
+  left: SpatialNode | null;
+  right: SpatialNode | null;
+}
+
+let airportSpatialIndex: SpatialNode | null = null;
+
+function buildKDTree(nodes: SpatialNode[], depth = 0): SpatialNode | null {
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const axis = depth % 3;
+  nodes.sort((a, b) => {
+    if (axis === 0) {
+      return a.x - b.x;
+    }
+    if (axis === 1) {
+      return a.y - b.y;
+    }
+    return a.z - b.z;
+  });
+
+  const median = Math.floor(nodes.length / 2);
+  const node = nodes[median];
+
+  node.left = buildKDTree(nodes.slice(0, median), depth + 1);
+  node.right = buildKDTree(nodes.slice(median + 1), depth + 1);
+
+  return node;
+}
+
+function searchKDTree(
+  root: SpatialNode | null,
+  x: number,
+  y: number,
+  z: number
+): SpatialNode | null {
+  let best: SpatialNode | null = null;
+  let bestDistSq = Number.POSITIVE_INFINITY;
+
+  function search(node: SpatialNode | null, depth: number): void {
+    if (!node) {
+      return;
+    }
+
+    const dx = node.x - x;
+    const dy = node.y - y;
+    const dz = node.z - z;
+    const distSq = dx * dx + dy * dy + dz * dz;
+
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      best = node;
+    }
+
+    const axis = depth % 3;
+    let diff = 0;
+    if (axis === 0) {
+      diff = x - node.x;
+    } else if (axis === 1) {
+      diff = y - node.y;
+    } else {
+      diff = z - node.z;
+    }
+
+    const first = diff < 0 ? node.left : node.right;
+    const second = diff < 0 ? node.right : node.left;
+
+    search(first, depth + 1);
+
+    if (diff * diff < bestDistSq) {
+      search(second, depth + 1);
+    }
+  }
+
+  search(root, 0);
+  return best;
+}
+
 function sanitizeCatalogText(value: string): string {
   // eslint-disable-next-line no-control-regex -- intentionally strip control characters from CSV catalog data
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, "").trim();
@@ -119,12 +203,27 @@ function loadAirports(): AirportRecord[] {
     .filter((record): record is AirportRecord => record !== null);
 
   airportMapCache = new Map();
+  const spatialNodes: SpatialNode[] = [];
+
   for (const airport of airportCache) {
     const key = airport.iata.toUpperCase();
     if (!airportMapCache.has(key)) {
       airportMapCache.set(key, airport);
     }
+
+    const lat = toRadians(airport.latitude);
+    const lon = toRadians(airport.longitude);
+    spatialNodes.push({
+      airport,
+      x: Math.cos(lat) * Math.cos(lon),
+      y: Math.cos(lat) * Math.sin(lon),
+      z: Math.sin(lat),
+      left: null,
+      right: null
+    });
   }
+
+  airportSpatialIndex = buildKDTree(spatialNodes);
 
   return airportCache;
 }
@@ -213,24 +312,19 @@ export function findClosestAirport(
     return undefined;
   }
 
-  let closestAirport: AirportRecord | undefined;
-  let closestDistance = Number.POSITIVE_INFINITY;
-
-  for (const airport of loadAirports()) {
-    const distance = calculateGreatCircleDistance(
-      latitude,
-      longitude,
-      airport.latitude,
-      airport.longitude
-    );
-
-    if (distance < closestDistance) {
-      closestAirport = airport;
-      closestDistance = distance;
-    }
+  loadAirports();
+  if (!airportSpatialIndex) {
+    return undefined;
   }
 
-  return closestAirport;
+  const lat = toRadians(latitude);
+  const lon = toRadians(longitude);
+  const x = Math.cos(lat) * Math.cos(lon);
+  const y = Math.cos(lat) * Math.sin(lon);
+  const z = Math.sin(lat);
+
+  const closestNode = searchKDTree(airportSpatialIndex, x, y, z);
+  return closestNode?.airport;
 }
 
 export function findAirlineByCode(code: string): AirlineRecord | undefined {
