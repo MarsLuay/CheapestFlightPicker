@@ -44,6 +44,15 @@ describe("ensureIncidentLogDirectory", () => {
     expect(fs.existsSync(targetDirectory)).toBe(true);
   });
 
+  it("handles fs.readdirSync errors gracefully when pruning incident logs", () => {
+    const directoryPath = createTemporaryDirectory();
+    vi.spyOn(fs, "readdirSync").mockImplementation(() => {
+      throw new Error("Simulated readdir error");
+    });
+
+    expect(() => ensureIncidentLogDirectory(directoryPath)).not.toThrow();
+  });
+
   it("uses the default path based on runtime configuration if no path is provided", () => {
     const originalEnv = process.env.CHEAPEST_FLIGHT_PICKER_RUNTIME_DIR;
     const testRuntimeDir = createTemporaryDirectory();
