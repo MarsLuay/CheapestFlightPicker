@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -24,7 +25,7 @@ type WriteIncidentLogOptions = {
 };
 
 function buildIncidentId(timestamp: Date): string {
-  return `${timestamp.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${timestamp.getTime()}-${crypto.randomUUID()}`;
 }
 
 function sanitizeFileSegment(value: string): string {
