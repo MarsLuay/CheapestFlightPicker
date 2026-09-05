@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
 
 import type {
   AirlineRecord,
@@ -9,6 +9,9 @@ import { resolveAppPath } from "./project-paths";
 
 const airportsPath = resolveAppPath("data", "airports.csv");
 const airlinesPath = resolveAppPath("data", "airlines.csv");
+
+let airportsCsvText: string | null = await fs.readFile(airportsPath, "utf8");
+let airlinesCsvText: string | null = await fs.readFile(airlinesPath, "utf8");
 
 let airportCache: AirportRecord[] | null = null;
 let airlineCache: AirlineRecord[] | null = null;
@@ -196,11 +199,16 @@ function loadAirports(): AirportRecord[] {
     return airportCache;
   }
 
-  const contents = fs.readFileSync(airportsPath, "utf8");
-  airportCache = contents
+  if (airportsCsvText === null) {
+    throw new Error("Airports CSV text was not loaded");
+  }
+
+  airportCache = airportsCsvText
     .split(/\r?\n/u)
     .map(parseAirportRecord)
     .filter((record): record is AirportRecord => record !== null);
+
+  airportsCsvText = null;
 
   airportMapCache = new Map();
   const spatialNodes: SpatialNode[] = [];
@@ -233,10 +241,13 @@ function loadAirlines(): AirlineRecord[] {
     return airlineCache;
   }
 
-  const contents = fs.readFileSync(airlinesPath, "utf8");
+  if (airlinesCsvText === null) {
+    throw new Error("Airlines CSV text was not loaded");
+  }
+
   const seen = new Set<string>();
 
-  airlineCache = contents
+  airlineCache = airlinesCsvText
     .split(/\r?\n/u)
     .map(parseAirlineRecord)
     .filter((record): record is AirlineRecord => record !== null)
@@ -253,6 +264,8 @@ function loadAirlines(): AirlineRecord[] {
       return true;
     })
     .sort((left, right) => left.iata.localeCompare(right.iata));
+
+  airlinesCsvText = null;
 
   airlineMapCache = new Map();
   for (const airline of airlineCache) {
