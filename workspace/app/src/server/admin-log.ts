@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {
   type IncidentLogSource,
   writeIncidentLogSafely
@@ -28,7 +29,7 @@ export function appendServerLog(
   options?: AppendServerLogOptions
 ): void {
   const entry: ServerLogEntry = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `${Date.now()}-${crypto.randomUUID()}`,
     timestamp: new Date().toISOString(),
     level,
     message,
