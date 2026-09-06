@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { GoogleFlightsRateLimitError } from "../providers/google-flights/client";
+import {
+  GoogleFlightsRateLimitError,
+  GoogleFlightsUnavailableError
+} from "../providers/google-flights/client";
 import { getSearchFailureResponse } from "./search-errors";
 
 function buildAxiosError(
@@ -53,6 +56,16 @@ describe("getSearchFailureResponse", () => {
       message:
         "Google Flights temporarily rate limited this search. Wait a minute and try again. If this keeps happening, try turning on a VPN.",
       statusCode: 429
+    });
+  });
+
+  it("preserves the friendly Google Flights unavailable wire-error response", () => {
+    expect(
+      getSearchFailureResponse(new GoogleFlightsUnavailableError(13))
+    ).toEqual({
+      message:
+        "Google Flights rejected this search (temporary provider error). Wait a minute and try again. If this keeps happening, try a VPN or run the search later.",
+      statusCode: 503
     });
   });
 

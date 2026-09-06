@@ -37,6 +37,26 @@ describe("CORS configuration", () => {
     }
   });
 
+  it("allows launcher-selected localhost ports outside the default list", async () => {
+    const server = app.listen(0);
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        headers: {
+          Origin: "http://localhost:8788"
+        }
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("access-control-allow-origin")).toBe(
+        "http://localhost:8788"
+      );
+    } finally {
+      server.close();
+    }
+  });
+
   it("allows requests without an origin header (same-origin / CLI)", async () => {
     const server = app.listen(0);
     const address = server.address();
@@ -61,7 +81,7 @@ describe("CORS configuration", () => {
           Origin: "http://malicious-site.com"
         }
       });
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(200);
       expect(response.headers.get("access-control-allow-origin")).toBeNull();
     } finally {
       server.close();
@@ -90,7 +110,7 @@ describe("CORS configuration", () => {
           Origin: "http://localhost:5173"
         }
       });
-      expect(responseBlocked.status).toBe(500);
+      expect(responseBlocked.status).toBe(200);
       expect(responseBlocked.headers.get("access-control-allow-origin")).toBeNull();
     } finally {
       server.close();

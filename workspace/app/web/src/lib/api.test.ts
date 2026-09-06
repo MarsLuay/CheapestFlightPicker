@@ -340,4 +340,23 @@ describe("fetchNearestAirport", () => {
       method: "POST"
     });
   });
+
+  it("replaces raw JSON.parse failures with a port-conflict hint", async () => {
+    globalThis.window = globalThis as typeof globalThis & Window;
+
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response("<!DOCTYPE html><html><body>Welcome</body></html>", {
+        headers: {
+          "content-type": "text/html"
+        },
+        status: 200
+      })
+    );
+
+    globalThis.fetch = fetchMock;
+
+    await expect(fetchNearestAirport(47.4502, -122.3088)).rejects.toThrow(
+      /Received HTML instead of JSON.*occupying the API port/u
+    );
+  });
 });

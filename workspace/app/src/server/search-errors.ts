@@ -1,6 +1,9 @@
 import { isAxiosError } from "axios";
 
-import { GoogleFlightsRateLimitError } from "../providers/google-flights/client";
+import {
+  GoogleFlightsRateLimitError,
+  GoogleFlightsUnavailableError
+} from "../providers/google-flights/client";
 
 export type SearchFailureResponse = {
   message: string;
@@ -44,6 +47,13 @@ export function getSearchFailureResponse(
   error: unknown
 ): SearchFailureResponse {
   if (error instanceof GoogleFlightsRateLimitError) {
+    return {
+      message: error.message,
+      statusCode: error.statusCode
+    };
+  }
+
+  if (error instanceof GoogleFlightsUnavailableError) {
     return {
       message: error.message,
       statusCode: error.statusCode

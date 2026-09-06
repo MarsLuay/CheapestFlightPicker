@@ -8,6 +8,7 @@ import { optionAppearsToIncludeFreeCarryOnBag } from "../../core/fare-characteri
 import {
   clampTimeWindow,
   combineBookingSources,
+  combineTwoOneWays,
   mapWithConcurrency,
   prefersDirectBooking
 } from "../../core/utils";
@@ -17,9 +18,17 @@ import type {
   FlightSlice,
   SearchRequest
 } from "../../shared/types";
-import { createGoogleFlightsClient } from "./client";
+import {
+  createGoogleFlightsClient,
+  GoogleFlightsUnavailableError
+} from "./client";
 import { encodeCalendarSearch, encodeExactSearch } from "./encoding";
-import { parseCalendarResponse, parseExactSearchResponse } from "./parsing";
+import {
+  parseCalendarResponse,
+  parseExactSearchResponse,
+  parseGoogleFlightsPageDatePrices,
+  parseGoogleFlightsPageResponse
+} from "./parsing";
 import type {
   CalendarSearchParams,
   ExactFlightSearchParams,
@@ -46,7 +55,7 @@ export class GoogleFlightsProvider {
     ttlMs: 1000 * 60 * 30,
     maxEntries: 300,
     sweepIntervalMs: 1000 * 60 * 2,
-    version: 4
+    version: 5
   });
 
   private readonly exactSearchCache = new JsonFileCache<FlightOption[]>({
@@ -54,12 +63,114 @@ export class GoogleFlightsProvider {
     ttlMs: 1000 * 60 * 20,
     maxEntries: 800,
     sweepIntervalMs: 1000 * 60 * 2,
-    version: 9
+    version: 10
   });
 
   constructor() {
     this.calendarCache.sweepExpired();
     this.exactSearchCache.sweepExpired();
+  }
+
+  private buildOneWayOptions(
+    results: GoogleFlightResult[],
+    params: ExactFlightSearchParams
+  ): FlightOption[] {
+    const options = this.applyDirectBookingPreference(
+      results.map((result) =>
+        this.toFlightOption(result, "google_one_way", params.departureDate)
+      ),
+      params.preferDirectBookingOnly
+    );
+    return this.applyFreeCarryOnRequirement(
+      options,
+      params.requireFreeCarryOnBag,
+      params.cabinClass
+    );
+  }
+
+  private async searchOneWayFromPage(
+    params: ExactFlightSearchParams,
+    runtimeOptions?: ExactSearchRuntimeOptions
+  ): Promise<FlightOption[]> {
+    const page = await this.client.getSearchPage(
+      params.origin,
+      params.destination,
+      params.departureDate,
+      undefined
+    );
+    const results = parseGoogleFlightsPageResponse(page);
+    if (results.length === 0) {
+      throw new GoogleFlightsUnavailableError(
+        null,
+        "Google Flights page returned no priced flight results."
+      );
+    }
+
+    const options = this.buildOneWayOptions(results, params);
+    if (runtimeOptions?.bypassCache !== true) {
+      const cacheKey = { params, type: "exact" };
+      await this.exactSearchCache.set(cacheKey, options);
+    }
+    return options;
+  }
+
+  private async searchRoundTripFromPages(
+    params: ExactFlightSearchParams,
+    runtimeOptions?: ExactSearchRuntimeOptions
+  ): Promise<FlightOption[]> {
+    if (!params.returnDate) {
+      throw new GoogleFlightsUnavailableError(
+        null,
+        "Google Flights requires a return date for a round-trip search."
+      );
+    }
+
+    const { selectedFlight: _selectedFlight, ...oneWayParams } = params;
+    const [outbound, inbound] = await Promise.all([
+      this.searchExactFlights(
+        {
+          ...oneWayParams,
+          tripType: "one_way",
+          departureDate: params.departureDate,
+          origin: params.origin,
+          destination: params.destination
+        },
+        runtimeOptions
+      ),
+      this.searchExactFlights(
+        {
+          ...oneWayParams,
+          tripType: "one_way",
+          departureDate: params.returnDate,
+          origin: params.destination,
+          destination: params.origin
+        },
+        runtimeOptions
+      )
+    ]);
+
+    const options = outbound
+      .slice(0, roundTripOutboundFollowUpLimit)
+      .flatMap((outboundOption) =>
+        inbound
+          .slice(0, roundTripOutboundFollowUpLimit)
+          .map((inboundOption) =>
+            combineTwoOneWays(
+              outboundOption,
+              inboundOption,
+              params.departureDate,
+              params.returnDate as string
+            )
+          )
+      )
+      .sort((left, right) => left.totalPrice - right.totalPrice);
+    if (options.length === 0) {
+      throw new GoogleFlightsUnavailableError(
+        null,
+        "Google Flights returned no priced round-trip options."
+      );
+    }
+    return options;
   }
 
   async searchDatePrices(params: CalendarSearchParams): Promise<DatePrice[]> {
@@ -74,8 +185,39 @@ export class GoogleFlightsProvider {
     }
 
     const payload = encodeCalendarSearch(normalizedParams);
-    const response = await this.client.post(calendarUrl, `f.req=${payload}`);
-    const parsedResults = parseCalendarResponse(response);
+    let parsedResults: DatePrice[];
+    try {
+      const response = await this.client.post(calendarUrl, `f.req=${payload}`);
+      parsedResults = parseCalendarResponse(response);
+    } catch (error) {
+      if (!(error instanceof GoogleFlightsUnavailableError)) {
+        throw error;
+      }
+
+      // The internal batchexecute endpoint now rejects unsigned direct calls
+      // with HTTP 200 / gRPC 13. The public page still returns live priced
+      // data, so reuse its embedded date graph when available.
+      const page = await this.client.getSearchPage(
+        normalizedParams.origin,
+        normalizedParams.destination,
+        normalizedParams.travelDate
+      );
+      parsedResults = parseGoogleFlightsPageDatePrices(
+        page,
+        normalizedParams.fromDate,
+        normalizedParams.toDate
+      );
+      if (parsedResults.length === 0) {
+        const pageResults = parseGoogleFlightsPageResponse(page);
+        const prices = pageResults.map((result) => result.price);
+        const price = prices.length > 0 ? Math.min(...prices) : Number.NaN;
+        if (!Number.isFinite(price)) {
+          throw error;
+        }
+        parsedResults = [{ date: normalizedParams.fromDate, price }];
+      }
+    }
+
     // Skip nested exact timing annotation — core search annotates times after exacts.
     await this.calendarCache.set(cacheKey, parsedResults);
     return parsedResults;
@@ -99,25 +241,29 @@ export class GoogleFlightsProvider {
     }
 
     const payload = encodeExactSearch(normalizedParams);
-    const response = await this.client.post(shoppingUrl, `f.req=${payload}`);
-    const results = parseExactSearchResponse(response);
+    let results: GoogleFlightResult[];
+    try {
+      const response = await this.client.post(shoppingUrl, `f.req=${payload}`);
+      results = parseExactSearchResponse(response);
+    } catch (error) {
+      if (!(error instanceof GoogleFlightsUnavailableError)) {
+        throw error;
+      }
+
+      if (normalizedParams.tripType === "round_trip") {
+        const fallbackOptions = await this.searchRoundTripFromPages(
+          normalizedParams,
+          runtimeOptions
+        );
+        await this.exactSearchCache.set(cacheKey, fallbackOptions);
+        return fallbackOptions;
+      }
+
+      return this.searchOneWayFromPage(normalizedParams, runtimeOptions);
+    }
 
     if (normalizedParams.tripType === "one_way") {
-      const options = this.applyDirectBookingPreference(
-        results.map((result) =>
-          this.toFlightOption(
-            result,
-            "google_one_way",
-            normalizedParams.departureDate
-          )
-        ),
-        normalizedParams.preferDirectBookingOnly
-      );
-      const filteredOptions = this.applyFreeCarryOnRequirement(
-        options,
-        normalizedParams.requireFreeCarryOnBag,
-        normalizedParams.cabinClass
-      );
+      const filteredOptions = this.buildOneWayOptions(results, normalizedParams);
       await this.exactSearchCache.set(cacheKey, filteredOptions);
       return filteredOptions;
     }

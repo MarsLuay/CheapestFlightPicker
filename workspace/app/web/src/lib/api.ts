@@ -75,6 +75,30 @@ function joinLogDetails(parts: Array<string | undefined>): string | undefined {
   return normalized.join("\n\n");
 }
 
+function parseResponseJson<T>(
+  rawBody: string,
+  url: string,
+  status: number
+): T | SearchResponse | null {
+  if (!rawBody) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawBody) as T | SearchResponse;
+  } catch {
+    const preview = rawBody.trim().slice(0, 80).replace(/\s+/gu, " ");
+    const looksLikeHtml = /^\s*</u.test(rawBody);
+    const hint = looksLikeHtml
+      ? "Received HTML instead of JSON."
+      : `Received non-JSON body starting with ${JSON.stringify(preview)}.`;
+
+    throw new Error(
+      `${hint} ${url} returned status ${status}. Another local service may be occupying the API port (often 8787), or the Cheapest Flight Picker server is not running. Relaunch with the setup script, or set PORT to a free port and restart both the API and Vite.`
+    );
+  }
+}
+
 function normalizeTimeWindow(
   window: SearchRequest["departureTimeWindow"]
 ): SearchRequest["departureTimeWindow"] | undefined {
@@ -212,7 +236,7 @@ async function requestJson<T>(
     });
     const rawBody = await response.text();
     const durationMs = Math.round(performance.now() - startedAt);
-    const payload = rawBody ? (JSON.parse(rawBody) as T | SearchResponse) : null;
+    const payload = parseResponseJson<T>(rawBody, url, response.status);
 
     if (!response.ok) {
       const message =

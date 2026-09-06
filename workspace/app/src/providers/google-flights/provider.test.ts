@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  GoogleFlightsUnavailableError
+} from "./client";
 import { GoogleFlightsProvider } from "./provider";
 import type { FlightOption } from "../../shared/types";
 
@@ -89,6 +92,12 @@ function buildRawFlight(params: {
 function wrapShoppingResponse(entries: unknown[][]): string {
   const decoded = [null, null, [entries]];
   return `)]}'${JSON.stringify([[null, null, JSON.stringify(decoded)]])}`;
+}
+
+function wrapPageResponse(entries: unknown[][]): string {
+  const data: unknown[] = Array.from({ length: 6 }, () => null);
+  data[2] = [entries];
+  return `<script class="ds:1">AF_initDataCallback({key: 'ds:1', hash: '9', data:${JSON.stringify(data)}});</script>`;
 }
 
 describe("GoogleFlightsProvider round-trip outbound follow-up cap", () => {
@@ -348,6 +357,128 @@ describe("GoogleFlightsProvider direct booking preference", () => {
 
     expect(result).toBe(cachedOptions);
     expect(provider.client.post).not.toHaveBeenCalled();
+    expect(provider.exactSearchCache.set).not.toHaveBeenCalled();
+  });
+
+  it("falls back to live Google Flights page data after a wire error", async () => {
+    const page = wrapPageResponse([
+      buildRawFlight({
+        price: 157,
+        sellerCode: "AS",
+        sellerName: "Alaska",
+        durationMinutes: 180,
+        legs: [
+          buildRawLeg({
+            airlineCode: "AS",
+            airlineName: "Alaska Airlines",
+            flightNumber: "100",
+            departureAirportCode: "SEA",
+            arrivalAirportCode: "LAX",
+            departureDateParts: [2026, 10, 15],
+            arrivalDateParts: [2026, 10, 15],
+            departureTimeParts: [7, 10],
+            arrivalTimeParts: [10, 10],
+            durationMinutes: 180
+          })
+        ]
+      })
+    ]);
+    const provider = new GoogleFlightsProvider() as unknown as {
+      client: {
+        post: ReturnType<typeof vi.fn>;
+        getSearchPage: ReturnType<typeof vi.fn>;
+      };
+      exactSearchCache: {
+        get: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+      };
+      searchExactFlights: (
+        params: Record<string, unknown>
+      ) => Promise<FlightOption[]>;
+    };
+    provider.client = {
+      post: vi.fn().mockRejectedValue(new GoogleFlightsUnavailableError(13)),
+      getSearchPage: vi.fn().mockResolvedValue(page)
+    };
+    provider.exactSearchCache = {
+      get: vi.fn(() => null),
+      set: vi.fn()
+    };
+
+    const result = await provider.searchExactFlights({
+      tripType: "one_way",
+      origin: "SEA",
+      destination: "LAX",
+      departureDate: "2026-10-15",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      preferDirectBookingOnly: false,
+      requireFreeCarryOnBag: false,
+      airlines: [],
+      passengers: {
+        adults: 1,
+        children: 0,
+        infantsInSeat: 0,
+        infantsOnLap: 0
+      }
+    });
+
+    expect(result[0]?.totalPrice).toBe(157);
+    expect(provider.client.getSearchPage).toHaveBeenCalledWith(
+      "SEA",
+      "LAX",
+      "2026-10-15",
+      undefined
+    );
+    expect(provider.exactSearchCache.set).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining([expect.objectContaining({ totalPrice: 157 })])
+    );
+  });
+
+  it("does not cache an empty page as success after a wire error", async () => {
+    const provider = new GoogleFlightsProvider() as unknown as {
+      client: {
+        post: ReturnType<typeof vi.fn>;
+        getSearchPage: ReturnType<typeof vi.fn>;
+      };
+      exactSearchCache: {
+        get: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+      };
+      searchExactFlights: (
+        params: Record<string, unknown>
+      ) => Promise<FlightOption[]>;
+    };
+    provider.client = {
+      post: vi.fn().mockRejectedValue(new GoogleFlightsUnavailableError(13)),
+      getSearchPage: vi.fn().mockResolvedValue("<html>No priced flights</html>")
+    };
+    provider.exactSearchCache = {
+      get: vi.fn(() => null),
+      set: vi.fn()
+    };
+
+    await expect(
+      provider.searchExactFlights({
+        tripType: "one_way",
+        origin: "SEA",
+        destination: "LAX",
+        departureDate: "2026-10-15",
+        cabinClass: "economy",
+        stopsFilter: "any",
+        requireFreeCarryOnBag: false,
+        airlines: [],
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsInSeat: 0,
+          infantsOnLap: 0
+        }
+      })
+    ).rejects.toMatchObject({
+      name: "GoogleFlightsUnavailableError"
+    });
     expect(provider.exactSearchCache.set).not.toHaveBeenCalled();
   });
 

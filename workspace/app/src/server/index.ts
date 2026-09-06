@@ -254,6 +254,35 @@ function isVercelRuntime(): boolean {
   return process.env.VERCEL === "1" || process.env.VERCEL === "true";
 }
 
+function isVitestRuntime(): boolean {
+  return process.env.VITEST === "true" || process.env.VITEST === "1";
+}
+
+function shouldStartStandaloneServer(): boolean {
+  // Listen for normal `npm start` / `node dist/server/index.js`.
+  // Skip under Vitest (tests import this module) and Vercel (serverless export).
+  // Do not require argv[1] === import.meta.url: macOS realpath quirks
+  // (/tmp vs /private/tmp) and npm wrappers make that check false and exit immediately.
+  return !isVercelRuntime() && !isVitestRuntime();
+}
+
+function isLocalBrowserOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+
+    return (
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getAllowedOrigins(): string[] {
   if (process.env.ALLOWED_ORIGINS) {
     return process.env.ALLOWED_ORIGINS.split(",")
@@ -263,6 +292,8 @@ function getAllowedOrigins(): string[] {
   return [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    `http://localhost:${port}`,
+    `http://127.0.0.1:${port}`,
     "http://localhost:8787",
     "http://127.0.0.1:8787"
   ];
@@ -272,11 +303,17 @@ app.use(
   cors({
     origin: (origin, callback) => {
       const allowedOrigins = getAllowedOrigins();
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        (!process.env.ALLOWED_ORIGINS && isLocalBrowserOrigin(origin))
+      ) {
         callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
+        return;
       }
+
+      // Deny without throwing so /api routes stay JSON instead of Express HTML 500 pages.
+      callback(null, false);
     },
     credentials: true
   })
@@ -594,12 +631,58 @@ app.get("/{*path}", (_request, response) => {
   response.sendFile(builtWebIndexPath);
 });
 
-ensureIncidentLogDirectory();
-registerProcessIncidentHandlers();
+app.use((
+  error: unknown,
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction
+) => {
+  if (!request.path.startsWith("/api") || response.headersSent) {
+    next(error);
+    return;
+  }
 
-if (!isVercelRuntime()) {
-  app.listen(port, () => {
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message
+      : "Request failed";
+  const statusCode =
+    typeof error === "object" &&
+    error &&
+    "status" in error &&
+    typeof (error as { status?: unknown }).status === "number"
+      ? (error as { status: number }).status
+      : typeof error === "object" &&
+          error &&
+          "statusCode" in error &&
+          typeof (error as { statusCode?: unknown }).statusCode === "number"
+        ? (error as { statusCode: number }).statusCode
+        : 400;
+
+  response.status(statusCode >= 400 ? statusCode : 400).json({
+    error: message,
+    ok: false
+  });
+});
+
+ensureIncidentLogDirectory();
+
+if (shouldStartStandaloneServer()) {
+  registerProcessIncidentHandlers();
+
+  const server = app.listen(port, () => {
     appendServerLog("info", `Cheapest Flight Picker server listening on http://localhost:${port}`, { port });
+  });
+
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      const message = `Port ${port} is already in use by another service. Set PORT to a free port (for example PORT=8788) and restart both the API and Vite so the proxy stays aligned.`;
+      appendServerLog("error", message, { port });
+      console.error(message);
+      process.exit(1);
+    }
+
+    throw error;
   });
 }
 

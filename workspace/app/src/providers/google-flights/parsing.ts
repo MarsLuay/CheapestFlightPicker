@@ -1,5 +1,5 @@
 import { createUnknownBookingSource } from "../../core/utils";
-import type { BookingSource } from "../../shared/types";
+import type { BookingSource, DatePrice } from "../../shared/types";
 import type { GoogleFlightLeg, GoogleFlightResult } from "./types";
 
 function padDateTimePart(value: number): string {
@@ -125,6 +125,102 @@ export function parseCalendarResponse(
       return { date, price };
     })
     .filter((entry): entry is { date: string; price: number } => entry !== null)
+    .sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function extractGoogleFlightsPageData(input: string): unknown[] | null {
+  const callbackStart = input.indexOf("AF_initDataCallback({key: 'ds:1'");
+  if (callbackStart < 0) {
+    return null;
+  }
+
+  const dataStart = input.indexOf("data:", callbackStart);
+  if (dataStart < 0) {
+    return null;
+  }
+
+  let arrayStart = dataStart + "data:".length;
+  while (/\\s/u.test(input[arrayStart] ?? "")) {
+    arrayStart += 1;
+  }
+  if (input[arrayStart] !== "[") {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = arrayStart; index < input.length; index += 1) {
+    const character = input[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (character === "[") {
+      depth += 1;
+    } else if (character === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          const data: unknown = JSON.parse(input.slice(arrayStart, index + 1));
+          return Array.isArray(data) ? data : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseGoogleFlightsPageData(data: unknown[]): GoogleFlightResult[] {
+  return parseExactSearchResponse(
+    JSON.stringify([[null, null, JSON.stringify(data)]])
+  );
+}
+
+export function parseGoogleFlightsPageResponse(input: string): GoogleFlightResult[] {
+  const data = extractGoogleFlightsPageData(input);
+  return data ? parseGoogleFlightsPageData(data) : [];
+}
+
+export function parseGoogleFlightsPageDatePrices(
+  input: string,
+  fromDate: string,
+  toDate: string
+): DatePrice[] {
+  const data = extractGoogleFlightsPageData(input);
+  const datePriceRows = data?.[5];
+  const graph = Array.isArray(datePriceRows) && Array.isArray(datePriceRows[10])
+    ? datePriceRows[10][0]
+    : null;
+  if (!Array.isArray(graph)) {
+    return [];
+  }
+
+  return graph
+    .map((entry): DatePrice | null => {
+      if (!Array.isArray(entry) || typeof entry[0] !== "number") {
+        return null;
+      }
+      const date = new Date(entry[0]).toISOString().slice(0, 10);
+      const price = entry[1];
+      if (date < fromDate || date > toDate || typeof price !== "number" || !Number.isFinite(price)) {
+        return null;
+      }
+      return { date, price };
+    })
+    .filter((entry): entry is DatePrice => entry !== null)
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 

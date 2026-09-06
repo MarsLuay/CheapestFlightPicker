@@ -2,10 +2,44 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseCalendarResponse,
-  parseExactSearchResponse
+  parseExactSearchResponse,
+  parseGoogleFlightsPageDatePrices,
+  parseGoogleFlightsPageResponse
 } from "./parsing";
 
 describe("Google Flights Parsing", () => {
+  function pageResponse(): string {
+    const leg: unknown[] = [];
+    leg[3] = "SEA";
+    leg[6] = "LAX";
+    leg[8] = [7, 10];
+    leg[10] = [10, 10];
+    leg[11] = 180;
+    leg[20] = [2026, 10, 15];
+    leg[21] = [2026, 10, 15];
+    leg[22] = ["AS", "100", null, "Alaska"];
+
+    const route: unknown[] = [];
+    route[2] = [leg];
+    route[9] = 180;
+    route[24] = [["AS", "Alaska", "https://www.alaskaair.com"]];
+
+    const data: unknown[] = Array.from({ length: 6 }, () => null);
+    data[2] = [[[route, [[null, 123]]]]];
+    data[5] = Array.from({ length: 11 }, () => null);
+    (data[5] as unknown[])[10] = [[[Date.UTC(2026, 9, 15), 123]]];
+    return `<script class="ds:1">AF_initDataCallback({key: 'ds:1', hash: '9', data:${JSON.stringify(data)}});</script>`;
+  }
+
+  it("parses live Google Flights ds:1 page data and date graph", () => {
+    const page = pageResponse();
+
+    expect(parseGoogleFlightsPageResponse(page)[0]?.price).toBe(123);
+    expect(parseGoogleFlightsPageDatePrices(page, "2026-10-01", "2026-10-31")).toEqual([
+      { date: "2026-10-15", price: 123 }
+    ]);
+  });
+
   describe("parseCalendarResponse", () => {
     it("handles empty or invalid inputs", () => {
       expect(() => parseCalendarResponse("")).toThrow();

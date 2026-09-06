@@ -6,9 +6,15 @@ import axios, {
 
 import { sleep } from "../../core/sleep";
 import { getActiveSearchAbortSignal } from "./abort-context";
+import {
+  getGoogleFlightsWireErrorCode,
+  isTransientGoogleFlightsWireErrorCode
+} from "./wire";
 
 const googleFlightsRequestTimeoutMs = 1000 * 45;
+const googleFlightsPageUrl = "https://www.google.com/travel/flights";
 const defaultGoogleFlightsRateLimitRetries = 2;
+const defaultGoogleFlightsWireErrorRetries = 2;
 const defaultGoogleFlightsRetryDelayMs = 800;
 /** Cap concurrent Google Flights HTTP posts process-wide. */
 const defaultGoogleFlightsMaxConcurrentPosts = 3;
@@ -16,6 +22,7 @@ const defaultGoogleFlightsMaxConcurrentPosts = 3;
 type GoogleFlightsClientOptions = {
   maxConcurrentPosts?: number;
   maxRateLimitRetries?: number;
+  maxWireErrorRetries?: number;
   request?: (config: AxiosRequestConfig<string>) => Promise<AxiosResponse>;
   retryDelayMs?: number;
 };
@@ -28,6 +35,20 @@ export class GoogleFlightsRateLimitError extends Error {
   ) {
     super(message);
     this.name = "GoogleFlightsRateLimitError";
+  }
+}
+
+export class GoogleFlightsUnavailableError extends Error {
+  readonly statusCode = 503;
+  readonly wireErrorCode: number | null;
+
+  constructor(
+    wireErrorCode: number | null = null,
+    message = "Google Flights rejected this search (temporary provider error). Wait a minute and try again. If this keeps happening, try a VPN or run the search later."
+  ) {
+    super(message);
+    this.name = "GoogleFlightsUnavailableError";
+    this.wireErrorCode = wireErrorCode;
   }
 }
 
@@ -117,6 +138,8 @@ const sharedPostSemaphore = new PostSemaphore(
 export class GoogleFlightsClient {
   private readonly maxRateLimitRetries: number;
 
+  private readonly maxWireErrorRetries: number;
+
   private readonly request: (
     config: AxiosRequestConfig<string>
   ) => Promise<AxiosResponse>;
@@ -128,12 +151,19 @@ export class GoogleFlightsClient {
   private readonly headers = {
     "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
     "user-agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+    accept: "*/*",
+    "accept-language": "en-US,en;q=0.9",
+    origin: "https://www.google.com",
+    referer: "https://www.google.com/travel/flights",
+    "x-same-domain": "1"
   };
 
   constructor(options?: GoogleFlightsClientOptions) {
     this.maxRateLimitRetries =
       options?.maxRateLimitRetries ?? defaultGoogleFlightsRateLimitRetries;
+    this.maxWireErrorRetries =
+      options?.maxWireErrorRetries ?? defaultGoogleFlightsWireErrorRetries;
     this.request = options?.request ?? axios;
     this.retryDelayMs =
       options?.retryDelayMs ?? defaultGoogleFlightsRetryDelayMs;
@@ -141,6 +171,42 @@ export class GoogleFlightsClient {
       options?.maxConcurrentPosts && options.maxConcurrentPosts > 0
         ? new PostSemaphore(options.maxConcurrentPosts)
         : sharedPostSemaphore;
+  }
+
+  async getSearchPage(
+    origin: string,
+    destination: string,
+    departureDate: string,
+    returnDate?: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const effectiveSignal = signal ?? getActiveSearchAbortSignal();
+    if (effectiveSignal?.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
+
+    const query = `${origin}-${destination}-${departureDate}${returnDate ? `*${returnDate}` : ""}`;
+    const url = `${googleFlightsPageUrl}?q=${encodeURIComponent(query)}&hl=en&curr=USD`;
+    await this.postSemaphore.acquire(effectiveSignal);
+    try {
+      const response = await this.request({
+        headers: {
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+          referer: googleFlightsPageUrl,
+          "user-agent": this.headers["user-agent"]
+        },
+        method: "GET",
+        signal: effectiveSignal,
+        timeout: googleFlightsRequestTimeoutMs,
+        url
+      });
+      return typeof response.data === "string"
+        ? response.data
+        : JSON.stringify(response.data);
+    } finally {
+      this.postSemaphore.release();
+    }
   }
 
   async post(url: string, data: string, signal?: AbortSignal): Promise<string> {
@@ -158,17 +224,37 @@ export class GoogleFlightsClient {
       url
     };
 
-    let attempt = 0;
+    let rateLimitAttempt = 0;
+    let wireErrorAttempt = 0;
     await this.postSemaphore.acquire(effectiveSignal);
 
     try {
       while (true) {
         try {
           const response = await this.request(config);
-          return typeof response.data === "string"
-            ? response.data
-            : JSON.stringify(response.data);
+          const body =
+            typeof response.data === "string"
+              ? response.data
+              : JSON.stringify(response.data);
+          const wireErrorCode = getGoogleFlightsWireErrorCode(body);
+          if (wireErrorCode == null) {
+            return body;
+          }
+
+          if (
+            !isTransientGoogleFlightsWireErrorCode(wireErrorCode) ||
+            wireErrorAttempt >= this.maxWireErrorRetries
+          ) {
+            throw new GoogleFlightsUnavailableError(wireErrorCode);
+          }
+
+          wireErrorAttempt += 1;
+          await sleep(this.retryDelayMs * wireErrorAttempt, effectiveSignal);
         } catch (error) {
+          if (error instanceof GoogleFlightsUnavailableError) {
+            throw error;
+          }
+
           if (effectiveSignal?.aborted) {
             throw error;
           }
@@ -177,14 +263,14 @@ export class GoogleFlightsClient {
             throw error;
           }
 
-          if (attempt >= this.maxRateLimitRetries) {
+          if (rateLimitAttempt >= this.maxRateLimitRetries) {
             throw new GoogleFlightsRateLimitError();
           }
 
-          attempt += 1;
+          rateLimitAttempt += 1;
           const retryAfterMs = readRetryAfterMs(error);
           await sleep(
-            retryAfterMs ?? this.retryDelayMs * attempt,
+            retryAfterMs ?? this.retryDelayMs * rateLimitAttempt,
             effectiveSignal
           );
         }
