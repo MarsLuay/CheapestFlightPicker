@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, annotateDatePricesWithBestOptionTimes } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -1724,5 +1724,234 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+});
+
+describe("annotateDatePricesWithBestOptionTimes", () => {
+  it("maps outbound best flight option times to date prices", () => {
+    const datePrices = [
+      { date: "2026-05-08", price: 100 },
+      { date: "2026-05-09", price: 200 }
+    ];
+
+    const options = [
+      buildTimedOneWayOption({
+        totalPrice: 150,
+        outboundDate: "2026-05-08",
+        departureDateTime: "2026-05-08T10:00:00",
+        arrivalDateTime: "2026-05-08T12:00:00"
+      })
+    ];
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      options,
+      "departure"
+    );
+
+    expect(annotated).toHaveLength(2);
+    expect(annotated[0]).toMatchObject({
+      date: "2026-05-08",
+      price: 100,
+      departureDateTime: "2026-05-08T10:00:00",
+      arrivalDateTime: "2026-05-08T12:00:00"
+    });
+    expect(annotated[1]).toMatchObject({
+      date: "2026-05-09",
+      price: 200
+    });
+    expect(annotated[1].departureDateTime).toBeUndefined();
+    expect(annotated[1].arrivalDateTime).toBeUndefined();
+  });
+
+  it("maps return best flight option times to date prices for multi-slice options", () => {
+    const datePrices = [
+      { date: "2026-05-15", price: 100 }
+    ];
+
+    const options = [
+      buildTimedRoundTripOption({
+        totalPrice: 300,
+        outboundDate: "2026-05-08",
+        returnDate: "2026-05-15",
+        outboundDepartureDateTime: "2026-05-08T10:00:00",
+        outboundArrivalDateTime: "2026-05-08T12:00:00",
+        returnDepartureDateTime: "2026-05-15T14:00:00",
+        returnArrivalDateTime: "2026-05-15T16:00:00"
+      })
+    ];
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      options,
+      "return"
+    );
+
+    expect(annotated[0]).toMatchObject({
+      date: "2026-05-15",
+      price: 100,
+      departureDateTime: "2026-05-15T14:00:00",
+      arrivalDateTime: "2026-05-15T16:00:00"
+    });
+  });
+
+  it("maps return best flight option times to date prices for single-slice options (fallback)", () => {
+    const datePrices = [
+      { date: "2026-05-15", price: 100 }
+    ];
+
+    // Single slice option but with returnDate set (e.g. one-way matching inbound direction)
+    const options = [
+      buildTimedOneWayOption({
+        totalPrice: 150,
+        outboundDate: "2026-05-15",
+        departureDateTime: "2026-05-15T14:00:00",
+        arrivalDateTime: "2026-05-15T16:00:00"
+      })
+    ];
+    options[0]!.returnDate = "2026-05-15"; // explicitly set for mapping
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      options,
+      "return"
+    );
+
+    expect(annotated[0]).toMatchObject({
+      date: "2026-05-15",
+      price: 100,
+      departureDateTime: "2026-05-15T14:00:00",
+      arrivalDateTime: "2026-05-15T16:00:00"
+    });
+  });
+
+  it("ignores options with missing date for the direction", () => {
+    const datePrices = [{ date: "2026-05-08", price: 100 }];
+    const options = [
+      buildTimedOneWayOption({
+        totalPrice: 150,
+        outboundDate: "2026-05-08",
+        departureDateTime: "2026-05-08T10:00:00",
+        arrivalDateTime: "2026-05-08T12:00:00"
+      })
+    ];
+    delete options[0]!.outboundDate;
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      options,
+      "departure"
+    );
+    expect(annotated[0]!.departureDateTime).toBeUndefined();
+  });
+
+  it("prioritizes the cheaper flight option", () => {
+    const datePrices = [{ date: "2026-05-08", price: 100 }];
+
+    const expensiveOption = buildTimedOneWayOption({
+      totalPrice: 200,
+      outboundDate: "2026-05-08",
+      departureDateTime: "2026-05-08T10:00:00",
+      arrivalDateTime: "2026-05-08T12:00:00"
+    });
+
+    const cheapOption = buildTimedOneWayOption({
+      totalPrice: 150,
+      outboundDate: "2026-05-08",
+      departureDateTime: "2026-05-08T14:00:00",
+      arrivalDateTime: "2026-05-08T16:00:00"
+    });
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      [expensiveOption, cheapOption],
+      "departure"
+    );
+
+    // Should use cheapOption's times
+    expect(annotated[0]).toMatchObject({
+      departureDateTime: "2026-05-08T14:00:00",
+      arrivalDateTime: "2026-05-08T16:00:00"
+    });
+  });
+
+  it("prioritizes the higher-mile flight option when prices tie and prioritizeMileFlights is true", () => {
+    const datePrices = [{ date: "2026-05-08", price: 100 }];
+
+    const shortOption = buildMileageOneWayOption(500, "100");
+    shortOption.slices[0]!.legs[0]!.departureDateTime = "2026-05-08T10:00:00";
+    shortOption.slices[0]!.legs[0]!.arrivalDateTime = "2026-05-08T11:00:00";
+
+    const longOption = buildMileageOneWayOption(2000, "200");
+    longOption.slices[0]!.legs[0]!.departureDateTime = "2026-05-08T14:00:00";
+    longOption.slices[0]!.legs[0]!.arrivalDateTime = "2026-05-08T18:00:00";
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      [shortOption, longOption],
+      "departure",
+      true
+    );
+
+    // Should use longOption's times
+    expect(annotated[0]).toMatchObject({
+      departureDateTime: "2026-05-08T14:00:00",
+      arrivalDateTime: "2026-05-08T18:00:00"
+    });
+  });
+
+  it("ignores options with empty legs", () => {
+    const datePrices = [{ date: "2026-05-08", price: 100 }];
+    const options = [buildOption(150, "google_one_way", 1, 0, { outboundDate: "2026-05-08" })]; // Leg list is empty
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      options,
+      "departure"
+    );
+    expect(annotated[0]!.departureDateTime).toBeUndefined();
+  });
+
+  it("extracts departure time from first leg and arrival time from last leg for multi-leg slices", () => {
+    const datePrices = [{ date: "2026-05-08", price: 100 }];
+
+    const option = buildOption(150, "google_one_way", 1, 1, { outboundDate: "2026-05-08" });
+    option.slices[0]!.legs = [
+      {
+        airlineCode: "TA",
+        airlineName: "Test Air",
+        flightNumber: "1",
+        departureAirportCode: "SEA",
+        departureAirportName: "Seattle",
+        departureDateTime: "2026-05-08T08:00:00",
+        arrivalAirportCode: "SFO",
+        arrivalAirportName: "San Francisco",
+        arrivalDateTime: "2026-05-08T10:00:00",
+        durationMinutes: 120
+      },
+      {
+        airlineCode: "TA",
+        airlineName: "Test Air",
+        flightNumber: "2",
+        departureAirportCode: "SFO",
+        departureAirportName: "San Francisco",
+        departureDateTime: "2026-05-08T12:00:00",
+        arrivalAirportCode: "PIT",
+        arrivalAirportName: "Pittsburgh",
+        arrivalDateTime: "2026-05-08T20:00:00",
+        durationMinutes: 300
+      }
+    ];
+
+    const annotated = annotateDatePricesWithBestOptionTimes(
+      datePrices,
+      [option],
+      "departure"
+    );
+
+    expect(annotated[0]).toMatchObject({
+      departureDateTime: "2026-05-08T08:00:00", // From first leg
+      arrivalDateTime: "2026-05-08T20:00:00" // From last leg
+    });
   });
 });

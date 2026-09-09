@@ -166,7 +166,7 @@ function getSliceDateTimes(
   };
 }
 
-function annotateDatePricesWithBestOptionTimes(
+export function annotateDatePricesWithBestOptionTimes(
   datePrices: DatePrice[],
   options: FlightOption[],
   direction: DatePriceTimingDirection,
