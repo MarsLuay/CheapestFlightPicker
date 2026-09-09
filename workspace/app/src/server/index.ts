@@ -238,7 +238,7 @@ function parseSearchJobPayload(input: unknown): {
   };
 }
 
-function searchJobRequestMatchesCheckpoint(
+export function searchJobRequestMatchesCheckpoint(
   requestInput: unknown,
   checkpointRequest: SearchRequest
 ): boolean {
