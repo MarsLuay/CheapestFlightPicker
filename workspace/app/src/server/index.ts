@@ -631,7 +631,7 @@ app.get("/{*path}", (_request, response) => {
   response.sendFile(builtWebIndexPath);
 });
 
-app.use((
+export const fallbackErrorHandler = (
   error: unknown,
   request: express.Request,
   response: express.Response,
@@ -663,7 +663,9 @@ app.use((
     error: message,
     ok: false
   });
-});
+};
+
+app.use(fallbackErrorHandler);
 
 ensureIncidentLogDirectory();
 
