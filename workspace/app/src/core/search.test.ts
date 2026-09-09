@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, flightOptionsMatch } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -1724,5 +1724,95 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+
+  describe("flightOptionsMatch", () => {
+    const baseOption: FlightOption = {
+      source: "google_round_trip",
+      totalPrice: 100,
+      currency: "USD",
+      bookingSource: {
+        type: "direct_airline",
+        label: "Direct with Test Air",
+        sellerName: "Test Air",
+        detected: true
+      },
+      slices: [
+        {
+          durationMinutes: 120,
+          stops: 0,
+          legs: [
+            {
+              airlineCode: "DL",
+              airlineName: "Delta",
+              flightNumber: "123",
+              departureAirportCode: "SEA",
+              departureAirportName: "Seattle",
+              departureDateTime: "2026-05-08T10:00",
+              arrivalAirportCode: "JFK",
+              arrivalAirportName: "JFK",
+              arrivalDateTime: "2026-05-08T18:00",
+              durationMinutes: 300,
+              price: 100
+            }
+          ]
+        }
+      ]
+    };
+
+    it("returns true for identical flight options", () => {
+      const left = { ...baseOption };
+      const right = { ...baseOption };
+      expect(flightOptionsMatch(left, right)).toBe(true);
+    });
+
+    it("returns false if source differs", () => {
+      const left = { ...baseOption, source: "google_round_trip" as const };
+      const right = { ...baseOption, source: "google_one_way" as const };
+      expect(flightOptionsMatch(left, right)).toBe(false);
+    });
+
+    it("returns false if slices length differs", () => {
+      const left = { ...baseOption };
+      const right = { ...baseOption, slices: [baseOption.slices[0], baseOption.slices[0]] };
+      expect(flightOptionsMatch(left, right)).toBe(false);
+    });
+
+    it("returns false if stops on a slice differs", () => {
+      const left = { ...baseOption };
+      const right = {
+        ...baseOption,
+        slices: [{ ...baseOption.slices[0], stops: 1 }]
+      };
+      expect(flightOptionsMatch(left, right)).toBe(false);
+    });
+
+    it("returns false if legs length on a slice differs", () => {
+      const left = { ...baseOption };
+      const right = {
+        ...baseOption,
+        slices: [
+          {
+            ...baseOption.slices[0],
+            legs: [baseOption.slices[0].legs[0], baseOption.slices[0].legs[0]]
+          }
+        ]
+      };
+      expect(flightOptionsMatch(left, right)).toBe(false);
+    });
+
+    it("returns false if leg fields differ", () => {
+      const left = { ...baseOption };
+      const right = {
+        ...baseOption,
+        slices: [
+          {
+            ...baseOption.slices[0],
+            legs: [{ ...baseOption.slices[0].legs[0], airlineCode: "AA" }]
+          }
+        ]
+      };
+      expect(flightOptionsMatch(left, right)).toBe(false);
+    });
   });
 });

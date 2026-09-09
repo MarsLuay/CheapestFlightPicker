@@ -318,7 +318,7 @@ function sortFlightOptionsByPrice(
   });
 }
 
-function flightOptionsMatch(left: FlightOption, right: FlightOption): boolean {
+export function flightOptionsMatch(left: FlightOption, right: FlightOption): boolean {
   if (left.source !== right.source || left.slices.length !== right.slices.length) {
     return false;
   }
