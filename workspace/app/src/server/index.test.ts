@@ -27,7 +27,6 @@ describe("searchJobRequestMatchesCheckpoint", () => {
     prioritizeMileFlights: false,
     requireFreeCarryOnBag: true,
     airlines: [],
-    excludedAirlines: [],
     maxResults: 10
   };
 
@@ -55,7 +54,6 @@ describe("searchJobRequestMatchesCheckpoint", () => {
       prioritizeMileFlights: false,
       requireFreeCarryOnBag: true,
       airlines: [],
-      excludedAirlines: [],
       maxResults: 10
     };
 
@@ -91,7 +89,6 @@ describe("searchJobRequestMatchesCheckpoint", () => {
       prioritizeMileFlights: false,
       requireFreeCarryOnBag: true,
       airlines: [],
-      excludedAirlines: [],
       maxResults: 10
     };
 
