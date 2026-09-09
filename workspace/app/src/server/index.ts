@@ -105,10 +105,24 @@ function buildClientIncident(
     details.userAgent = payload.userAgent;
   }
 
+  const MAX_DETAILS_LENGTH = 10000;
+
   if (typeof payload.details === "string") {
-    details.details = payload.details;
+    details.details =
+      payload.details.length > MAX_DETAILS_LENGTH
+        ? `${payload.details.slice(0, MAX_DETAILS_LENGTH)}... (truncated)`
+        : payload.details;
   } else if (payload.details && typeof payload.details === "object") {
-    details.details = payload.details as Record<string, unknown>;
+    try {
+      const stringified = JSON.stringify(payload.details);
+      if (stringified.length > MAX_DETAILS_LENGTH) {
+        details.details = `${stringified.slice(0, MAX_DETAILS_LENGTH)}... (truncated)`;
+      } else {
+        details.details = payload.details as Record<string, unknown>;
+      }
+    } catch {
+      details.details = "Unserializable object details";
+    }
   }
 
   return {
