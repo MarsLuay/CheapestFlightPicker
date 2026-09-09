@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, flightOptionsMatch } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -1724,5 +1724,91 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+});
+
+describe("flightOptionsMatch", () => {
+  it("should match identical options", () => {
+    const left = buildOption(100, "google_round_trip", 2, 1);
+    const right = buildOption(100, "google_round_trip", 2, 1);
+
+    // Add identical leg details to make sure we hit the deepest logic
+    const legs = [
+      {
+        airlineCode: "DL",
+        airlineName: "Delta",
+        flightNumber: "123",
+        departureAirportCode: "JFK",
+        departureAirportName: "John F. Kennedy",
+        departureDateTime: "2024-01-01T10:00:00Z",
+        arrivalAirportCode: "LAX",
+        arrivalAirportName: "Los Angeles",
+        arrivalDateTime: "2024-01-01T13:00:00Z",
+        durationMinutes: 180,
+      }
+    ];
+    left.slices[0].legs = legs;
+    right.slices[0].legs = legs;
+
+    expect(flightOptionsMatch(left, right)).toBe(true);
+  });
+
+  it("should not match if source is different", () => {
+    const left = buildOption(100, "google_round_trip");
+    const right = buildOption(100, "google_one_way");
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("should not match if slices length is different", () => {
+    const left = buildOption(100, "google_round_trip", 1);
+    const right = buildOption(100, "google_round_trip", 2);
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("should not match if stops are different", () => {
+    const left = buildOption(100, "google_round_trip", 1, 0);
+    const right = buildOption(100, "google_round_trip", 1, 1);
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("should not match if legs length is different", () => {
+    const left = buildOption(100, "google_round_trip");
+    const right = buildOption(100, "google_round_trip");
+    left.slices[0].legs = [{
+      airlineCode: "DL",
+      airlineName: "Delta",
+      flightNumber: "123",
+      departureAirportCode: "JFK",
+      departureAirportName: "John F. Kennedy",
+      departureDateTime: "2024-01-01T10:00:00Z",
+      arrivalAirportCode: "LAX",
+      arrivalAirportName: "Los Angeles",
+      arrivalDateTime: "2024-01-01T13:00:00Z",
+      durationMinutes: 180,
+    }];
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("should not match if leg properties differ", () => {
+    const createOptionWithLeg = (flightNumber: string) => {
+      const option = buildOption(100, "google_round_trip");
+      option.slices[0].legs = [{
+        airlineCode: "DL",
+        airlineName: "Delta",
+        flightNumber,
+        departureAirportCode: "JFK",
+        departureAirportName: "John F. Kennedy",
+        departureDateTime: "2024-01-01T10:00:00Z",
+        arrivalAirportCode: "LAX",
+        arrivalAirportName: "Los Angeles",
+        arrivalDateTime: "2024-01-01T13:00:00Z",
+        durationMinutes: 180,
+      }];
+      return option;
+    };
+
+    const left = createOptionWithLeg("123");
+    const right = createOptionWithLeg("456");
+    expect(flightOptionsMatch(left, right)).toBe(false);
   });
 });
