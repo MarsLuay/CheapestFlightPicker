@@ -191,7 +191,7 @@ function summarizeSearchRequest(input: unknown): Record<string, unknown> {
   };
 }
 
-function summarizeSearchSummary(summary: SearchSummary): Record<string, unknown> {
+export function summarizeSearchSummary(summary: SearchSummary): Record<string, unknown> {
   const cheapestOverall = summary.cheapestOverall
     ? {
         totalPrice: summary.cheapestOverall.totalPrice,
