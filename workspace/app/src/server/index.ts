@@ -211,7 +211,7 @@ function summarizeSearchSummary(summary: SearchSummary): Record<string, unknown>
   };
 }
 
-function parseSearchJobPayload(input: unknown): {
+export function parseSearchJobPayload(input: unknown): {
   requestInput: unknown;
   resumeFromJobId?: string;
 } {
