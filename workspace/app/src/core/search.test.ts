@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, flightOptionsMatch } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -234,6 +234,85 @@ function buildUnknownAirlineOption(
     outboundDate: "2026-05-08"
   };
 }
+
+
+describe("flightOptionsMatch", () => {
+  it("returns true for matching flight options", () => {
+    const left = buildOption(100, "google_round_trip", 2, 0);
+    const right = buildOption(100, "google_round_trip", 2, 0);
+
+    // Add leg details to ensure deep match
+    left.slices[0].legs = [{
+      airlineCode: "AA", airlineName: "American Airlines", flightNumber: "123",
+      departureAirportCode: "JFK", departureAirportName: "John F. Kennedy", departureDateTime: "2023-01-01T10:00:00Z",
+      arrivalAirportCode: "LAX", arrivalAirportName: "Los Angeles", arrivalDateTime: "2023-01-01T13:00:00Z",
+      durationMinutes: 180
+    }];
+    right.slices[0].legs = [{
+      airlineCode: "AA", airlineName: "American Airlines", flightNumber: "123",
+      departureAirportCode: "JFK", departureAirportName: "John F. Kennedy", departureDateTime: "2023-01-01T10:00:00Z",
+      arrivalAirportCode: "LAX", arrivalAirportName: "Los Angeles", arrivalDateTime: "2023-01-01T13:00:00Z",
+      durationMinutes: 180
+    }];
+
+    expect(flightOptionsMatch(left, right)).toBe(true);
+  });
+
+  it("returns false if sources differ", () => {
+    const left = buildOption(100, "google_round_trip");
+    const right = buildOption(100, "google_one_way");
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("returns false if slice counts differ", () => {
+    const left = buildOption(100, "google_round_trip", 1);
+    const right = buildOption(100, "google_round_trip", 2);
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("returns false if stop counts differ in a slice", () => {
+    const left = buildOption(100, "google_round_trip", 1, 0);
+    const right = buildOption(100, "google_round_trip", 1, 1);
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("returns false if leg counts differ in a slice", () => {
+    const left = buildOption(100, "google_round_trip", 1, 0);
+    const right = buildOption(100, "google_round_trip", 1, 0);
+
+    left.slices[0].legs = [{
+      airlineCode: "AA", airlineName: "American Airlines", flightNumber: "123",
+      departureAirportCode: "JFK", departureAirportName: "John F. Kennedy", departureDateTime: "2023-01-01T10:00:00Z",
+      arrivalAirportCode: "LAX", arrivalAirportName: "Los Angeles", arrivalDateTime: "2023-01-01T13:00:00Z",
+      durationMinutes: 180
+    }];
+    right.slices[0].legs = [];
+
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+
+  it("returns false if leg details differ", () => {
+    const left = buildOption(100, "google_round_trip", 1, 0);
+    const right = buildOption(100, "google_round_trip", 1, 0);
+
+    left.slices[0].legs = [{
+      airlineCode: "AA", airlineName: "American Airlines", flightNumber: "123",
+      departureAirportCode: "JFK", departureAirportName: "John F. Kennedy", departureDateTime: "2023-01-01T10:00:00Z",
+      arrivalAirportCode: "LAX", arrivalAirportName: "Los Angeles", arrivalDateTime: "2023-01-01T13:00:00Z",
+      durationMinutes: 180
+    }];
+
+    // Different flight number
+    right.slices[0].legs = [{
+      airlineCode: "AA", airlineName: "American Airlines", flightNumber: "999",
+      departureAirportCode: "JFK", departureAirportName: "John F. Kennedy", departureDateTime: "2023-01-01T10:00:00Z",
+      arrivalAirportCode: "LAX", arrivalAirportName: "Los Angeles", arrivalDateTime: "2023-01-01T13:00:00Z",
+      durationMinutes: 180
+    }];
+
+    expect(flightOptionsMatch(left, right)).toBe(false);
+  });
+});
 
 describe("FlightSearchService round-trip pairing", () => {
   it("filters candidate pairs by minimum trip days", () => {
