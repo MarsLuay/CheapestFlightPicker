@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, getUsableResumeCheckpoint } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -1724,5 +1724,55 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+});
+describe("getUsableResumeCheckpoint", () => {
+  const mockRequest: SearchRequest = {
+    tripType: "one_way",
+    origin: "SEA",
+    destination: "JFK",
+    departureDateFrom: "2026-05-08",
+    departureDateTo: "2026-05-08",
+    cabinClass: "economy",
+    stopsFilter: "any",
+    preferDirectBookingOnly: false,
+    airlines: [],
+    passengers: {
+      adults: 1,
+      children: 0,
+      infantsInSeat: 0,
+      infantsOnLap: 0
+    },
+    maxResults: 5
+  };
+
+  const validCheckpoint: SearchResumeCheckpoint = {
+    version: 1,
+    request: mockRequest,
+    departureDatePrices: [],
+    returnDatePrices: []
+  };
+
+  it("returns null if checkpoint is null or undefined", () => {
+    expect(getUsableResumeCheckpoint(null, mockRequest, "one_way")).toBeNull();
+    expect(getUsableResumeCheckpoint(undefined, mockRequest, "one_way")).toBeNull();
+  });
+
+  it("returns null if checkpoint version is not 1", () => {
+    const invalidVersionCheckpoint = { ...validCheckpoint, version: 2 } as unknown as SearchResumeCheckpoint;
+    expect(getUsableResumeCheckpoint(invalidVersionCheckpoint, mockRequest, "one_way")).toBeNull();
+  });
+
+  it("returns null if checkpoint request tripType doesn't match passed tripType", () => {
+    expect(getUsableResumeCheckpoint(validCheckpoint, mockRequest, "round_trip")).toBeNull();
+  });
+
+  it("returns null if search requests don't match", () => {
+    const differentRequest: SearchRequest = { ...mockRequest, origin: "PDX" };
+    expect(getUsableResumeCheckpoint(validCheckpoint, differentRequest, "one_way")).toBeNull();
+  });
+
+  it("returns the checkpoint if all conditions are met", () => {
+    expect(getUsableResumeCheckpoint(validCheckpoint, mockRequest, "one_way")).toBe(validCheckpoint);
   });
 });

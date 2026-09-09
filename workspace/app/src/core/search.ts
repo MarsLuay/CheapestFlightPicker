@@ -123,7 +123,7 @@ function searchRequestsMatch(left: SearchRequest, right: SearchRequest): boolean
   return stableSerialize(left) === stableSerialize(right);
 }
 
-function getUsableResumeCheckpoint(
+export function getUsableResumeCheckpoint(
   checkpoint: SearchResumeCheckpoint | null | undefined,
   request: SearchRequest,
   tripType: SearchRequest["tripType"]
