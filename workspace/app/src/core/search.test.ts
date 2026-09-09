@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, addDaysToIsoDate } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -1724,5 +1724,35 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+});
+
+describe("addDaysToIsoDate", () => {
+  it("adds positive days correctly", () => {
+    expect(addDaysToIsoDate("2024-01-01", 5)).toBe("2024-01-06");
+  });
+
+  it("subtracts days correctly when negative", () => {
+    expect(addDaysToIsoDate("2024-01-10", -5)).toBe("2024-01-05");
+  });
+
+  it("handles zero days correctly", () => {
+    expect(addDaysToIsoDate("2024-01-01", 0)).toBe("2024-01-01");
+  });
+
+  it("crosses month boundaries correctly", () => {
+    expect(addDaysToIsoDate("2024-01-30", 5)).toBe("2024-02-04");
+  });
+
+  it("crosses year boundaries correctly", () => {
+    expect(addDaysToIsoDate("2023-12-28", 5)).toBe("2024-01-02");
+  });
+
+  it("handles leap years correctly", () => {
+    // 2024 is a leap year
+    expect(addDaysToIsoDate("2024-02-28", 1)).toBe("2024-02-29");
+    expect(addDaysToIsoDate("2024-02-28", 2)).toBe("2024-03-01");
+    // 2023 is not a leap year
+    expect(addDaysToIsoDate("2023-02-28", 1)).toBe("2023-03-01");
   });
 });
