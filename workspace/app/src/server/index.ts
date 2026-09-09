@@ -50,6 +50,17 @@ const frontendRateLimit = rateLimit({
   }
 });
 
+const adminRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Too many admin requests. Please try again later.",
+    ok: false
+  }
+});
+
 function serializeThrownValue(
   value: unknown
 ): Record<string, unknown> {
@@ -410,7 +421,7 @@ function requireAdminAuth(
   });
 }
 
-app.use("/api/admin", requireAdminAuth);
+app.use("/api/admin", adminRateLimit, requireAdminAuth);
 
 app.get("/api/admin/logs", (_request, response) => {
   response.json({ logs: getServerLogs() });
