@@ -2,12 +2,35 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseCalendarResponse,
+  parseDateTime,
   parseExactSearchResponse,
   parseGoogleFlightsPageDatePrices,
   parseGoogleFlightsPageResponse
 } from "./parsing";
 
 describe("Google Flights Parsing", () => {
+  describe("parseDateTime", () => {
+    it("parses full date and time arrays correctly", () => {
+      expect(parseDateTime([2026, 10, 15], [7, 10])).toBe("2026-10-15T07:10:00");
+    });
+
+    it("uses default values for empty arrays", () => {
+      expect(parseDateTime([], [])).toBe("0000-01-01T00:00:00");
+    });
+
+    it("handles partially populated arrays", () => {
+      expect(parseDateTime([2026], [7])).toBe("2026-01-01T07:00:00");
+    });
+
+    it("pads single-digit values with leading zeros", () => {
+      expect(parseDateTime([2026, 1, 5], [1, 5])).toBe("2026-01-05T01:05:00");
+    });
+
+    it("replaces negative numbers with zero before padding", () => {
+      expect(parseDateTime([2026, -1, -5], [-1, -5])).toBe("2026-00-00T00:00:00");
+    });
+  });
+
   function pageResponse(): string {
     const leg: unknown[] = [];
     leg[3] = "SEA";
