@@ -146,7 +146,7 @@ function registerProcessIncidentHandlers(): void {
   });
 }
 
-function summarizeSearchRequest(input: unknown): Record<string, unknown> {
+export function summarizeSearchRequest(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== "object") {
     return {
       requestType: input === null ? "null" : typeof input
