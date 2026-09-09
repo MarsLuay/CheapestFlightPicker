@@ -1753,7 +1753,6 @@ describe("FlightSearchService round-trip pairing", () => {
               arrivalAirportName: "JFK",
               arrivalDateTime: "2026-05-08T18:00",
               durationMinutes: 300,
-              price: 100
             }
           ]
         }
