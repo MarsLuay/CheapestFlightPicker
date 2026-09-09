@@ -106,9 +106,20 @@ function buildClientIncident(
   }
 
   if (typeof payload.details === "string") {
-    details.details = payload.details;
+    details.details = payload.details.length > 10000
+      ? payload.details.slice(0, 10000) + "... (truncated)"
+      : payload.details;
   } else if (payload.details && typeof payload.details === "object") {
-    details.details = payload.details as Record<string, unknown>;
+    try {
+      const stringified = JSON.stringify(payload.details);
+      if (stringified.length > 10000) {
+        details.details = stringified.slice(0, 10000) + "... (truncated)";
+      } else {
+        details.details = payload.details as Record<string, unknown>;
+      }
+    } catch {
+      details.details = "[Unserializable object]";
+    }
   }
 
   return {
