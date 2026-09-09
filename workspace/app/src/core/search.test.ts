@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, ProgressTracker } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
   SearchProgress,
+  SearchProgressPreview,
   SearchRequest,
   SearchResumeCheckpoint
 } from "../shared/types";
@@ -1724,5 +1725,181 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+});
+
+describe("ProgressTracker", () => {
+  it("initializes with default values and emits initial state", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter);
+
+    expect(reporter).toHaveBeenCalledWith({
+      stage: "Preparing search",
+      detail: undefined,
+      completedSteps: 0,
+      totalSteps: 10,
+      percent: 0,
+      previewCheapestOverall: undefined,
+      previewInspectedOptions: undefined,
+      previewSummary: undefined
+    });
+  });
+
+  it("handles initial state overrides", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter, {
+      completedSteps: 5,
+      detail: "Resuming...",
+      stage: "Resuming search"
+    });
+
+    expect(reporter).toHaveBeenCalledWith({
+      stage: "Resuming search",
+      detail: "Resuming...",
+      completedSteps: 5,
+      totalSteps: 10,
+      percent: 50,
+      previewCheapestOverall: undefined,
+      previewInspectedOptions: undefined,
+      previewSummary: undefined
+    });
+  });
+
+  it("updates stage and emits", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter);
+    reporter.mockClear();
+
+    tracker.setStage("New stage", "Some details");
+
+    expect(reporter).toHaveBeenCalledWith({
+      stage: "New stage",
+      detail: "Some details",
+      completedSteps: 0,
+      totalSteps: 10,
+      percent: 0,
+      previewCheapestOverall: undefined,
+      previewInspectedOptions: undefined,
+      previewSummary: undefined
+    });
+  });
+
+  it("updates total steps and emits", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter);
+    reporter.mockClear();
+
+    tracker.setTotalSteps(20, "More steps");
+
+    expect(reporter).toHaveBeenCalledWith({
+      stage: "Preparing search",
+      detail: "More steps",
+      completedSteps: 0,
+      totalSteps: 20,
+      percent: 0,
+      previewCheapestOverall: undefined,
+      previewInspectedOptions: undefined,
+      previewSummary: undefined
+    });
+  });
+
+  it("completes a step and bounds to totalSteps", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(2, reporter);
+    reporter.mockClear();
+
+    tracker.completeStep("Step 1");
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      completedSteps: 1,
+      percent: 50,
+      stage: "Step 1"
+    }));
+
+    tracker.completeStep("Step 2");
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      completedSteps: 2,
+      percent: 100,
+      stage: "Step 2"
+    }));
+
+    // Should not exceed totalSteps
+    tracker.completeStep("Step 3");
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      completedSteps: 2,
+      percent: 100,
+      stage: "Step 3"
+    }));
+  });
+
+  it("sets completed steps explicitly", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter);
+    reporter.mockClear();
+
+    tracker.setCompletedSteps(5, "Halfway", "Almost there");
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      completedSteps: 5,
+      stage: "Halfway",
+      detail: "Almost there",
+      percent: 50
+    }));
+
+    // Bounds check
+    tracker.setCompletedSteps(15, "Exceed");
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      completedSteps: 10,
+      percent: 100
+    }));
+  });
+
+  it("sets preview cheapest overall and optionally emits", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter);
+    reporter.mockClear();
+
+    const mockOption = { totalPrice: 100 } as FlightOption;
+
+    // With emit=false
+    tracker.setPreviewCheapestOverall(mockOption, 5, false);
+    expect(reporter).not.toHaveBeenCalled();
+
+    // With emit=true
+    tracker.setPreviewCheapestOverall(mockOption, 5, true);
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      previewCheapestOverall: mockOption,
+      previewInspectedOptions: 5
+    }));
+  });
+
+  it("sets preview summary and optionally emits", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter);
+    reporter.mockClear();
+
+    const mockSummary = { inspectedOptions: 10 } as unknown as SearchProgressPreview;
+
+    // With emit=false
+    tracker.setPreviewSummary(mockSummary, false);
+    expect(reporter).not.toHaveBeenCalled();
+
+    // With emit=true
+    tracker.setPreviewSummary(mockSummary, true);
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      previewSummary: mockSummary
+    }));
+  });
+
+  it("finishes tracking correctly", () => {
+    const reporter = vi.fn();
+    const tracker = new ProgressTracker(10, reporter);
+    reporter.mockClear();
+
+    tracker.finish("All done");
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      stage: "Completed",
+      detail: "All done",
+      completedSteps: 10,
+      percent: 100
+    }));
   });
 });

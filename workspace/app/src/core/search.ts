@@ -348,7 +348,7 @@ function flightOptionsMatch(left: FlightOption, right: FlightOption): boolean {
   });
 }
 
-class ProgressTracker {
+export class ProgressTracker {
   private completedSteps = 0;
 
   private currentDetail: string | undefined;
