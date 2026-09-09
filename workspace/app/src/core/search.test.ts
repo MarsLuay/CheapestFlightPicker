@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, findCheapestForRequest } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -1724,5 +1724,97 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+});
+
+describe("findCheapestForRequest", () => {
+  it("returns null when options array is empty", () => {
+    const request = searchRequestSchema.parse({
+      tripType: "one_way",
+      useExactDates: false,
+      origin: "SEA",
+      destination: "PIT",
+      departureDateFrom: "2026-05-01",
+      departureDateTo: "2026-05-02",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      passengers: { adults: 1, children: 0, infantsInSeat: 0, infantsOnLap: 0 }
+    }) as SearchRequest;
+
+    expect(findCheapestForRequest([], request)).toBeNull();
+  });
+
+  it("returns the cheapest total price when prioritizeMileFlights is false", () => {
+    const request = searchRequestSchema.parse({
+      tripType: "one_way",
+      useExactDates: false,
+      origin: "SEA",
+      destination: "PIT",
+      departureDateFrom: "2026-05-01",
+      departureDateTo: "2026-05-02",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      passengers: { adults: 1, children: 0, infantsInSeat: 0, infantsOnLap: 0 },
+      prioritizeMileFlights: false
+    }) as SearchRequest;
+
+    const options = [
+      buildOption(250, "google_one_way"),
+      buildOption(150, "google_one_way"), // Cheapest overall
+      buildMileageOneWayOption(2000, "123") // 200 total price, but is a mileage flight
+    ];
+    options[2].totalPrice = 200; // Just ensuring the mileage option is not the cheapest overall
+
+    const cheapest = findCheapestForRequest(options, request);
+    expect(cheapest?.totalPrice).toBe(150);
+  });
+
+  it("returns the mileage flight when prioritizeMileFlights is true and there is a price tie", () => {
+    const request = searchRequestSchema.parse({
+      tripType: "one_way",
+      useExactDates: false,
+      origin: "SEA",
+      destination: "PIT",
+      departureDateFrom: "2026-05-01",
+      departureDateTo: "2026-05-02",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      passengers: { adults: 1, children: 0, infantsInSeat: 0, infantsOnLap: 0 },
+      prioritizeMileFlights: true
+    }) as SearchRequest;
+
+    const options = [
+      buildOption(150, "google_one_way"), // Standard
+      buildOption(250, "google_one_way"),
+      buildMileageOneWayOption(2000, "123") // Should be prioritized if there is a tie
+    ];
+    options[2].totalPrice = 150; // Price tie with options[0]
+
+    const cheapest = findCheapestForRequest(options, request);
+    expect(cheapest?.totalPrice).toBe(150);
+    expect(cheapest?.slices[0].legs[0].flightNumber).toBe("123");
+  });
+
+  it("returns the cheapest overall when prioritizeMileFlights is true but no mileage flights exist", () => {
+    const request = searchRequestSchema.parse({
+      tripType: "one_way",
+      useExactDates: false,
+      origin: "SEA",
+      destination: "PIT",
+      departureDateFrom: "2026-05-01",
+      departureDateTo: "2026-05-02",
+      cabinClass: "economy",
+      stopsFilter: "any",
+      passengers: { adults: 1, children: 0, infantsInSeat: 0, infantsOnLap: 0 },
+      prioritizeMileFlights: true
+    }) as SearchRequest;
+
+    const options = [
+      buildOption(250, "google_one_way"),
+      buildOption(150, "google_one_way") // Cheapest overall
+    ];
+
+    const cheapest = findCheapestForRequest(options, request);
+    expect(cheapest?.totalPrice).toBe(150);
   });
 });

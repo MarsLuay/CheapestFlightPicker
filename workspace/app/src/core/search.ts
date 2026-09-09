@@ -92,7 +92,7 @@ function pairKey(pair: CandidatePair): string {
   return `${pair.departureDate}:${pair.returnDate ?? ""}`;
 }
 
-function findCheapestForRequest(
+export function findCheapestForRequest(
   options: FlightOption[],
   request: SearchRequest
 ): FlightOption | null {
