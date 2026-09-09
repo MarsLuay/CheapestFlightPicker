@@ -42,7 +42,7 @@ type ScoredCandidatePair = CandidatePair & {
 const dayMs = 24 * 60 * 60 * 1000;
 const directBookingSupplementTargetCount = 6;
 
-function differenceInDays(startDate: string, endDate: string): number {
+export function differenceInDays(startDate: string, endDate: string): number {
   return Math.floor(
     (new Date(endDate).getTime() - new Date(startDate).getTime()) / dayMs
   );

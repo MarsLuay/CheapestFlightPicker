@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { FlightSearchService } from "./search";
+import { FlightSearchService, differenceInDays } from "./search";
 import { searchRequestSchema } from "../shared/schemas";
 import type {
   FlightOption,
@@ -1724,5 +1724,41 @@ describe("FlightSearchService round-trip pairing", () => {
 
     expect(summary.cheapestOverall?.totalPrice).toBe(320);
     expect(summary.timingGuidance?.currentBestPrice).toBe(320);
+  });
+});
+
+describe("differenceInDays", () => {
+  it("returns 0 for the same date", () => {
+    expect(differenceInDays("2023-10-15", "2023-10-15")).toBe(0);
+  });
+
+  it("calculates positive difference correctly", () => {
+    expect(differenceInDays("2023-10-15", "2023-10-16")).toBe(1);
+    expect(differenceInDays("2023-10-15", "2023-10-25")).toBe(10);
+  });
+
+  it("calculates negative difference correctly", () => {
+    expect(differenceInDays("2023-10-16", "2023-10-15")).toBe(-1);
+    expect(differenceInDays("2023-10-25", "2023-10-15")).toBe(-10);
+  });
+
+  it("handles month boundaries correctly", () => {
+    expect(differenceInDays("2023-10-31", "2023-11-01")).toBe(1);
+    expect(differenceInDays("2023-02-28", "2023-03-01")).toBe(1);
+  });
+
+  it("handles year boundaries correctly", () => {
+    expect(differenceInDays("2023-12-31", "2024-01-01")).toBe(1);
+    expect(differenceInDays("2024-01-01", "2023-12-31")).toBe(-1);
+  });
+
+  it("handles leap years correctly", () => {
+    expect(differenceInDays("2024-02-28", "2024-03-01")).toBe(2);
+    expect(differenceInDays("2023-02-28", "2023-03-01")).toBe(1); // non-leap year
+  });
+
+  it("returns NaN for invalid date strings", () => {
+    expect(differenceInDays("not-a-date", "2023-10-15")).toBeNaN();
+    expect(differenceInDays("2023-10-15", "not-a-date")).toBeNaN();
   });
 });
