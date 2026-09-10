@@ -113,6 +113,51 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+type AirportSuggestionListProps = {
+  label: string;
+  options: AirportRecord[];
+  activeIndex: number;
+  onSelect: (airport: AirportRecord) => void;
+};
+
+function AirportSuggestionList({
+  label,
+  options,
+  activeIndex,
+  onSelect
+}: AirportSuggestionListProps) {
+  return (
+    <div
+      className="suggestion-list"
+      role="listbox"
+      aria-label={`${label} matches`}
+    >
+      {options.map((airport, index) => (
+        <button
+          key={airport.id}
+          className={`suggestion-option ${
+            index === activeIndex ? "is-active" : ""
+          }`}
+          type="button"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            onSelect(airport);
+          }}
+        >
+          <span className="suggestion-copy">
+            <strong>{airport.iata} | {airport.city}</strong>
+            <span className="suggestion-detail">{airport.name}</span>
+            <span className="suggestion-detail">{airport.country}</span>
+          </span>
+          {index === 0 ? (
+            <span className="suggestion-badge">Best match</span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function AirportField({
   label,
   multiple = false,
@@ -267,34 +312,12 @@ export function AirportField({
           </button>
         ) : null}
         {shouldShowSuggestions ? (
-          <div
-            className="suggestion-list"
-            role="listbox"
-            aria-label={`${label} matches`}
-          >
-            {suggestionOptions.map((airport, index) => (
-              <button
-                key={airport.id}
-                className={`suggestion-option ${
-                  index === activeIndex ? "is-active" : ""
-                }`}
-                type="button"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  selectAirport(airport);
-                }}
-              >
-                <span className="suggestion-copy">
-                  <strong>{airport.iata} | {airport.city}</strong>
-                  <span className="suggestion-detail">{airport.name}</span>
-                  <span className="suggestion-detail">{airport.country}</span>
-                </span>
-                {index === 0 ? (
-                  <span className="suggestion-badge">Best match</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
+          <AirportSuggestionList
+            label={label}
+            options={suggestionOptions}
+            activeIndex={activeIndex}
+            onSelect={selectAirport}
+          />
         ) : null}
       </div>
     </div>
