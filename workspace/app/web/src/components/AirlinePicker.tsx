@@ -13,6 +13,68 @@ type AirlinePickerProps = {
   onChange: (codes: string[]) => void;
 };
 
+type AirlineComboboxProps = {
+  query: string;
+  setQuery: (val: string) => void;
+  setIsFocused: (val: boolean) => void;
+  handleInputKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
+  shouldShowSuggestions: boolean;
+  suggestionOptions: AirlineRecord[];
+  activeIndex: number;
+  addAirline: (iata: string) => void;
+};
+
+function AirlineCombobox({
+  query,
+  setQuery,
+  setIsFocused,
+  handleInputKeyDown,
+  shouldShowSuggestions,
+  suggestionOptions,
+  activeIndex,
+  addAirline
+}: AirlineComboboxProps) {
+  return (
+    <div className="autocomplete-shell">
+      <input
+        id="airline-picker-input"
+        aria-label="Airlines"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        onKeyDown={handleInputKeyDown}
+        placeholder="Leave blank for any"
+      />
+      {shouldShowSuggestions ? (
+        <div className="suggestion-list" role="listbox" aria-label="Airline matches">
+          {suggestionOptions.map((airline, index) => (
+            <button
+              key={airline.id}
+              className={`suggestion-option ${
+                index === activeIndex ? "is-active" : ""
+              }`}
+              type="button"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                addAirline(airline.iata);
+              }}
+            >
+              <span className="suggestion-copy">
+                <strong>{airline.iata}</strong>
+                <span>{airline.name}</span>
+              </span>
+              {index === 0 ? (
+                <span className="suggestion-badge">Best match</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AirlinePicker({ selected, onChange }: AirlinePickerProps) {
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<AirlineRecord[]>([]);
@@ -99,43 +161,16 @@ export function AirlinePicker({ selected, onChange }: AirlinePickerProps) {
       <label className="field-label" htmlFor="airline-picker-input">
         Airlines
       </label>
-      <div className="autocomplete-shell">
-        <input
-          id="airline-picker-input"
-          aria-label="Airlines"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          onKeyDown={handleInputKeyDown}
-          placeholder="Leave blank for any"
-        />
-        {shouldShowSuggestions ? (
-          <div className="suggestion-list" role="listbox" aria-label="Airline matches">
-            {suggestionOptions.map((airline, index) => (
-              <button
-                key={airline.id}
-                className={`suggestion-option ${
-                  index === activeIndex ? "is-active" : ""
-                }`}
-                type="button"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  addAirline(airline.iata);
-                }}
-              >
-                <span className="suggestion-copy">
-                  <strong>{airline.iata}</strong>
-                  <span>{airline.name}</span>
-                </span>
-                {index === 0 ? (
-                  <span className="suggestion-badge">Best match</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      <AirlineCombobox
+        query={query}
+        setQuery={setQuery}
+        setIsFocused={setIsFocused}
+        handleInputKeyDown={handleInputKeyDown}
+        shouldShowSuggestions={shouldShowSuggestions}
+        suggestionOptions={suggestionOptions}
+        activeIndex={activeIndex}
+        addAirline={addAirline}
+      />
       <div className="chip-row">
         {selected.map((code) => (
           <button
