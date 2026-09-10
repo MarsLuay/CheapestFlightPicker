@@ -90,24 +90,64 @@ function buildSummary(
 }
 
 describe("needsBookingSourceSupplement", () => {
-  it("only targets unresolved Google-backed options", () => {
+  it("returns true when all conditions for supplementation are met", () => {
     expect(needsBookingSourceSupplement(buildOption())).toBe(true);
+  });
+
+  it("returns false for null option", () => {
+    expect(needsBookingSourceSupplement(null)).toBe(false);
+  });
+
+  it("returns false when option.source is 'two_one_way_combo'", () => {
+    expect(
+      needsBookingSourceSupplement(
+        buildOption({
+          source: "two_one_way_combo"
+        })
+      )
+    ).toBe(false);
+  });
+
+  it("returns false when option.bookingSource.detected is true", () => {
     expect(
       needsBookingSourceSupplement(
         buildOption({
           bookingSource: {
             type: "direct_airline",
             label: "Direct with Delta Air Lines",
-            sellerName: "Delta Air Lines",
             detected: true
           }
         })
       )
     ).toBe(false);
+  });
+
+  it("returns false when option.bookingSource.sellerName is set", () => {
     expect(
       needsBookingSourceSupplement(
         buildOption({
-          source: "two_one_way_combo"
+          bookingSource: {
+            type: "unknown",
+            label: "Unknown",
+            detected: false,
+            sellerName: "Delta Air Lines"
+          }
+        })
+      )
+    ).toBe(false);
+  });
+
+  it("returns false when any slice has an empty legs array", () => {
+    expect(
+      needsBookingSourceSupplement(
+        buildOption({
+          slices: [
+            {
+              durationMinutes: 180,
+              stops: 0,
+              legs: []
+            }
+          ]
         })
       )
     ).toBe(false);
