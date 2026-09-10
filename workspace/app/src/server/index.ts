@@ -77,7 +77,7 @@ function serializeThrownValue(
   };
 }
 
-function buildClientIncident(
+export function buildClientIncident(
   input: unknown
 ): { message: string; details: Record<string, unknown> } {
   if (!input || typeof input !== "object") {
