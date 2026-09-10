@@ -1546,7 +1546,6 @@ describe("FlightSearchService round-trip pairing", () => {
           return [];
         }
 
-        // Soft-TTL reprice uses cache (no bypass). Stale bypass path unused.
         return runtimeOptions?.bypassCache
           ? [buildDatedOneWayOption(330, "2026-05-08")]
           : [buildDatedOneWayOption(305, "2026-05-08")];
