@@ -3,12 +3,15 @@ import type { ReactNode } from "react";
 import {
   buildGoogleFlightsSearchLinks,
   buildGoogleFlightsSearchUrlForDatePrice,
-  type DatePriceSearchDirection
+  type DatePriceSearchDirection,
+  type GoogleFlightsSearchLink
 } from "../lib/google-flights-link";
 import type {
   BookingSourceType,
   DatePrice,
+  FlightLeg,
   FlightOption,
+  FlightSlice,
   PriceAlert,
   SearchProgress,
   SearchRequest,
@@ -433,6 +436,161 @@ function PriceAlertCard({
   );
 }
 
+function OptionCardHeader({
+  option,
+  title,
+  summaryNote
+}: {
+  option: FlightOption;
+  title: string;
+  summaryNote?: string;
+}) {
+  return (
+    <header>
+      <div>
+        <h3>{title}</h3>
+        <p className="muted-copy">
+          {option.outboundDate ? `Outbound ${formatDate(option.outboundDate)}` : ""}
+          {option.returnDate ? ` | Return ${formatDate(option.returnDate)}` : ""}
+        </p>
+        {summaryNote ? <p className="muted-copy">{summaryNote}</p> : null}
+      </div>
+      <div className="price-stack">
+        <strong className="big-price">
+          {formatPrice(option.totalPrice, option.currency)}
+        </strong>
+        <span
+          className={`source-badge source-badge--${getBookingSourceTone(
+            option.bookingSource.type
+          )}`}
+          title={option.bookingSource.url}
+        >
+          {option.bookingSource.label}
+        </span>
+      </div>
+    </header>
+  );
+}
+
+function OptionSlice({
+  option,
+  slice,
+  sliceIndex,
+  title
+}: {
+  option: FlightOption;
+  slice: FlightSlice;
+  sliceIndex: number;
+  title: string;
+}) {
+  return (
+    <article className="slice-card" key={`${title}-${sliceIndex}`}>
+      {getSliceTitle(option, sliceIndex) || option.slicePrices?.[sliceIndex] !== undefined ? (
+        <div className="slice-card__header">
+          {getSliceTitle(option, sliceIndex) ? (
+            <strong className="slice-card__title">
+              {getSliceTitle(option, sliceIndex)}
+            </strong>
+          ) : (
+            <span />
+          )}
+          {option.slicePrices?.[sliceIndex] !== undefined ? (
+            <span className="slice-card__price">
+              {formatPrice(
+                option.slicePrices[sliceIndex] ?? 0,
+                option.currency
+              )}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="slice-meta">
+        <span>{formatDuration(slice.durationMinutes)}</span>
+        <span>
+          {slice.stops === 0
+            ? "Nonstop"
+            : `${slice.stops} stop${slice.stops === 1 ? "" : "s"}`}
+        </span>
+      </div>
+      {slice.legs.map((leg) => (
+        <OptionSliceLeg
+          key={`${leg.airlineCode}-${leg.flightNumber}-${leg.departureDateTime}`}
+          leg={leg}
+        />
+      ))}
+    </article>
+  );
+}
+
+function OptionSliceLeg({ leg }: { leg: FlightLeg }) {
+  return (
+    <div
+      className="leg-row"
+      key={`${leg.airlineCode}-${leg.flightNumber}-${leg.departureDateTime}`}
+    >
+      <div>
+        <strong>
+          {leg.departureAirportCode}
+          {" -> "}
+          {leg.arrivalAirportCode}
+        </strong>
+        <p>
+          {leg.airlineCode} {leg.flightNumber} | {leg.airlineName}
+        </p>
+      </div>
+      <div className="leg-times">
+        <span>{formatDateTime(leg.departureDateTime)}</span>
+        <span>{formatDateTime(leg.arrivalDateTime)}</span>
+      </div>
+    </div>
+  );
+}
+
+function OptionCardActionLinks({
+  searchLinks
+}: {
+  searchLinks: GoogleFlightsSearchLink[];
+}) {
+  if (searchLinks.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="result-card__actions">
+      {searchLinks.length > 1 ? (
+        <p className="result-card__actions-note">
+          Open each one-way fare separately:
+        </p>
+      ) : null}
+      {searchLinks.map((link) => (
+        <a
+          className="secondary-action"
+          href={link.href}
+          key={link.label}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {link.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function OptionCardNotes({ notes }: { notes?: string[] | null }) {
+  if (!notes || notes.length === 0) {
+    return null;
+  }
+
+  return (
+    <ul className="note-list">
+      {notes.map((note) => (
+        <li key={note}>{note}</li>
+      ))}
+    </ul>
+  );
+}
+
 function OptionCard({
   option,
   request,
@@ -476,116 +634,26 @@ function OptionCard({
 
   return (
     <section className={cardClassName ? `result-card ${cardClassName}` : "result-card"}>
-      <header>
-        <div>
-          <h3>{title}</h3>
-          <p className="muted-copy">
-            {option.outboundDate ? `Outbound ${formatDate(option.outboundDate)}` : ""}
-            {option.returnDate ? ` | Return ${formatDate(option.returnDate)}` : ""}
-          </p>
-          {summaryNote ? <p className="muted-copy">{summaryNote}</p> : null}
-        </div>
-        <div className="price-stack">
-          <strong className="big-price">
-            {formatPrice(option.totalPrice, option.currency)}
-          </strong>
-          <span
-            className={`source-badge source-badge--${getBookingSourceTone(
-              option.bookingSource.type
-            )}`}
-            title={option.bookingSource.url}
-          >
-            {option.bookingSource.label}
-          </span>
-        </div>
-      </header>
+      <OptionCardHeader option={option} title={title} summaryNote={summaryNote} />
       <div className="option-stack">
         {option.slices.map((slice, sliceIndex) => (
-          <article className="slice-card" key={`${title}-${sliceIndex}`}>
-            {getSliceTitle(option, sliceIndex) || option.slicePrices?.[sliceIndex] !== undefined ? (
-              <div className="slice-card__header">
-                {getSliceTitle(option, sliceIndex) ? (
-                  <strong className="slice-card__title">
-                    {getSliceTitle(option, sliceIndex)}
-                  </strong>
-                ) : (
-                  <span />
-                )}
-                {option.slicePrices?.[sliceIndex] !== undefined ? (
-                  <span className="slice-card__price">
-                    {formatPrice(
-                      option.slicePrices[sliceIndex] ?? 0,
-                      option.currency
-                    )}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="slice-meta">
-              <span>{formatDuration(slice.durationMinutes)}</span>
-              <span>
-                {slice.stops === 0
-                  ? "Nonstop"
-                  : `${slice.stops} stop${slice.stops === 1 ? "" : "s"}`}
-              </span>
-            </div>
-            {slice.legs.map((leg) => (
-              <div
-                className="leg-row"
-                key={`${leg.airlineCode}-${leg.flightNumber}-${leg.departureDateTime}`}
-              >
-                <div>
-                  <strong>
-                    {leg.departureAirportCode}
-                    {" -> "}
-                    {leg.arrivalAirportCode}
-                  </strong>
-                  <p>
-                    {leg.airlineCode} {leg.flightNumber} | {leg.airlineName}
-                  </p>
-                </div>
-                <div className="leg-times">
-                  <span>{formatDateTime(leg.departureDateTime)}</span>
-                  <span>{formatDateTime(leg.arrivalDateTime)}</span>
-                </div>
-              </div>
-            ))}
-          </article>
+          <OptionSlice
+            key={`${title}-${sliceIndex}`}
+            option={option}
+            slice={slice}
+            sliceIndex={sliceIndex}
+            title={title}
+          />
         ))}
       </div>
-      {option.notes && option.notes.length > 0 ? (
-        <ul className="note-list">
-          {option.notes.map((note) => (
-            <li key={note}>{note}</li>
-          ))}
-        </ul>
-      ) : null}
+      <OptionCardNotes notes={option.notes} />
       {progress ? (
         <SearchProgressBlock
           label={progressLabel ?? `Searching ${title}`}
           progress={progress}
         />
       ) : null}
-      {searchLinks.length > 0 ? (
-        <div className="result-card__actions">
-          {searchLinks.length > 1 ? (
-            <p className="result-card__actions-note">
-              Open each one-way fare separately:
-            </p>
-          ) : null}
-          {searchLinks.map((link) => (
-            <a
-              className="secondary-action"
-              href={link.href}
-              key={link.label}
-              rel="noreferrer"
-              target="_blank"
-            >
-              {link.label}
-            </a>
-          ))}
-        </div>
-      ) : null}
+      <OptionCardActionLinks searchLinks={searchLinks} />
     </section>
   );
 }
