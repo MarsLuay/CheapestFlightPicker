@@ -48,7 +48,7 @@ function differenceInDays(startDate: string, endDate: string): number {
   );
 }
 
-function addDaysToIsoDate(date: string, days: number): string {
+export function addDaysToIsoDate(date: string, days: number): string {
   const shiftedDate = new Date(new Date(date).getTime() + days * dayMs);
   return shiftedDate.toISOString().split("T")[0] ?? date;
 }
