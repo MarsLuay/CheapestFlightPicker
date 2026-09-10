@@ -37,7 +37,7 @@ describe("CORS configuration", () => {
     }
   });
 
-  it("allows launcher-selected localhost ports outside the default list", async () => {
+  it("rejects launcher-selected localhost ports outside the default list", async () => {
     const server = app.listen(0);
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
@@ -49,9 +49,7 @@ describe("CORS configuration", () => {
         }
       });
       expect(response.status).toBe(200);
-      expect(response.headers.get("access-control-allow-origin")).toBe(
-        "http://localhost:8788"
-      );
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
     } finally {
       server.close();
     }
