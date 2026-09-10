@@ -25,7 +25,7 @@ function normalizeLabel(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/gu, "");
 }
 
-function parseBookingSource(
+export function parseBookingSource(
   route: unknown[],
   parsedLegs: GoogleFlightLeg[]
 ): BookingSource {

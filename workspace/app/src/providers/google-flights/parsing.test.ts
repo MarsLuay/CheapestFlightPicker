@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseBookingSource,
   parseCalendarResponse,
   parseDateTime,
   parseExactSearchResponse,
@@ -112,6 +113,106 @@ describe("Google Flights Parsing", () => {
         { date: "2024-12-01", price: 100 },
         { date: "2025-02-01", price: 200 }
       ]);
+    });
+  });
+
+  describe("parseBookingSource", () => {
+    const dummyLegs = [
+      {
+        airlineCode: "BA",
+        airlineName: "British Airways",
+        flightNumber: "123",
+        departureAirportCode: "JFK",
+        arrivalAirportCode: "LHR",
+        departureDateTime: "2025-05-01T12:30:00",
+        arrivalDateTime: "2025-05-01T20:15:00",
+        durationMinutes: 465
+      }
+    ];
+
+    it("returns unknown if route[24] is missing or invalid", () => {
+      expect(parseBookingSource([], dummyLegs)).toEqual({
+        type: "unknown",
+        label: "Booking source not confirmed",
+        detected: false
+      });
+
+      const routeWithInvalid24: unknown[] = [];
+      routeWithInvalid24[24] = "not an array";
+      expect(parseBookingSource(routeWithInvalid24, dummyLegs)).toEqual({
+        type: "unknown",
+        label: "Booking source not confirmed",
+        detected: false
+      });
+
+      const routeWithInvalidEntries: unknown[] = [];
+      routeWithInvalidEntries[24] = [["BA", null, "https://britishairways.com"]];
+      expect(parseBookingSource(routeWithInvalidEntries, dummyLegs)).toEqual({
+        type: "unknown",
+        label: "Booking source not confirmed",
+        detected: false
+      });
+    });
+
+    it("matches direct airline by name (ignoring case/special characters)", () => {
+      const route: unknown[] = [];
+      route[24] = [[null, "BRITISH AIRWAYS!!!", "https://britishairways.com"]];
+      expect(parseBookingSource(route, dummyLegs)).toEqual({
+        type: "direct_airline",
+        label: "Direct with BRITISH AIRWAYS!!!",
+        sellerName: "BRITISH AIRWAYS!!!",
+        url: "https://britishairways.com",
+        detected: true
+      });
+    });
+
+    it("matches direct airline by code", () => {
+      const route: unknown[] = [];
+      route[24] = [["ba", "Some Airline Website", "https://example.com"]];
+      expect(parseBookingSource(route, dummyLegs)).toEqual({
+        type: "direct_airline",
+        label: "Direct with Some Airline Website",
+        sellerName: "Some Airline Website",
+        url: "https://example.com",
+        detected: true
+      });
+    });
+
+    it("matches OTA by seller name", () => {
+      const route: unknown[] = [];
+      route[24] = [[null, "Expedia", "https://expedia.com"]];
+      expect(parseBookingSource(route, dummyLegs)).toEqual({
+        type: "ota",
+        label: "OTA: Expedia",
+        sellerName: "Expedia",
+        url: "https://expedia.com",
+        detected: true
+      });
+    });
+
+    it("matches OTA by seller URL", () => {
+      const route: unknown[] = [];
+      // The seller name "Travel Site" doesn't match the regex, but the URL does
+      route[24] = [[null, "Travel Site", "https://booking.com/flight"]];
+      expect(parseBookingSource(route, dummyLegs)).toEqual({
+        type: "ota",
+        label: "OTA: Travel Site",
+        sellerName: "Travel Site",
+        url: "https://booking.com/flight",
+        detected: true
+      });
+    });
+
+    it("defaults to OTA if it doesn't match direct airline or known OTA", () => {
+      const route: unknown[] = [];
+      route[24] = [[null, "Random Travel Agent", "https://randomtravel.com"]];
+      expect(parseBookingSource(route, dummyLegs)).toEqual({
+        type: "ota",
+        label: "OTA: Random Travel Agent",
+        sellerName: "Random Travel Agent",
+        url: "https://randomtravel.com",
+        detected: true
+      });
     });
   });
 
