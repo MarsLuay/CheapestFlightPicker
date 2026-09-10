@@ -6,7 +6,7 @@ function padDateTimePart(value: number): string {
   return String(Math.max(0, value)).padStart(2, "0");
 }
 
-function parseDateTime(dateParts: number[], timeParts: number[]): string {
+export function parseDateTime(dateParts: number[], timeParts: number[]): string {
   const year = dateParts[0] ?? 0;
   const month = dateParts[1] ?? 1;
   const day = dateParts[2] ?? 1;
