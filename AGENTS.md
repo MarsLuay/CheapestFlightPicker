@@ -19,3 +19,7 @@ python3 ../../scripts/project-memory-context.py --root . --task "<current task>"
 
 Read every path listed under Required source reads before editing. A non-zero result blocks the task; repair the project contract or route before continuing. Edit durable tasks and memory only at contract-listed paths.
 <!-- /project-memory-bootstrap:v1 -->
+
+## Git
+
+- Always commit and merge to main for changes. Use `/sync` if push is not clean. 
