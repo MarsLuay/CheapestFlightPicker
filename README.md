@@ -36,7 +36,7 @@ From `workspace/app`, run `npm run benchmark:search` for a repeatable synthetic 
 
 ## Easiest way to run it
 
-If you only download one launcher file, it will download the rest of the repo into a `CheapestFlightPicker` folder in the same directory before launching the app. The launchers also try to install missing Git and Node.js automatically when your package manager or official installers are available.
+If you only download one launcher file, it will download the rest of the repo into a `CheapestFlightPicker` folder in the same directory before launching the app. The Windows launcher checks for Git, Node.js 22.12+ (its supported baseline; Vite 8 also accepts Node 20.19+), and a working npm command; it attempts to install missing tools or replace an unsupported Node.js version automatically when a package manager or official installer is available. First run requires internet access and may request administrator approval for system-wide Git or Node.js installation.
 
 ### Windows
 

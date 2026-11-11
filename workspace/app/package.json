@@ -4,6 +4,9 @@
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch src/server/index.ts",
@@ -17,7 +20,7 @@
     "benchmark:catalog": "vitest bench src/core/catalog.bench.ts",
     "benchmark:search": "tsx scripts/benchmark-search.ts",
     "check": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts && node ../../scripts/test-launchers.mjs"
   },
   "dependencies": {
     "axios": "^1.15.0",

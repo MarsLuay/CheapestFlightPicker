@@ -68,7 +68,17 @@ const shell = await read('setup-and-launch.sh');
 const desktop = await read('setup-and-launch.desktop');
 const appShell = await read('setup-and-launch.app/Contents/Resources/setup-and-launch.sh');
 const appEntry = await read('setup-and-launch.app/Contents/MacOS/setup-and-launch');
+const appPackage = JSON.parse(await read('workspace/app/package.json'));
 
+assert.equal(appPackage.engines?.node, '>=22.12.0', 'app package must declare the supported Node.js minimum');
+assertIncludes(appPackage.scripts.test, 'node ../../scripts/test-launchers.mjs', 'npm test must include launcher validation');
+assertIncludes(bat, 'call :node_runtime_available', 'Windows launcher must validate the Node.js runtime');
+assert.ok((bat.match(/call :node_runtime_available/g) || []).length >= 2, 'Windows launcher must validate Node before and after tool installation');
+assertIncludes(bat, 'minor >= 12', 'Windows launcher must reject Node.js versions below 22.12');
+assertIncludes(bat, 'call npm --version', 'Windows launcher must verify that npm runs');
+const nodeInstallerBlock = bat.match(/(?:^|\r?\n):install_node\r?\n([\s\S]*?)\r?\n:install_node_direct\r?\n/)?.[1];
+assert.ok(nodeInstallerBlock, 'Windows launcher must define the Node installer fallback');
+assert.ok((nodeInstallerBlock.match(/call :node_runtime_available/g) || []).length >= 3, 'each package-manager install must verify the supported Node runtime before accepting success');
 assertIncludes(bat, 'set "LAUNCHER_DIR=%~dp0"', 'Windows launcher must resolve itself');
 assertIncludes(bat, 'set "STANDALONE_REPO_DIR=%LAUNCHER_DIR%\\CheapestFlightPicker"', 'Windows launcher must clone beside itself');
 assertIncludes(bat, 'set "APP_PORT=8787"', 'Windows launcher must define the default app port');

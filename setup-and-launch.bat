@@ -230,9 +230,7 @@ set "MISSING_GIT=0"
 set "MISSING_NODE=0"
 call :tool_available git
 if errorlevel 1 set "MISSING_GIT=1"
-call :tool_available node
-if errorlevel 1 set "MISSING_NODE=1"
-call :tool_available npm
+call :node_runtime_available
 if errorlevel 1 set "MISSING_NODE=1"
 
 if "!MISSING_GIT!"=="0" if "!MISSING_NODE!"=="0" exit /b 0
@@ -267,9 +265,7 @@ call :add_known_tool_paths
 set "MISSING_AFTER_INSTALL=0"
 call :tool_available git
 if errorlevel 1 set "MISSING_AFTER_INSTALL=1"
-call :tool_available node
-if errorlevel 1 set "MISSING_AFTER_INSTALL=1"
-call :tool_available npm
+call :node_runtime_available
 if errorlevel 1 set "MISSING_AFTER_INSTALL=1"
 
 if "!MISSING_AFTER_INSTALL!"=="0" exit /b 0
@@ -282,7 +278,7 @@ if "!TOOLCHAIN_INSTALLED!"=="1" if "!RELAUNCHED_AFTER_TOOLCHAIN!"=="0" (
   exit /b 2
 )
 
-echo Git, Node.js, or npm is still not available on PATH.
+echo Git or a supported Node.js 22.12+ and npm runtime is still not available on PATH.
 echo Close this window, open a new Command Prompt, and run setup-and-launch.bat again.
 call :fail 1
 exit /b 1
@@ -335,16 +331,22 @@ if not errorlevel 1 (
 exit /b 1
 
 :install_node
-echo Node.js or npm was not found. Trying to install Node.js LTS automatically...
+echo Node.js 22.12+ or a working npm command is missing. Trying to install Node.js LTS automatically...
 where winget >nul 2>nul
 if not errorlevel 1 (
   echo Trying winget...
   winget install --id "OpenJS.NodeJS.LTS" --exact --accept-package-agreements --accept-source-agreements --silent
   if not errorlevel 1 (
-    set "TOOLCHAIN_INSTALLED=1"
-    exit /b 0
+    call :refresh_path
+    call :bootstrap_windows_path
+    call :add_known_tool_paths
+    call :node_runtime_available
+    if not errorlevel 1 (
+      set "TOOLCHAIN_INSTALLED=1"
+      exit /b 0
+    )
   )
-  echo winget install failed.
+  echo winget did not provide Node.js 22.12+ and npm. Trying the next installer.
 )
 
 where choco >nul 2>nul
@@ -352,10 +354,16 @@ if not errorlevel 1 (
   echo Trying Chocolatey...
   choco install nodejs-lts -y --no-progress
   if not errorlevel 1 (
-    set "TOOLCHAIN_INSTALLED=1"
-    exit /b 0
+    call :refresh_path
+    call :bootstrap_windows_path
+    call :add_known_tool_paths
+    call :node_runtime_available
+    if not errorlevel 1 (
+      set "TOOLCHAIN_INSTALLED=1"
+      exit /b 0
+    )
   )
-  echo Chocolatey install failed.
+  echo Chocolatey did not provide Node.js 22.12+ and npm. Trying the next installer.
 )
 
 where scoop >nul 2>nul
@@ -363,10 +371,16 @@ if not errorlevel 1 (
   echo Trying Scoop...
   scoop install nodejs-lts
   if not errorlevel 1 (
-    set "TOOLCHAIN_INSTALLED=1"
-    exit /b 0
+    call :refresh_path
+    call :bootstrap_windows_path
+    call :add_known_tool_paths
+    call :node_runtime_available
+    if not errorlevel 1 (
+      set "TOOLCHAIN_INSTALLED=1"
+      exit /b 0
+    )
   )
-  echo Scoop install failed.
+  echo Scoop did not provide Node.js 22.12+ and npm. Trying the official installer.
 )
 
 echo Downloading Node.js LTS installer from nodejs.org...
@@ -507,6 +521,17 @@ for %%P in (
   )
 )
 
+exit /b 0
+
+:node_runtime_available
+where node >nul 2>nul
+if errorlevel 1 exit /b 1
+node -e "const [major,minor]=process.versions.node.split('.').map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)" >nul 2>nul
+if errorlevel 1 exit /b 1
+where npm >nul 2>nul
+if errorlevel 1 exit /b 1
+call npm --version >nul 2>nul
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :tool_available
