@@ -6,6 +6,7 @@ import {
   printHackerFareInsight,
   printOption,
   printPriceAlert,
+  printSearchPerformance,
   printSearchResultSummary,
   printTimingGuidance
 } from "./index";
@@ -128,6 +129,34 @@ describe("CLI output formatters", () => {
     expect(logs).toContain("Separate one-ways: Book two separate one-ways to save $30");
   });
 
+  it("prints search performance metrics", () => {
+    const logs: string[] = [];
+    printSearchPerformance(
+      {
+        elapsedMs: 120.4,
+        googleHttpAttempts: 3,
+        googleHttpMs: 300.2,
+        googleHttpActiveWallMs: 115.8,
+        responseParseCount: 4,
+        responseParseMs: 2.1,
+        cacheReads: 2,
+        cacheHits: 1,
+        cacheReadMs: 0.4,
+        cacheWrites: 1,
+        cacheWriteMs: 0.6,
+        rankingOperations: 8,
+        rankingMs: 1.2
+      },
+      (message) => logs.push(message)
+    );
+
+    expect(logs).toContain("Search performance: 120.4 ms total");
+    expect(logs).toContain(
+      "  Google HTTP: 300.2 ms across 3 attempts (115.8 ms active wall time)"
+    );
+    expect(logs).toContain("  Cache: 1/2 reads hit; 0.4 ms reading, 1 writes in 0.6 ms");
+  });
+
   it("should print search header for round trip", () => {
     const logs: string[] = [];
     const request: SearchRequest = {
@@ -184,7 +213,22 @@ describe("CLI output formatters", () => {
       inspectedOptions: 5,
       timingGuidance: null,
       priceAlert: null,
-      hackerFareInsight: null
+      hackerFareInsight: null,
+      performance: {
+        elapsedMs: 12.3,
+        googleHttpAttempts: 0,
+        googleHttpMs: 0,
+        googleHttpActiveWallMs: 0,
+        responseParseCount: 0,
+        responseParseMs: 0,
+        cacheReads: 0,
+        cacheHits: 0,
+        cacheReadMs: 0,
+        cacheWrites: 0,
+        cacheWriteMs: 0,
+        rankingOperations: 1,
+        rankingMs: 0.1
+      }
     };
 
     printSearchResultSummary(summary, request, (msg) => logs.push(msg));
@@ -192,5 +236,6 @@ describe("CLI output formatters", () => {
     expect(logs).toContain("Cheapest overall: none");
     expect(logs).toContain("Evaluated date pairs: 1");
     expect(logs).toContain("Inspected options: 5");
+    expect(logs).toContain("Search performance: 12.3 ms total");
   });
 });

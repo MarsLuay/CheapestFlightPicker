@@ -509,6 +509,9 @@ describe("FlightSearchService round-trip pairing", () => {
     expect(summary.cheapestTwoOneWays?.totalPrice).toBe(150);
     expect(summary.cheapestNonstop?.totalPrice).toBe(160);
     expect(summary.cheapestNonstop?.source).toBe("two_one_way_combo");
+    expect(summary.performance?.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(summary.performance?.rankingOperations).toBeGreaterThan(0);
+    expect(summary.performance?.googleHttpAttempts).toBe(0);
   });
 
   it("streams live one-way preview summaries while exact fares are still being checked", async () => {

@@ -7,6 +7,7 @@ import type {
   FlightOption,
   HackerFareInsight,
   PriceAlert,
+  SearchPerformanceMetrics,
   SearchRequest,
   SearchSummary,
   TimingGuidance
@@ -100,6 +101,28 @@ export function printHeader(
   log("");
 }
 
+export function printSearchPerformance(
+  metrics: SearchPerformanceMetrics,
+  log: Logger = console.log
+): void {
+  log(`Search performance: ${metrics.elapsedMs.toFixed(1)} ms total`);
+  log(
+    `  Google HTTP: ${metrics.googleHttpMs.toFixed(1)} ms across ${metrics.googleHttpAttempts} attempts ` +
+      `(${metrics.googleHttpActiveWallMs.toFixed(1)} ms active wall time)`
+  );
+  log(
+    `  Response parsing: ${metrics.responseParseMs.toFixed(1)} ms across ${metrics.responseParseCount} parses`
+  );
+  log(
+    `  Ranking: ${metrics.rankingMs.toFixed(1)} ms across ${metrics.rankingOperations} measured operations`
+  );
+  log(
+    `  Cache: ${metrics.cacheHits}/${metrics.cacheReads} reads hit; ` +
+      `${metrics.cacheReadMs.toFixed(1)} ms reading, ${metrics.cacheWrites} writes ` +
+      `in ${metrics.cacheWriteMs.toFixed(1)} ms`
+  );
+}
+
 export function printSearchResultSummary(
   summary: SearchSummary,
   request: SearchRequest,
@@ -119,6 +142,9 @@ export function printSearchResultSummary(
   log("");
   log(`Evaluated date pairs: ${summary.evaluatedDatePairs.length}`);
   log(`Inspected options: ${summary.inspectedOptions}`);
+  if (summary.performance) {
+    printSearchPerformance(summary.performance, log);
+  }
 }
 
 program

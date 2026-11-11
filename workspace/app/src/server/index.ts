@@ -229,7 +229,8 @@ function summarizeSearchSummary(summary: SearchSummary): Record<string, unknown>
     evaluatedDatePairs: summary.evaluatedDatePairs.length,
     departureDateCandidates: summary.departureDatePrices.length,
     returnDateCandidates: summary.returnDatePrices.length,
-    cheapestOverall
+    cheapestOverall,
+    performance: summary.performance ?? null
   };
 }
 

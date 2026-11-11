@@ -28,6 +28,12 @@ Here's what you get when you fire it up. Punch in a flexible range, hit the butt
 - Gives you Google Flights links for the results it finds
 - Has a hidden admin panel you can open with `` ` `` or `~` for logs, auto-origin diagnostics, timing guidance, price alerts, and Hacker Fare state
 
+## Search performance measurements
+
+Completed searches report end-to-end time, Google Flights HTTP attempts and elapsed time, response parsing time, selected ranking work, and cache reads/writes. The CLI prints these measurements; the API includes them at `summary.performance`, and the admin logs include them for completed searches. HTTP time is cumulative across requests and may exceed total elapsed time when requests overlap; active wall time shows the union of those request intervals.
+
+From `workspace/app`, the existing focused microbenchmarks can be run with `npm run benchmark:cache` and `npm run benchmark:catalog`. They measure cache reads and nearest-airport lookup, respectively; they are not substitutes for measuring a live search.
+
 ## Easiest way to run it
 
 If you only download one launcher file, it will download the rest of the repo into a `CheapestFlightPicker` folder in the same directory before launching the app. The launchers also try to install missing Git and Node.js automatically when your package manager or official installers are available.

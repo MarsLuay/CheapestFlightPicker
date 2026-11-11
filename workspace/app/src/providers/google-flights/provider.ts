@@ -1,5 +1,10 @@
 import { JsonFileCache } from "../../core/cache";
 import {
+  measureCacheRead,
+  measureCacheWrite,
+  measureResponseParsing
+} from "../../core/search-performance";
+import {
   calculateFlightDistanceMiles,
   findAirlineByCode,
   findAirportByCode
@@ -98,7 +103,9 @@ export class GoogleFlightsProvider {
       params.departureDate,
       undefined
     );
-    const results = parseGoogleFlightsPageResponse(page);
+    const results = measureResponseParsing(() =>
+      parseGoogleFlightsPageResponse(page)
+    );
     if (results.length === 0) {
       throw new GoogleFlightsUnavailableError(
         null,
@@ -109,7 +116,9 @@ export class GoogleFlightsProvider {
     const options = this.buildOneWayOptions(results, params);
     if (runtimeOptions?.bypassCache !== true) {
       const cacheKey = { params, type: "exact" };
-      await this.exactSearchCache.set(cacheKey, options);
+      await measureCacheWrite(() =>
+        this.exactSearchCache.set(cacheKey, options)
+      );
     }
     return options;
   }
@@ -179,7 +188,9 @@ export class GoogleFlightsProvider {
       params: normalizedParams,
       type: "calendar"
     };
-    const cachedResults = await this.calendarCache.get(cacheKey);
+    const cachedResults = await measureCacheRead(() =>
+      this.calendarCache.get(cacheKey)
+    );
     if (cachedResults) {
       return cachedResults;
     }
@@ -188,7 +199,9 @@ export class GoogleFlightsProvider {
     let parsedResults: DatePrice[];
     try {
       const response = await this.client.post(calendarUrl, `f.req=${payload}`);
-      parsedResults = parseCalendarResponse(response);
+      parsedResults = measureResponseParsing(() =>
+        parseCalendarResponse(response)
+      );
     } catch (error) {
       if (!(error instanceof GoogleFlightsUnavailableError)) {
         throw error;
@@ -202,13 +215,17 @@ export class GoogleFlightsProvider {
         normalizedParams.destination,
         normalizedParams.travelDate
       );
-      parsedResults = parseGoogleFlightsPageDatePrices(
-        page,
-        normalizedParams.fromDate,
-        normalizedParams.toDate
+      parsedResults = measureResponseParsing(() =>
+        parseGoogleFlightsPageDatePrices(
+          page,
+          normalizedParams.fromDate,
+          normalizedParams.toDate
+        )
       );
       if (parsedResults.length === 0) {
-        const pageResults = parseGoogleFlightsPageResponse(page);
+        const pageResults = measureResponseParsing(() =>
+          parseGoogleFlightsPageResponse(page)
+        );
         const prices = pageResults.map((result) => result.price);
         const price = prices.length > 0 ? Math.min(...prices) : Number.NaN;
         if (!Number.isFinite(price)) {
@@ -219,7 +236,9 @@ export class GoogleFlightsProvider {
     }
 
     // Skip nested exact timing annotation — core search annotates times after exacts.
-    await this.calendarCache.set(cacheKey, parsedResults);
+    await measureCacheWrite(() =>
+      this.calendarCache.set(cacheKey, parsedResults)
+    );
     return parsedResults;
   }
 
@@ -234,7 +253,7 @@ export class GoogleFlightsProvider {
     };
     const cachedResults =
       runtimeOptions?.bypassCache !== true
-        ? await this.exactSearchCache.get(cacheKey)
+        ? await measureCacheRead(() => this.exactSearchCache.get(cacheKey))
         : null;
     if (cachedResults) {
       return cachedResults;
@@ -244,7 +263,9 @@ export class GoogleFlightsProvider {
     let results: GoogleFlightResult[];
     try {
       const response = await this.client.post(shoppingUrl, `f.req=${payload}`);
-      results = parseExactSearchResponse(response);
+      results = measureResponseParsing(() =>
+        parseExactSearchResponse(response)
+      );
     } catch (error) {
       if (!(error instanceof GoogleFlightsUnavailableError)) {
         throw error;
@@ -255,7 +276,9 @@ export class GoogleFlightsProvider {
           normalizedParams,
           runtimeOptions
         );
-        await this.exactSearchCache.set(cacheKey, fallbackOptions);
+        await measureCacheWrite(() =>
+          this.exactSearchCache.set(cacheKey, fallbackOptions)
+        );
         return fallbackOptions;
       }
 
@@ -264,7 +287,9 @@ export class GoogleFlightsProvider {
 
     if (normalizedParams.tripType === "one_way") {
       const filteredOptions = this.buildOneWayOptions(results, normalizedParams);
-      await this.exactSearchCache.set(cacheKey, filteredOptions);
+      await measureCacheWrite(() =>
+        this.exactSearchCache.set(cacheKey, filteredOptions)
+      );
       return filteredOptions;
     }
 
@@ -287,7 +312,9 @@ export class GoogleFlightsProvider {
           shoppingUrl,
           `f.req=${followUpPayload}`
         );
-        const followUpResults = parseExactSearchResponse(followUpResponse);
+        const followUpResults = measureResponseParsing(() =>
+          parseExactSearchResponse(followUpResponse)
+        );
         return followUpResults
           .filter((returnFlight) =>
             this.looksLikeSingleBookingRoundTrip(selectedFlight, returnFlight)
@@ -313,7 +340,9 @@ export class GoogleFlightsProvider {
       normalizedParams.requireFreeCarryOnBag,
       normalizedParams.cabinClass
     );
-    await this.exactSearchCache.set(cacheKey, filteredOptions);
+    await measureCacheWrite(() =>
+      this.exactSearchCache.set(cacheKey, filteredOptions)
+    );
     return filteredOptions;
   }
 

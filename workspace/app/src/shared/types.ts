@@ -181,6 +181,27 @@ export type HackerFareInsight = {
   summary: string;
 };
 
+export type SearchPerformanceMetrics = {
+  /** End-to-end elapsed time for one completed search. */
+  elapsedMs: number;
+  /** Axios request attempts to Google Flights; retries count as separate attempts. */
+  googleHttpAttempts: number;
+  /** Sum of Google HTTP attempt durations; parallel requests can make this exceed elapsedMs. */
+  googleHttpMs: number;
+  /** Wall time during which at least one Google HTTP attempt was in flight. */
+  googleHttpActiveWallMs: number;
+  responseParseCount: number;
+  responseParseMs: number;
+  cacheReads: number;
+  cacheHits: number;
+  cacheReadMs: number;
+  cacheWrites: number;
+  cacheWriteMs: number;
+  /** Time spent in selected candidate-pair construction and ranking operations. */
+  rankingOperations: number;
+  rankingMs: number;
+};
+
 export type SearchSummary = {
   request: SearchRequest;
   departureDatePrices: DatePrice[];
@@ -198,6 +219,8 @@ export type SearchSummary = {
   timingGuidance: TimingGuidance | null;
   priceAlert: PriceAlert | null;
   hackerFareInsight: HackerFareInsight | null;
+  /** Present on results produced by FlightSearchService; omitted by older snapshots. */
+  performance?: SearchPerformanceMetrics;
 };
 
 export type SearchProgressPreview = {

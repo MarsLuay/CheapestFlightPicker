@@ -5,6 +5,7 @@ import axios, {
 } from "axios";
 
 import { sleep } from "../../core/sleep";
+import { measureGoogleHttpRequest } from "../../core/search-performance";
 import { getActiveSearchAbortSignal } from "./abort-context";
 import {
   getGoogleFlightsWireErrorCode,
@@ -189,18 +190,20 @@ export class GoogleFlightsClient {
     const url = `${googleFlightsPageUrl}?q=${encodeURIComponent(query)}&hl=en&curr=USD`;
     await this.postSemaphore.acquire(effectiveSignal);
     try {
-      const response = await this.request({
-        headers: {
-          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "accept-language": "en-US,en;q=0.9",
-          referer: googleFlightsPageUrl,
-          "user-agent": this.headers["user-agent"]
-        },
-        method: "GET",
-        signal: effectiveSignal,
-        timeout: googleFlightsRequestTimeoutMs,
-        url
-      });
+      const response = await measureGoogleHttpRequest(() =>
+        this.request({
+          headers: {
+            accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "accept-language": "en-US,en;q=0.9",
+            referer: googleFlightsPageUrl,
+            "user-agent": this.headers["user-agent"]
+          },
+          method: "GET",
+          signal: effectiveSignal,
+          timeout: googleFlightsRequestTimeoutMs,
+          url
+        })
+      );
       return typeof response.data === "string"
         ? response.data
         : JSON.stringify(response.data);
@@ -231,7 +234,9 @@ export class GoogleFlightsClient {
     try {
       while (true) {
         try {
-          const response = await this.request(config);
+          const response = await measureGoogleHttpRequest(() =>
+            this.request(config)
+          );
           const body =
             typeof response.data === "string"
               ? response.data

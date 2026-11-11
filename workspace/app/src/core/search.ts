@@ -2,6 +2,10 @@ import { BookingSourceSupplementService } from "./booking-source-supplement";
 import { stableSerialize } from "./cache";
 import { findAirlineByCode, findAirportByCode } from "./catalog";
 import {
+  collectSearchPerformance,
+  measureSearchRanking
+} from "./search-performance";
+import {
   createFlightSearchProvider,
   type FlightSearchProvider
 } from "./search-provider";
@@ -96,16 +100,17 @@ function findCheapestForRequest(
   options: FlightOption[],
   request: SearchRequest
 ): FlightOption | null {
-  return findCheapest(options, request.prioritizeMileFlights ?? false);
+  return measureSearchRanking(() =>
+    findCheapest(options, request.prioritizeMileFlights ?? false)
+  );
 }
 
 function findCheapestNonstopForRequest(
   options: FlightOption[],
   request: SearchRequest
 ): FlightOption | null {
-  return findCheapestNonstop(
-    options,
-    request.prioritizeMileFlights ?? false
+  return measureSearchRanking(() =>
+    findCheapestNonstop(options, request.prioritizeMileFlights ?? false)
   );
 }
 
@@ -113,9 +118,8 @@ function findCheapestMultiStopForRequest(
   options: FlightOption[],
   request: SearchRequest
 ): FlightOption | null {
-  return findCheapestMultiStop(
-    options,
-    request.prioritizeMileFlights ?? false
+  return measureSearchRanking(() =>
+    findCheapestMultiStop(options, request.prioritizeMileFlights ?? false)
   );
 }
 
@@ -287,35 +291,39 @@ function buildRoundTripCheckpointPreview(
 }
 
 function sortDatePricesByPrice(datePrices: DatePrice[]): DatePrice[] {
-  return [...datePrices].sort((left, right) => {
-    if (left.price !== right.price) {
-      return left.price - right.price;
-    }
+  return measureSearchRanking(() =>
+    [...datePrices].sort((left, right) => {
+      if (left.price !== right.price) {
+        return left.price - right.price;
+      }
 
-    return left.date.localeCompare(right.date);
-  });
+      return left.date.localeCompare(right.date);
+    })
+  );
 }
 
 function sortFlightOptionsByPrice(
   options: FlightOption[],
   prioritizeMileFlights = false
 ): FlightOption[] {
-  return [...options].sort((left, right) => {
-    const rankingDifference = compareFlightOptions(
-      left,
-      right,
-      prioritizeMileFlights
-    );
-    if (rankingDifference !== 0) {
-      return rankingDifference;
-    }
+  return measureSearchRanking(() =>
+    [...options].sort((left, right) => {
+      const rankingDifference = compareFlightOptions(
+        left,
+        right,
+        prioritizeMileFlights
+      );
+      if (rankingDifference !== 0) {
+        return rankingDifference;
+      }
 
-    if ((left.outboundDate ?? "") !== (right.outboundDate ?? "")) {
-      return (left.outboundDate ?? "").localeCompare(right.outboundDate ?? "");
-    }
+      if ((left.outboundDate ?? "") !== (right.outboundDate ?? "")) {
+        return (left.outboundDate ?? "").localeCompare(right.outboundDate ?? "");
+      }
 
-    return (left.returnDate ?? "").localeCompare(right.returnDate ?? "");
-  });
+      return (left.returnDate ?? "").localeCompare(right.returnDate ?? "");
+    })
+  );
 }
 
 function flightOptionsMatch(left: FlightOption, right: FlightOption): boolean {
@@ -717,16 +725,23 @@ export class FlightSearchService {
     progressReporter?: SearchProgressReporter,
     options?: SearchRunOptions
   ): Promise<SearchSummary> {
-    return runWithSearchAbortSignal(options?.signal, () => {
-      const request = searchRequestSchema.parse(input);
-      this.ensureReferenceDataExists(request);
+    const { result, metrics } = await collectSearchPerformance(() =>
+      runWithSearchAbortSignal(options?.signal, () => {
+        const request = searchRequestSchema.parse(input);
+        this.ensureReferenceDataExists(request);
 
-      if (request.tripType === "one_way") {
-        return this.searchOneWay(request, progressReporter, options);
-      }
+        if (request.tripType === "one_way") {
+          return this.searchOneWay(request, progressReporter, options);
+        }
 
-      return this.searchRoundTrip(request, progressReporter, options);
-    });
+        return this.searchRoundTrip(request, progressReporter, options);
+      })
+    );
+
+    return {
+      ...result,
+      performance: metrics
+    };
   }
 
   private async searchOneWay(
@@ -1109,13 +1124,15 @@ export class FlightSearchService {
     );
     const resumedCandidatePairs =
       resumedDepartureDatePrices && resumedReturnDatePrices
-        ? this.buildCandidatePairs(
-            request,
-            resumedDepartureDatePrices,
-            resumedReturnDatePrices,
-            request.maxResults,
-            request.minimumTripDays ?? 0,
-            request.maximumTripDays ?? 14
+        ? measureSearchRanking(() =>
+            this.buildCandidatePairs(
+              request,
+              resumedDepartureDatePrices,
+              resumedReturnDatePrices,
+              request.maxResults,
+              request.minimumTripDays ?? 0,
+              request.maximumTripDays ?? 14
+            )
           )
         : [];
     const initialCompletedPairs = resumedCandidatePairs.filter((pair) =>
@@ -1253,13 +1270,15 @@ export class FlightSearchService {
       false
     );
 
-    const candidatePairs = this.buildCandidatePairs(
-      request,
-      departureDatePrices,
-      returnDatePrices,
-      request.maxResults,
-      request.minimumTripDays ?? 0,
-      request.maximumTripDays ?? 14
+    const candidatePairs = measureSearchRanking(() =>
+      this.buildCandidatePairs(
+        request,
+        departureDatePrices,
+        returnDatePrices,
+        request.maxResults,
+        request.minimumTripDays ?? 0,
+        request.maximumTripDays ?? 14
+      )
     );
     const pendingPairs = candidatePairs.filter(
       (pair) => !resumedResultByPair.has(pairKey(pair))
