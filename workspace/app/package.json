@@ -15,6 +15,7 @@
     "cli": "tsx src/cli/index.ts",
     "benchmark:cache": "tsx scripts/benchmark-cache.ts",
     "benchmark:catalog": "vitest bench src/core/catalog.bench.ts",
+    "benchmark:search": "tsx scripts/benchmark-search.ts",
     "check": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts"
   },

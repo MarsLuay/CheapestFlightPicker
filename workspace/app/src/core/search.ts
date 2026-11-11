@@ -43,13 +43,119 @@ type ScoredCandidatePair = CandidatePair & {
   estimatedTotalPrice: number;
 };
 
+type DatedPrice = DatePrice & {
+  utcDay: number;
+};
+
 const dayMs = 24 * 60 * 60 * 1000;
 const directBookingSupplementTargetCount = 6;
 
+function getUtcDayNumber(date: string): number {
+  return Math.floor(new Date(date).getTime() / dayMs);
+}
+
 function differenceInDays(startDate: string, endDate: string): number {
-  return Math.floor(
-    (new Date(endDate).getTime() - new Date(startDate).getTime()) / dayMs
-  );
+  return getUtcDayNumber(endDate) - getUtcDayNumber(startDate);
+}
+
+function compareScoredCandidatePairs(
+  left: ScoredCandidatePair,
+  right: ScoredCandidatePair
+): number {
+  if (left.estimatedTotalPrice !== right.estimatedTotalPrice) {
+    return left.estimatedTotalPrice - right.estimatedTotalPrice;
+  }
+
+  if (left.departureDate !== right.departureDate) {
+    return left.departureDate.localeCompare(right.departureDate);
+  }
+
+  return (left.returnDate ?? "").localeCompare(right.returnDate ?? "");
+}
+
+function getUniqueDatedPrices(datePrices: DatePrice[]): DatedPrice[] {
+  const seenDates = new Set<string>();
+  const uniquePrices: DatedPrice[] = [];
+
+  for (const datePrice of datePrices) {
+    if (seenDates.has(datePrice.date)) {
+      continue;
+    }
+
+    seenDates.add(datePrice.date);
+    uniquePrices.push({ ...datePrice, utcDay: getUtcDayNumber(datePrice.date) });
+  }
+
+  return uniquePrices;
+}
+
+function offerCandidateToTopPairs(
+  heap: ScoredCandidatePair[],
+  candidate: ScoredCandidatePair,
+  limit: number
+): void {
+  if (heap.length < limit) {
+    heap.push(candidate);
+    let childIndex = heap.length - 1;
+
+    while (childIndex > 0) {
+      const parentIndex = Math.floor((childIndex - 1) / 2);
+      const parent = heap[parentIndex];
+      const child = heap[childIndex];
+      if (!parent || !child || compareScoredCandidatePairs(parent, child) >= 0) {
+        break;
+      }
+
+      heap[parentIndex] = child;
+      heap[childIndex] = parent;
+      childIndex = parentIndex;
+    }
+    return;
+  }
+
+  const worstCandidate = heap[0];
+  if (!worstCandidate || compareScoredCandidatePairs(candidate, worstCandidate) >= 0) {
+    return;
+  }
+
+  heap[0] = candidate;
+  let parentIndex = 0;
+
+  while (true) {
+    const leftIndex = parentIndex * 2 + 1;
+    const rightIndex = leftIndex + 1;
+    let worstIndex = parentIndex;
+    const current = heap[worstIndex];
+    const left = heap[leftIndex];
+    const right = heap[rightIndex];
+
+    if (current && left && compareScoredCandidatePairs(left, current) > 0) {
+      worstIndex = leftIndex;
+    }
+
+    const currentWorst = heap[worstIndex];
+    if (
+      currentWorst &&
+      right &&
+      compareScoredCandidatePairs(right, currentWorst) > 0
+    ) {
+      worstIndex = rightIndex;
+    }
+
+    if (worstIndex === parentIndex) {
+      break;
+    }
+
+    const parent = heap[parentIndex];
+    const child = heap[worstIndex];
+    if (!parent || !child) {
+      break;
+    }
+
+    heap[parentIndex] = child;
+    heap[worstIndex] = parent;
+    parentIndex = worstIndex;
+  }
 }
 
 export function addDaysToIsoDate(date: string, days: number): string {
@@ -1832,10 +1938,6 @@ export class FlightSearchService {
     maximumTripDays: number
   ): CandidatePair[] {
     const targetPairCount = Math.max(maxResults * 2, 8);
-    const departures = departureDatePrices;
-    const returns = returnDatePrices;
-    const scoredPairs: ScoredCandidatePair[] = [];
-    const seen = new Set<string>();
 
     if (
       request.useExactDates &&
@@ -1843,10 +1945,12 @@ export class FlightSearchService {
       request.returnDateFrom
     ) {
       const returnPriceByDate = new Map(
-        returns.map((entry) => [entry.date, entry.price] as const)
+        returnDatePrices.map((entry) => [entry.date, entry.price] as const)
       );
+      const scoredPairs: ScoredCandidatePair[] = [];
+      const seen = new Set<string>();
 
-      for (const departure of departures) {
+      for (const departure of departureDatePrices) {
         const departureOffset = differenceInDays(
           request.departureDateFrom,
           departure.date
@@ -1874,28 +1978,23 @@ export class FlightSearchService {
         });
       }
 
-      scoredPairs.sort((left, right) => {
-        if (left.estimatedTotalPrice !== right.estimatedTotalPrice) {
-          return left.estimatedTotalPrice - right.estimatedTotalPrice;
-        }
-
-        if (left.departureDate !== right.departureDate) {
-          return left.departureDate.localeCompare(right.departureDate);
-        }
-
-        return (left.returnDate ?? "").localeCompare(right.returnDate ?? "");
-      });
-
-      return scoredPairs.slice(0, targetPairCount).map((pair) => ({
-        departureDate: pair.departureDate,
-        returnDate: pair.returnDate,
-        estimatedTotalPrice: pair.estimatedTotalPrice
-      }));
+      return scoredPairs
+        .sort(compareScoredCandidatePairs)
+        .slice(0, targetPairCount)
+        .map((pair) => ({
+          departureDate: pair.departureDate,
+          returnDate: pair.returnDate,
+          estimatedTotalPrice: pair.estimatedTotalPrice
+        }));
     }
+
+    const departures = getUniqueDatedPrices(departureDatePrices);
+    const returns = getUniqueDatedPrices(returnDatePrices);
+    const bestPairs: ScoredCandidatePair[] = [];
 
     for (const departure of departures) {
       for (const inbound of returns) {
-        const tripLengthDays = differenceInDays(departure.date, inbound.date);
+        const tripLengthDays = inbound.utcDay - departure.utcDay;
         if (
           tripLengthDays < minimumTripDays ||
           tripLengthDays > maximumTripDays
@@ -1903,33 +2002,19 @@ export class FlightSearchService {
           continue;
         }
 
-        const key = `${departure.date}:${inbound.date}`;
-        if (seen.has(key)) {
-          continue;
-        }
-
-        seen.add(key);
-        scoredPairs.push({
-          departureDate: departure.date,
-          returnDate: inbound.date,
-          estimatedTotalPrice: departure.price + inbound.price
-        });
+        offerCandidateToTopPairs(
+          bestPairs,
+          {
+            departureDate: departure.date,
+            returnDate: inbound.date,
+            estimatedTotalPrice: departure.price + inbound.price
+          },
+          targetPairCount
+        );
       }
     }
 
-    scoredPairs.sort((left, right) => {
-      if (left.estimatedTotalPrice !== right.estimatedTotalPrice) {
-        return left.estimatedTotalPrice - right.estimatedTotalPrice;
-      }
-
-      if (left.departureDate !== right.departureDate) {
-        return left.departureDate.localeCompare(right.departureDate);
-      }
-
-      return (left.returnDate ?? "").localeCompare(right.returnDate ?? "");
-    });
-
-    return scoredPairs.slice(0, targetPairCount).map((pair) => ({
+    return bestPairs.sort(compareScoredCandidatePairs).map((pair) => ({
       departureDate: pair.departureDate,
       returnDate: pair.returnDate,
       estimatedTotalPrice: pair.estimatedTotalPrice

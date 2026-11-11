@@ -32,7 +32,7 @@ Here's what you get when you fire it up. Punch in a flexible range, hit the butt
 
 Completed searches report end-to-end time, Google Flights HTTP attempts and elapsed time, response parsing time, selected ranking work, and cache reads/writes. The CLI prints these measurements; the API includes them at `summary.performance`, and the admin logs include them for completed searches. HTTP time is cumulative across requests and may exceed total elapsed time when requests overlap; active wall time shows the union of those request intervals.
 
-From `workspace/app`, the existing focused microbenchmarks can be run with `npm run benchmark:cache` and `npm run benchmark:catalog`. They measure cache reads and nearest-airport lookup, respectively; they are not substitutes for measuring a live search.
+From `workspace/app`, run `npm run benchmark:search` for a repeatable synthetic 365-date round-trip search (no Google requests), or `npm run benchmark:cache` and `npm run benchmark:catalog` for focused cache and nearest-airport microbenchmarks. Synthetic results help isolate local search work; compare them with measurements from completed live searches before attributing end-to-end latency to computation.
 
 ## Easiest way to run it
 

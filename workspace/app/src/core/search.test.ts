@@ -369,6 +369,87 @@ describe("FlightSearchService round-trip pairing", () => {
     });
   });
 
+  it("keeps deterministic tie ordering and the first price for duplicate dates", () => {
+    const service = new FlightSearchService() as unknown as {
+      buildCandidatePairs: (
+        request: SearchRequest,
+        departureDatePrices: Array<{ date: string; price: number }>,
+        returnDatePrices: Array<{ date: string; price: number }>,
+        maxResults: number,
+        minimumTripDays: number,
+        maximumTripDays: number
+      ) => Array<{
+        departureDate: string;
+        returnDate?: string;
+        estimatedTotalPrice?: number;
+      }>;
+    };
+
+    const pairs = service.buildCandidatePairs(
+      {
+        tripType: "round_trip",
+        useExactDates: false,
+        origin: "SEA",
+        destination: "PIT",
+        departureDateFrom: "2026-05-01",
+        departureDateTo: "2026-05-02",
+        returnDateFrom: "2026-05-03",
+        returnDateTo: "2026-05-04",
+        minimumTripDays: 1,
+        maximumTripDays: 3,
+        departureTimeWindow: { from: 6, to: 24 },
+        arrivalTimeWindow: { from: 6, to: 24 },
+        cabinClass: "economy",
+        stopsFilter: "any",
+        preferDirectBookingOnly: false,
+        airlines: [],
+        passengers: {
+          adults: 1,
+          children: 0,
+          infantsInSeat: 0,
+          infantsOnLap: 0
+        },
+        maxResults: 2
+      },
+      [
+        { date: "2026-05-01", price: 100 },
+        { date: "2026-05-02", price: 110 },
+        { date: "2026-05-01", price: 5 }
+      ],
+      [
+        { date: "2026-05-03", price: 120 },
+        { date: "2026-05-04", price: 110 },
+        { date: "2026-05-03", price: 1 }
+      ],
+      2,
+      1,
+      3
+    );
+
+    expect(pairs).toEqual([
+      {
+        departureDate: "2026-05-01",
+        returnDate: "2026-05-04",
+        estimatedTotalPrice: 210
+      },
+      {
+        departureDate: "2026-05-01",
+        returnDate: "2026-05-03",
+        estimatedTotalPrice: 220
+      },
+      {
+        departureDate: "2026-05-02",
+        returnDate: "2026-05-04",
+        estimatedTotalPrice: 220
+      },
+      {
+        departureDate: "2026-05-02",
+        returnDate: "2026-05-03",
+        estimatedTotalPrice: 230
+      }
+    ]);
+  });
+
   it("only pairs matched departure and return offsets when exact dates are enabled", () => {
     const service = new FlightSearchService() as unknown as {
       buildCandidatePairs: (
